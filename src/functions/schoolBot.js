@@ -200,66 +200,74 @@ function getWeatherDesc(code) {
 }
 
 // ==========================================
-// 4. 爱丽丝语音路由核心配置 (Tier 1: 游戏原声)
+// 4. 爱丽丝语音路由核心配置 (Tier 1: GitHub 直链)
 // ==========================================
-const SIGNATURE_PHRASES = {
+
+// ✅ GitHub 仓库 Raw 文件地址前缀 (指向新的 aris-assets-video 仓库)
+const GITHUB_AUDIO_BASE = "https://raw.githubusercontent.com/3361559784/aris-assets-video/main/";
+
+// 关键词与文件名的映射表
+const AUDIO_MAP = {
     // 核心招牌台词
-    "邦邦咔邦": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_EventShop_Buy_1.wav", // パンパカパーン！
-    "panpaka": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/ST0001_MiniGame_Start_1.wav", // パンパカパーン！アリス、行きます！
+    "邦邦咔邦": "CH0200_EventShop_Buy_1.wav", // パンパカパーン！
+    "panpaka": "ST0001_MiniGame_Start_1.wav", // パンパカパーン！アリス、行きます！
     
     // Sensei 相关
-    "先生": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Tactic_In_2.wav", // 先生、指示を！
-    "老师": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_LogIn_1.wav", // ようこそ先生
-    "欢迎回来": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_LogIn_1.wav", // おかえりなさいませ、ご主人様！
+    "先生": "Aris_Tactic_In_2.wav", // 先生、指示を！
+    "老师": "Aris_LogIn_1.wav", // ようこそ先生
+    "欢迎回来": "CH0200_LogIn_1.wav", // おかえりなさいませ、ご主人様！
     
     // 战斗口头禅
-    "光啊": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_ExSkill_Level_1.wav", // 光よ！
-    "光よ": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_ExSkill_Level_1.wav", // ターゲット、ロックオン！光よ！
-    "出击": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_LogIn_2.wav", // 何でも言ってください
-    "行きます": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Battle_Move_2.wav", // 目標を確認。行きます！
+    "光啊": "Aris_ExSkill_Level_1.wav", // 光よ！
+    "光よ": "CH0200_ExSkill_Level_1.wav", // ターゲット、ロックオン！光よ！
+    "出击": "CH0200_LogIn_2.wav", // 何でも言ってください
+    "行きます": "Aris_Battle_Move_2.wav", // 目標を確認。行きます！
     
     // 日常互动
-    "爱丽丝": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Battle_In_1.wav", // アリスがここにいます
-    "アリス": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Formation_In_1.wav", // メイドのアリスです！
-    "明白了": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Battle_Defense_1.wav", // 問題ありません
-    "没问题": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Battle_Defense_1.wav", // 問題ありません
+    "爱丽丝": "Aris_Battle_In_1.wav", // アリスがここにいます
+    "アリス": "CH0200_Formation_In_1.wav", // メイドのアリスです！
+    "明白了": "Aris_Battle_Defense_1.wav", // 問題ありません
+    "没问题": "Aris_Battle_Defense_1.wav", // 問題ありません
     
     // 任务相关
-    "任务完成": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Tactic_Victory_2.wav", // 敵の殲滅を確認しました。ミッションクリア
-    "ミッション": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Battle_Victory_2.wav", // ミッションコンプリート！
-    "准备完了": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Formation_Select.wav", // 起動準備完了
-    "準備": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_MemorialLobby_5.wav", // はいっ！アリス、冒険の準備が整いました！
+    "任务完成": "Aris_Tactic_Victory_2.wav", // 敵の殲滅を確認しました。ミッションクリア
+    "ミッション": "CH0200_Battle_Victory_2.wav", // ミッションコンプリート！
+    "准备完了": "Aris_Formation_Select.wav", // 起動準備完了
+    "準備": "CH0200_MemorialLobby_5.wav", // はいっ！アリス、冒険の準備が整いました！
     
     // 女仆形态特色
-    "メイド": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Lobby_1.wav", // メイド勇者です！
-    "女仆": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Battle_In_1.wav", // メイドパワーでお掃除していきます！
-    "打扫": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Tactic_Victory_2.wav", // お掃除クエスト、完了です！
+    "メイド": "CH0200_Lobby_1.wav", // メイド勇者です！
+    "女仆": "CH0200_Battle_In_1.wav", // メイドパワーでお掃除していきます！
+    "打扫": "CH0200_Tactic_Victory_2.wav", // お掃除クエスト、完了です！
     
     // 情感表达
-    "幸せ": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Relationship_Up_4.wav", // 先生に出会えて……アリスは幸せです
-    "开心": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Relationship_Up_2.wav", // えへへ。先生と一緒に居られて、アリスは嬉しいです！
-    "ありがとう": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_ExWeapon_Get.wav", // ありがとうございます、先生！
+    "幸せ": "Aris_Relationship_Up_4.wav", // 先生に出会えて……アリスは幸せです
+    "开心": "CH0200_Relationship_Up_2.wav", // えへへ。先生と一緒に居られて、アリスは嬉しいです！
+    "ありがとう": "CH0200_ExWeapon_Get.wav", // ありがとうございます、先生！
     
     // 战斗状态
-    "レベル": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Growup_1.wav", // レベルアップ
-    "升级": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Growup_1.wav", // メイドレベルアーップ！
-    "回血": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/Aris_Battle_Recovery_1.wav", // HPポーションです
-    "HP": "/Users/liuziheng/Documents/CppProjects/MyTest/visual studio c++项目编译/src/functions/audio/aris_assets/CH0200_Battle_Recovery_1.wav" // HPが回復しました
+    "レベル": "Aris_Growup_1.wav", // レベルアップ
+    "升级": "CH0200_Growup_1.wav", // メイドレベルアーップ！
+    "回血": "Aris_Battle_Recovery_1.wav", // HPポーションです
+    "HP": "CH0200_Battle_Recovery_1.wav" // HPが回復しました
 };
 
 /**
  * @param {string} text - 用户的输入文本或AI回复文本
- * @returns {string | null} 返回音频文件路径或 null
+ * @param {object} context - Azure Function 的 context 对象
+ * @returns {string | null} 返回 GitHub 音频 URL 或 null
  */
-function checkKeywordAudio(text) {
+function checkKeywordAudio(text, context) {
     if (!text) return null;
     const cleanText = text.toLowerCase();
     
-    // 1. 优先检查精确匹配
-    for (const phrase in SIGNATURE_PHRASES) {
-        if (cleanText.includes(phrase.toLowerCase())) {
-            // 如果包含了关键短语,直接返回最高质量的原声文件路径
-            return SIGNATURE_PHRASES[phrase];
+    // 遍历映射表，查找匹配的关键词
+    for (const [keyword, fileName] of Object.entries(AUDIO_MAP)) {
+        if (cleanText.includes(keyword.toLowerCase())) {
+            // 生成 GitHub 直链
+            const fileUrl = `${GITHUB_AUDIO_BASE}${fileName}`;
+            context.log(`[Tier 1] 命中关键词 "${keyword}", 文件: ${fileName}`);
+            return fileUrl;
         }
     }
     return null; // 如果没有匹配到标志性语音
@@ -270,25 +278,20 @@ function checkKeywordAudio(text) {
 // ==========================================
 /**
  * @param {string} text - GPT-4o 或 Llama-3 最终生成的文字回复
- * @returns {{source: 'FILE'|'LOCAL_TTS'|'CLOUD_TTS', path?: string, model?: string}}
+ * @param {object} context - Azure Function 的 context 对象
+ * @returns {{source: 'URL'|'LOCAL_TTS'|'CLOUD_TTS', url?: string, model?: string} | null}
  */
-function getAudioSource(text) {
+function getAudioSource(text, context) {
     // 1. Tier 1 Check: 游戏原声/标志性语音 (最高优先级,保证品质)
-    const signatureAudio = checkKeywordAudio(text);
-    if (signatureAudio) {
-        // 返回 FILE 路径,让机器人框架发送文件
-        return { source: "FILE", path: signatureAudio };
+    const signatureAudioUrl = checkKeywordAudio(text, context);
+    if (signatureAudioUrl) {
+        // 返回 URL 模式,让 NapCat 直接去 GitHub 下载播放
+        return { source: "URL", url: signatureAudioUrl };
     }
     
-    // 2. Tier 2 Check: 长文本/情感表达 (走 GPT-SoVITS)
-    // 假设 Tier 2 需要合成 30字以上的长句,或者回复中包含了强烈情感词
-    if (text.length > 30 || text.includes("兴奋") || text.includes("伤心")) {
-        // TODO: 这里需要配置你的本地 GPT-SoVITS 服务的 API 地址和模型
-        return { source: "LOCAL_TTS", model: "ARIS_V2_TTS_API_URL" }; 
-    }
-
-    // 3. Tier 3 Check: 短文本/普通状态 (兜底,走 Azure/云端 TTS)
-    return { source: "CLOUD_TTS", model: "AZURE_ZH-CN-XiaoxiaoNeural" };
+    // 2. Tier 2/3: 暂时禁用 TTS (节省服务器资源)
+    // 如果没有匹配到原声,则不发送语音
+    return null;
 }
 
 // ==========================================
@@ -2874,31 +2877,13 @@ app.http('schoolBot', {
             let bodyText = cuteImageReply;
             if (mediaReply) bodyText = `${mediaReply}\n${cuteImageReply}`;
 
-            // 🎵 语音路由 (Tier 1-3)
-            const audioSource = getAudioSource(cuteImageReply);
-            if (audioSource.source === "FILE") {
-                // Tier 1 命中: 发送游戏原声文件 + 文字回复
-                const audioCQ = `[CQ:record,file=${audioSource.path}]`;
+            // 🎵 语音路由 (GitHub URL 直链)
+            const audioSource = getAudioSource(cuteImageReply, context);
+            if (audioSource && audioSource.source === "URL") {
+                // Tier 1 命中: 发送 GitHub 直链音频 + 文字回复
+                const audioCQ = `[CQ:record,file=${audioSource.url}]`;
                 bodyText = `${audioCQ}\n${bodyText}`;
-                context.log(`[语音路由] Tier 1 命中: ${audioSource.path}`);
-            } else if (audioSource.source === "LOCAL_TTS") {
-                // Tier 2: 本地 GPT-SoVITS (修正版实现)
-                context.log(`[语音路由] Tier 2 触发: 调用 GPT-SoVITS API...`);
-                try {
-                    const ttsAudio = await synthesizeWithLocalTTS(cuteImageReply, context);
-                    if (ttsAudio) {
-                        // 成功合成，将 Base64 音频 CQ 码插入回复
-                        bodyText = `${ttsAudio}\n${bodyText}`;
-                        context.log(`[语音路由] Tier 2 成功: TTS 音频已生成`);
-                    } else {
-                        context.log(`[语音路由] Tier 2 失败: TTS 返回 null，降级到纯文字`);
-                    }
-                } catch (ttsError) {
-                    context.log(`[语音路由] Tier 2 异常: ${ttsError.message}`);
-                }
-            } else {
-                // Tier 3: 云端 TTS (待实现)
-                context.log(`[语音路由] Tier 3 兜底: ${audioSource.model}`);
+                context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
             }
 
             return {
@@ -3055,31 +3040,13 @@ app.http('schoolBot', {
                 finalResponseBody = `${mediaReply}\n${aiReply}`;
             }
 
-            // 🎵 语音路由 (Tier 1-3)
-            const audioSource = getAudioSource(aiReply);
-            if (audioSource.source === "FILE") {
-                // Tier 1 命中: 发送游戏原声文件 + 文字回复
-                const audioCQ = `[CQ:record,file=${audioSource.path}]`;
+            // 🎵 语音路由 (GitHub URL 直链)
+            const audioSource = getAudioSource(aiReply, context);
+            if (audioSource && audioSource.source === "URL") {
+                // Tier 1 命中: 发送 GitHub 直链音频 + 文字回复
+                const audioCQ = `[CQ:record,file=${audioSource.url}]`;
                 finalResponseBody = `${audioCQ}\n${finalResponseBody}`;
-                context.log(`[语音路由] Tier 1 命中: ${audioSource.path}`);
-            } else if (audioSource.source === "LOCAL_TTS") {
-                // Tier 2: 本地 GPT-SoVITS (修正版实现)
-                context.log(`[语音路由] Tier 2 触发: 调用 GPT-SoVITS API...`);
-                try {
-                    const ttsAudio = await synthesizeWithLocalTTS(aiReply, context);
-                    if (ttsAudio) {
-                        // 成功合成，将 Base64 音频 CQ 码插入回复
-                        finalResponseBody = `${ttsAudio}\n${finalResponseBody}`;
-                        context.log(`[语音路由] Tier 2 成功: TTS 音频已生成`);
-                    } else {
-                        context.log(`[语音路由] Tier 2 失败: TTS 返回 null，降级到纯文字`);
-                    }
-                } catch (ttsError) {
-                    context.log(`[语音路由] Tier 2 异常: ${ttsError.message}`);
-                }
-            } else {
-                // Tier 3: 云端 TTS (待实现)
-                context.log(`[语音路由] Tier 3 兜底: ${audioSource.model}`);
+                context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
             }
 
             return {
