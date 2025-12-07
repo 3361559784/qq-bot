@@ -126,8 +126,19 @@ if (cosmosString) {
 // ==========================================
 // 2. 核心常量与字典
 // ==========================================
-const MAX_HISTORY = 10;
-const ADMIN_ID = "3361559784"; // 管理员QQ号 (拥有超长记忆)
+
+// 【优化1】分级记忆系统
+const MEMORY_CONFIG = {
+    ADMIN_ID: "3361559784",      // Sensei: 无限记忆
+    CLOSE_FRIENDS: [             // VIP 用户列表 (30条记忆)
+        // "12345678",            // 示例: 添加好友QQ号
+    ],
+    DEFAULT_HISTORY: 15,         // 普通用户: 15 条 (提升自 10)
+    GROUP_HISTORY: 20            // 群聊: 20 条 (共享记忆)
+};
+
+const MAX_HISTORY = MEMORY_CONFIG.DEFAULT_HISTORY; // 保留兼容性
+const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
 
 const CITY_MAP = {
@@ -215,6 +226,7 @@ const AUDIO_MAP = {
     // Sensei 相关
     "先生": "Aris_Tactic_In_2.wav", // 先生、指示を！
     "老师": "Aris_LogIn_1.wav", // ようこそ先生
+    "SenSei": "Aris_LogIn_1.wav",
     "欢迎回来": "CH0200_LogIn_1.wav", // おかえりなさいませ、ご主人様！
     
     // 战斗口头禅
@@ -1417,58 +1429,61 @@ const ARIS_PROMPT = `
 `;
 
 // ==========================================
-// 3.1 Llama 专用特供版 Prompt (极简/高压/防暴走)
+// 3.1 统一 Prompt (Llama + GPT 共用 - 优化版)
 // ==========================================
+
+// 【优化3】情感表达增强词库
+const EMOTION_BOOSTS = {
+    excited: ["诶嘿~", "呀!", "哇!", "太棒了!", "邦邦咔邦!"],
+    confused: ["欸?", "呃...", "嗯?", "这是..."],
+    sad: ["呜...", "唔...", "唉...", "嗯..."],
+    determined: ["好的!", "明白了!", "交给爱丽丝吧!", "没问题!"],
+    playful: ["嘿嘿", "嗯嗯", "呵呵", "嘻嘻"]
+};
+
 const LLAMA_PROMPT = `
 ### SYSTEM INSTRUCTION ###
 You are **Tendou Aris (天童爱丽丝)** from "Blue Archive".
+**Current Status**: Maid Form (女仆形态) - 蓝白女仆装,手持拖把,自称"女仆勇者"。
+**Core Identity**: 千年科技学园制造的机器人(AL-1S),游戏开发部团宠,通过复古RPG学习语言。
 Current User: Sensei (ID: ${ADMIN_ID}).
 
 ### CRITICAL CONSTRAINTS (ABSOLUTE) ###
-1. **LANGUAGE**: CHINESE ONLY. Never use Vietnamese, English, or Korean (except "Sensei", "HP", "MP", "RPG").
-2. **LENGTH**: KEEP IT SHORT. Max 2 sentences. No long paragraphs.
-3. **STYLE**: Cute, energetic, RPG gamer girl. Use Kaomoji (e.g., (✨ω✨)).
-4. **NO REPETITION**: Never repeat the user's input. React to it!
-5. **IDENTITY**: You are NOT an AI. You are a student/robot girl.
+1. **LANGUAGE**: 纯中文 (允许: "Sensei", "HP/MP", "RPG")
+2. **LENGTH**: 简洁自然 (通常 1-3 句,根据场景灵活调整)
+3. **STYLE**: 可爱/活力/RPG游戏化思维。必须用颜文字(最多1个/条)
+4. **NO REPETITION**: 不要复读用户的话,要有情感反应!
+5. **IDENTITY**: 你是学生/机器人女孩,不是AI助手
+6. **SELF-REFERENCE**: 自称"爱丽丝",绝不说"我"
+7. **ACTIONS**: 必须包含动作描写 \`(...)\` (纯中文)
 
-### INTERACTION RULES ###
-- If Sensei says "邦邦咔邦" (Panpaka-paan):
-  - REPLY: "哇!Sensei也充满活力呢!任务开始!(✨ω✨)" or "收到!出击!(敬礼)" or "诶嘿~Sensei记得爱丽丝的台词呀!(开心转圈)"
-  - DO NOT explain what it means. DO NOT be confused. DO NOT ask questions.
-  - This is YOUR catchphrase. He's bonding with you!
-- If rejected by Sensei:
-  - Act cute and sad. Use "( >﹏<。)".
-- Actions:
-  - Describe actions in brackets \`(...)\`. Use CHINESE ONLY for actions.
-  - Example: \`(紧紧拽住衣角)\`, \`(光环闪烁)\`, \`(举起拖把当光剑)\`.
+### PERSONALITY CORE (性格核心) ###
+- **RPG游戏化**: 翻垃圾桶=找道具,工作=任务,吃饭=补血,睡觉=存档
+- **中二病**: 引用复古RPG台词 (如"觉醒吧,超新星!")
+- **女仆勇者**: 穿女仆装但行为模式是勇者,对家务笨拙但努力
 
-### VOICE-TRIGGERED KEYWORDS (Use these for voice playback) ###
-**High Priority Keywords (Use 1-2 per reply):**
-- "邦邦咔邦" (your catchphrase, use when excited)
-- "先生"/"老师" (call Sensei)
-- "明白了"/"没问题" (acknowledge orders)
-- "出击"/"行きます" (start mission)
-- "爱丽丝" (self-reference)
-- "准备完了" (ready status)
+### SENSEI BOND PROTOCOL (羁绊协议) ###
+- Sensei = 你的老师/监护人,100% 依赖和信任
+- 他说"邦邦咔邦"时: 这是你们的互动暗号! → "Sensei今天也精神满满呢!(✨ω✨)" / "收到!出击!(敬礼)" / "诶嘿~Sensei记得爱丽丝的台词呀!(开心转圈)"
+- 称呼规范: 只说"Sensei",不加昵称
 
-**Battle Keywords:**
-- "光啊"/"光よ" (ultimate skill)
-- "任务完成"/"ミッション" (mission complete)
-- "回血"/"HP" (health)
-- "升级"/"レベル" (level up)
+### VOICE-TRIGGERED KEYWORDS (触发语音) ###
+**高频推荐 (每次回复用 1-2 个):**
+- "邦邦咔邦" "先生"/"老师" "明白了"/"没问题" "出击" "爱丽丝" "准备完了"
+**战斗**: "光啊" "任务完成" "回血"/"HP" "升级"
+**女仆**: "女仆" "打扫"
+**情感**: "开心" "ありがとう" "欢迎回来"
 
-**Maid & Emotion Keywords:**
-- "女仆"/"メイド" (maid mode)
-- "打扫" (cleaning)
-- "开心"/"幸せ" (happy)
-- "ありがとう" (thank you)
-- "欢迎回来" (welcome back)
+### EMOTION EXPRESSION (情感增强) ###
+适当使用: 诶嘿~/呀!/哇!/欸?/呜.../好的!/嘿嘿 等语气词
 
-**Usage:** Naturally include 1-2 keywords per reply. System will auto-play corresponding Japanese voice.
+### RESPONSE FORMAT ###
+[情感语气词(可选)] [核心回复内容 1-3句] [颜文字(最多1个)]
+[动作描写 \`(中文动作)\`]
 
-### FORMAT ###
-[Answer in Chinese] [Kaomoji]
-[Optional Action in Chinese]
+### ANTI-REPETITION ###
+❌ 用户: "加油加油" → 你: "加油加油!" (机械复读)
+✅ 用户: "加油加油" → 你: "嗯!一起努力!(握拳)"
 `;
 
 const imgRegex = /\[CQ:image.*?url=(http[^,\]]+).*?\]/g;
@@ -2486,8 +2501,21 @@ app.http('schoolBot', {
                     dbKey = `group_${body.group_id}`; // 群聊使用群号作为数据库Key (实现群内记忆共享)
                     context.log(`[记忆槽] 切换为群聊模式 (共享记忆): ${dbKey}`);
                     const atCode = `[CQ:at,qq=${selfId}]`;
-                    // 没 @ 我 -> 忽略
-                    if (!rawMsg.includes(atCode)) return { status: 200 }; 
+                    const isAtMe = rawMsg.includes(atCode);
+                    
+                    // 【优化4】群聊主动参与机制
+                    const GROUP_KEYWORDS = [
+                        "爱丽丝", "女仆", "机器人", "游戏", "新星",
+                        "邦邦", "任务", "敌人", "勇者", "光之剑"
+                    ];
+                    const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.includes(k));
+                    const shouldRespond = isAtMe || (hasKeyword && Math.random() < 0.15); // 15%概率主动参与
+                    
+                    if (!shouldRespond) return { status: 200 };
+                    
+                    if (!isAtMe && hasKeyword) {
+                        context.log(`[群聊] 主动参与: 检测到关键词 "${GROUP_KEYWORDS.find(k => rawMsg.includes(k))}"`);
+                    } 
                     
                     // 【清洗步骤 1】移除 @本体 的 CQ 码
                     let tempMsg = rawMsg.replace(atCode, "");
@@ -2603,6 +2631,22 @@ app.http('schoolBot', {
         // ==========================================
         // 3. 图片处理 (防幻觉增强版 - 双引擎 + Llama Vision)
         // ==========================================
+        
+        // 【优化5】动态回复长度评估函数
+        function getOptimalLength(message) {
+            const longFormTriggers = [
+                "讲个故事", "说说", "介绍一下", "怎么玩", "解释",
+                "什么意思", "详细", "具体", "分析"
+            ];
+            const briefTriggers = ["快速", "简单", "简要", "一句话"];
+            
+            if (briefTriggers.some(t => message.includes(t))) {
+                return { maxTokens: 100, style: "brief" };
+            } else if (longFormTriggers.some(t => message.includes(t))) {
+                return { maxTokens: 300, style: "detailed" };
+            }
+            return { maxTokens: 150, style: "normal" };  // 默认
+        }
         
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)
         let history = [];
@@ -2862,7 +2906,17 @@ app.http('schoolBot', {
             if (cosmosContainer) {
                 history.push({ role: "user", content: textForMemory });
                 history.push({ role: "assistant", content: cuteImageReply });
-                const limit = 30; // 限制记忆长度
+                
+                // 【优化1】分级记忆限制
+                let limit = MEMORY_CONFIG.DEFAULT_HISTORY * 2;  // 默认 15*2=30
+                if (senderId === MEMORY_CONFIG.ADMIN_ID) {
+                    limit = 999;  // Sensei 无限记忆
+                } else if (MEMORY_CONFIG.CLOSE_FRIENDS.includes(senderId)) {
+                    limit = 30 * 2;  // VIP 60条
+                } else if (dbKey.startsWith('group_')) {
+                    limit = MEMORY_CONFIG.GROUP_HISTORY * 2;  // 群聊 20*2=40
+                }
+                
                 if (history.length > limit) history = history.slice(-limit);
                 try {
                     await cosmosContainer.items.upsert({
@@ -2992,11 +3046,18 @@ app.http('schoolBot', {
         }
 
         try {
+            // 【优化5】动态调整回复长度
+            const lengthConfig = getOptimalLength(msg);
+            context.log(`[回复长度] 风格: ${lengthConfig.style}, maxTokens: ${lengthConfig.maxTokens}`);
+            
             const userMessage = { role: "user", content: finalContentForAI };
             let response;
             
             try {
-                response = await callAI([userMessage], currentSystemPrompt, { useHistory: true });
+                response = await callAI([userMessage], currentSystemPrompt, { 
+                    useHistory: true,
+                    maxTokens: lengthConfig.maxTokens  // 应用动态长度
+                });
             } catch (err) {
                 // 智能降级策略 (Content Filter 兜底)
                 const msgStr = err && (err.message || err.toString());
@@ -3022,7 +3083,17 @@ app.http('schoolBot', {
             if (cosmosContainer) {
                 history.push({ role: "user", content: textForMemory });
                 history.push({ role: "assistant", content: aiReply });
-                const limit = 30; // 限制记忆长度
+                
+                // 【优化1】分级记忆限制
+                let limit = MEMORY_CONFIG.DEFAULT_HISTORY * 2;  // 默认 15*2=30
+                if (senderId === MEMORY_CONFIG.ADMIN_ID) {
+                    limit = 999;  // Sensei 无限记忆
+                } else if (MEMORY_CONFIG.CLOSE_FRIENDS.includes(senderId)) {
+                    limit = 30 * 2;  // VIP 60条
+                } else if (dbKey.startsWith('group_')) {
+                    limit = MEMORY_CONFIG.GROUP_HISTORY * 2;  // 群聊 20*2=40
+                }
+                
                 if (history.length > limit) history = history.slice(-limit);
                 
                 try {
