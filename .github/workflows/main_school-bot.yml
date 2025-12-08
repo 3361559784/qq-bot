@@ -37,11 +37,14 @@ jobs:
           npm run test --if-present
           popd
 
+      - name: Zip artifact for deployment
+        run: zip release.zip ./* -r
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          path: release.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -55,13 +58,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
+
+      - name: Unzip artifact for deployment
+        run: |
+          unzip release.zip
+          rm release.zip
       
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_AA9BEE39A13A4610A7E66971671B47CA }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_E3300B3099034E4AB700765A1A35A3BF }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A12D29AFFDE54D4EA69FFA8756E140C1 }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_F32E00BF5CAA475C92FD2F4DF335F738 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_D1FA0415A86349348194F5B41F5F6384 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_15D1E1BF110D4E93A1CDE35C907536B8 }}
 
       - name: 'Run Azure Functions Action'
         uses: Azure/functions-action@v1
@@ -69,5 +77,5 @@ jobs:
         with:
           app-name: 'school-bot'
           slot-name: 'Production'
-          package: '.'
+          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
           
