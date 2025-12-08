@@ -36,12 +36,16 @@ jobs:
           npm run build --if-present
           popd
 
+      - name: Create deployment package
+        run: |
+          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          zip -r ../deployment.zip . -x "*.git*" -x "*/.DS_Store"
+
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          include-hidden-files: true
+          path: deployment.zip
 
   deploy:
     runs-on: ubuntu-latest
@@ -55,6 +59,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app
+
+      - name: Extract deployment package
+        run: |
+          unzip deployment.zip -d package
       
       - name: Login to Azure
         uses: azure/login@v2
@@ -69,5 +77,5 @@ jobs:
         with:
           app-name: 'school-bot'
           slot-name: 'Production'
-          package: '.'
+          package: 'package'
           
