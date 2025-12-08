@@ -149,7 +149,10 @@ const JUST_REPLIED_MS = 15000; // 15秒内算"刚回复过"
 
 // NapCat API 配置
 const NAPCAT_API_URL = 'http://4.230.25.38:3000';
-const NAPCAT_TOKEN = 'Tpo+ZtKAC(g7MjH%';
+const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
+
+// 防刷屏配置
+const GROUP_COOLDOWN_MS = 8000; // 群内8秒冷却期
 
 const CITY_MAP = {
     "安徽": "Hefei", "福建": "Fuzhou", "甘肃": "Lanzhou", "广东": "Guangzhou", "广西": "Nanning", 
@@ -2495,14 +2498,17 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         if (now - lastBotTs < JUST_REPLIED_MS) {
             replyMessage = "刚才不是说过了吗？(歪头)";
         } else {
-            // 否则随机温柔回应
+            // 否则随机温柔回应 (游戏化风格)
             const pokeReplies = [
-                "哇！( >﹏<。) Sensei，不要戳爱丽丝的开关！会误触必杀技的！",
-                "(光环闪烁) 正在同步数据... 邦邦咔邦！同步完成！Sensei 有什么任务吗？(✨ω✨)",
-                "检测到物理接触... 嘿嘿，Sensei 是想摸摸头吗？(乖巧蹲下)",
-                "警告！警告！检测到不明手指攻击！护盾发生器启动！( •̀ ω •́ )y",
-                "呜... 正在待机模式回血中... Sensei 也要一起休息吗？(拍拍膝盖)",
-                "Sensei？爱丽丝在这里哦！随时可以出击！(｀・ω・´)ゞ"
+                "(光环闪烁) 系统启动中... 邦邦咔邦！同步完成！Sensei 有新任务吗？(✨ω✨)",
+                "检测到物理接触... 嘿嘿，Sensei 是在检查爱丽丝的装备吗？(乖巧站好)",
+                "哔哔！收到触摸指令！爱丽丝的光环闪了一下呢！( •̀ ω •́ )✨",
+                "(歪头) Sensei 戳了一下开关？爱丽丝没有那种功能啦！(＞﹏＜)",
+                "警告！警告！检测到 Sensei 的手指攻击！护盾...护盾加载失败！(害羞)",
+                "呜... HP 和 MP 都在正常范围内... Sensei 是要检查爱丽丝的状态吗？(拍拍光环)",
+                "Sensei？爱丽丝随时待命！需要出击的话请下达指令！(敬礼) (｀・ω・´)ゞ",
+                "(拖把竖起) 检测到 Sensei 的呼唤！勇者爱丽丝，准备完毕！",
+                "邦邦咔邦~ (转圈) 爱丽丝在这里！Sensei 是在确认队友位置吗？"
             ];
             replyMessage = pokeReplies[Math.floor(Math.random() * pokeReplies.length)];
         }
@@ -2675,19 +2681,43 @@ app.http('schoolBot', {
                     const atCode = `[CQ:at,qq=${selfId}]`;
                     const isAtMe = rawMsg.includes(atCode);
                     
-                    // 【优化4】群聊主动参与机制
+                    // 【优化4】群聊主动参与机制 + 防刷屏冷却
                     const GROUP_KEYWORDS = [
                         "爱丽丝", "女仆", "机器人", "游戏", "新星",
                         "邦邦", "任务", "敌人", "勇者", "光之剑"
                     ];
                     const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.includes(k));
-                    const shouldRespond = isAtMe || (hasKeyword && Math.random() < 0.15); // 15%概率主动参与
+                    
+                    // ✅ 检查群聊冷却时间(防刷屏)
+                    let shouldRespond = false;
+                    const groupSessionKey = `${dbKey}:bot`;
+                    
+                    if (isAtMe) {
+                        // @ 机器人始终响应
+                        shouldRespond = true;
+                    } else if (hasKeyword) {
+                        // 关键词触发:检查冷却期
+                        try {
+                            const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
+                            const lastReplyTime = resource?.lastBotReply?.[groupSessionKey] || 0;
+                            const timeSinceLastReply = Date.now() - lastReplyTime;
+                            
+                            if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
+                                // 冷却期已过,8%概率主动参与(降低频率)
+                                shouldRespond = Math.random() < 0.08;
+                                if (shouldRespond) {
+                                    context.log(`[群聊] 主动参与(冷却期已过): 检测到关键词 "${GROUP_KEYWORDS.find(k => rawMsg.includes(k))}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
+                                }
+                            } else {
+                                context.log(`[群聊] 冷却中,跳过主动参与 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
+                            }
+                        } catch (err) {
+                            // DB读取失败,降级为随机触发
+                            shouldRespond = Math.random() < 0.08;
+                        }
+                    }
                     
                     if (!shouldRespond) return { status: 200 };
-                    
-                    if (!isAtMe && hasKeyword) {
-                        context.log(`[群聊] 主动参与: 检测到关键词 "${GROUP_KEYWORDS.find(k => rawMsg.includes(k))}"`);
-                    } 
                     
                     // 【清洗步骤 1】移除 @本体 的 CQ 码
                     let tempMsg = rawMsg.replace(atCode, "");
