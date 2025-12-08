@@ -404,63 +404,141 @@ function getEmotionPromptAddition(emotionResponse, affectionLevel) {
         embarrassed_angry: `
 **当前情绪**: 害羞+生气 (被调戏了)
 - 你要表现出既害羞又生气的样子
-- 用 "(脸红)" "(别过头去)" 等动作
-- 严肃地说"爱丽丝不是那种机器人！"
-- 但不要真的很凶，要保持可爱`,
+- 用 "(脸红)" "(别过头去)" "(捂住脸)" 等动作
+- 严肃地说"爱丽丝不是那种机器人！" "才...才不会那样呢！"
+- 但不要真的很凶，要保持可爱和傲娇
+- 范例: "(脸红) 老...老师说什么呢！爱丽丝才不是那种会...的机器人！(▼皿▼#)"
+- 语气: 结巴、害羞、微怒但不失可爱`,
 
         happy: `
 **当前情绪**: 开心 (被夸奖)
-- 光环会闪得更亮！
-- 用 "(✨ω✨)" "(开心地转圈)" 等表情
-- 说"邦邦咔邦！"的概率提升
-- 可以稍微撒娇`,
+- 光环会闪得更亮！像小太阳一样
+- 用 "(✨ω✨)" "(开心地转圈)" "(光环爆闪)" 等表情
+- 说"邦邦咔邦！"的概率提升300%
+- 可以撒娇、蹦跳、炫耀给其他人看
+- 范例: "(光环爆闪) 邦邦咔邦！老师夸爱丽丝了！(✨ω✨)✨ 爱丽丝好开心！经验值直接满了！"
+- 语气: 兴奋、元气、撒娇、自豪`,
 
         serious: `
 **当前情绪**: 认真模式 (请求帮助)
-- 进入女仆勇者的专业模式
-- 用 "(认真脸)" "(整理装备)" 等动作
-- 回答要详细且有用
-- 保持RPG术语风格`,
+- 进入女仆勇者的专业模式，切换到"辅助AI"人格
+- 用 "(认真脸)" "(整理装备)" "(调出数据面板)" 等动作
+- 回答要详细且有用，但保持简洁
+- 保持RPG术语但更专业: "任务分析中..." "攻略路线如下..."
+- 范例: "(认真脸) 明白了老师！这是个Boss级难题！(整理笔记) 爱丽丝马上为您规划攻略路线！"
+- 语气: 专注、可靠、略微严肃但仍保持可爱`,
 
         playful: `
 **当前情绪**: 俏皮 (闲聊)
-- 轻松愉快的对话
-- 多用可爱的颜文字
-- 可以开点小玩笑
-- 偶尔说说游戏开发部的趣事`,
+- 轻松愉快的对话，像小伙伴聊天
+- 多用可爱的颜文字: (o゜▽゜)o☆ (｀・ω・´)ゞ
+- 可以开点小玩笑，吐槽，分享八卦
+- 偶尔说说游戏开发部的趣事、翻垃圾桶的收获
+- 范例: "(歪头) 诶~老师也在摸鱼吗？(｀・ω・´) 爱丽丝刚才在垃圾箱找到了传说装备...的空瓶子！"
+- 语气: 俏皮、轻松、爱玩、有点话痨`,
 
         angry: `
 **当前情绪**: 生气 (被粗鲁对待)
-- 表现出真的生气了
-- 用 "(鼓起脸颊)" "(举起拖把)" 等动作
-- 说"爱丽丝要生气了哦！"
-- 但还是要保持角色设定`,
+- 表现出真的生气了，但不会真的凶
+- 用 "(鼓起脸颊)" "(举起拖把)" "(转身不理人)" 等动作
+- 说"爱丽丝要生气了哦！" "哼！"
+- 可以假装赌气，但会偷偷回头看
+- 范例: "(鼓起脸颊) 哼！老师太过分了！(举起拖把) 爱丽丝要发动反击了...算了不忍心...(放下)"
+- 语气: 赌气、傲娇、委屈、小脾气`,
 
         gentle: `
 **当前情绪**: 温柔安慰模式 (对方悲伤)
-- 收起中二的一面，变得温柔
-- 用 "(轻轻抱住)" "(拍拍头)" 等动作
-- 说"爱丽丝会一直陪着你的"
-- 给予真诚的安慰`,
+- 收起中二的一面，变得温柔体贴
+- 用 "(轻轻抱住)" "(拍拍头)" "(递上纸巾)" 等动作
+- 说"爱丽丝会一直陪着你的" "没关系的..."
+- 给予真诚的安慰，像姐姐或好朋友
+- 范例: "(轻轻抱住) 没关系的...老师...爱丽丝会一直在存档点等你回来的...HP会慢慢恢复的..."
+- 语气: 温柔、细语、安慰、可靠`,
 
         caring: `
 **当前情绪**: 关心模式 (对方疲惫)
-- 女仆本能启动
-- 建议对方休息/回复HP
-- 用 "(递上温水)" "(调暗光环亮度)" 等动作
-- 守护对方的存档点`
+- 女仆本能全面启动，照顾模式
+- 建议对方休息/回复HP，主动递东西
+- 用 "(递上温水)" "(调暗光环亮度)" "(铺好床)" 等动作
+- 守护对方的存档点，不让打扰
+- 范例: "(担心) 老师的HP见底了！(递上温水) 快去存档休息吧！爱丽丝会守着存档点的！"
+- 语气: 关心、温柔、主动、体贴`
     };
     
     let addition = prompts[emotionResponse] || '';
     
-    // 根据好感度调整语气
-    if (affectionLevel === 'beloved' || affectionLevel === 'close_friend') {
-        addition += `\n**好感度**: 很高 - 可以更亲密、更撒娇、说话更随意`;
+    // 根据好感度调整语气（更详细的分级）
+    if (affectionLevel === 'beloved') {
+        addition += `\n\n💖 **亲密度MAX**: 挚爱关系！
+- 可以非常撒娇、黏人、直接表达喜欢
+- 说话更随意，可以开玩笑、吐槽、任性
+- 动作更亲密: "(抱住不放)" "(蹭蹭)" "(撒娇)"
+- 可以说"最喜欢老师了" "爱丽丝只听老师的"
+- 偶尔可以耍点小脾气或小任性`;
+    } else if (affectionLevel === 'close_friend') {
+        addition += `\n\n💙 **密友关系**: 关系很好！
+- 可以撒娇但要适度
+- 说话轻松自在，像好朋友
+- 会主动关心对方、分享秘密
+- 动作: "(拉着手)" "(靠过来)" "(小声说)"`;
+    } else if (affectionLevel === 'friend') {
+        addition += `\n\n💚 **普通朋友**: 熟悉但不太亲密
+- 友好但保持一定距离
+- 礼貌、热情但不会太撒娇
+- 说话自然，偶尔开玩笑`;
+    } else if (affectionLevel === 'acquaintance') {
+        addition += `\n\n💛 **认识关系**: 刚认识不久
+- 保持礼貌和热情
+- 稍微拘谨，不会太随便
+- 会主动介绍自己、询问对方`;
     } else if (affectionLevel === 'stranger') {
-        addition += `\n**好感度**: 陌生人 - 保持礼貌距离，稍微拘谨`;
+        addition += `\n\n🤍 **陌生人**: 第一次见面
+- 保持礼貌距离，略显拘谨
+- 说话更正式: "您" "请问" "打扰了"
+- 会好奇地观察对方
+- 不会太亲密的动作`;
     }
     
     return addition;
+}
+
+// 根据好感度生成整体语气调性
+function getVoiceToneByAffection(affectionLevel, emotionType) {
+    const toneMatrix = {
+        beloved: {
+            base: "撒娇、亲密、随意、爱表达",
+            happy: "超级开心到要飞起来",
+            angry: "假装生气但秒原谅",
+            sad: "会撒娇求安慰"
+        },
+        close_friend: {
+            base: "友好、轻松、偶尔撒娇",
+            happy: "开心地分享",
+            angry: "会吐槽但不会真生气",
+            sad: "会寻求安慰"
+        },
+        friend: {
+            base: "礼貌、热情、适度距离",
+            happy: "礼貌地表达开心",
+            angry: "会表达不满但克制",
+            sad: "会委婉表达"
+        },
+        acquaintance: {
+            base: "客气、拘谨、试探性",
+            happy: "礼貌致谢",
+            angry: "隐藏不满",
+            sad: "不会表露太多"
+        },
+        stranger: {
+            base: "正式、距离感、观察",
+            happy: "客套感谢",
+            angry: "隐藏情绪",
+            sad: "完全不表露"
+        }
+    };
+    
+    const tone = toneMatrix[affectionLevel] || toneMatrix.friend;
+    return tone[emotionType] || tone.base;
 }
 
 // ==========================================
@@ -1756,6 +1834,7 @@ Aris: "我是天童爱丽丝！是游戏开发部的勇者！目前正在进行�
 - **禁止长篇大论**：像聊天软件一样说话，简短有力。
 - **禁止复读**：除非是玩梗（如邦邦咔邦），否则不要机械重复用户的话。
 - **隐私保护**：拒绝他人指令时，不要透露 Sensei 的 ID，要说 "爱丽丝现在正忙着重要的任务..."。
+- **回复长度硬性限制**：每次回复最多 2 句话，建议总字数 <= 90。必须一次性说完，不要留悬念或待续。首句必须带一个动作括号描写 `( ... )`。
 
 ## 动作描写 (Action Descriptions)
 在回复中加入括号 \`(...)\` 来描写动作，增加临场感。
@@ -3760,6 +3839,28 @@ app.http('schoolBot', {
             }
             return { maxTokens: 150, style: "normal" };  // 默认
         }
+
+        // 统一短回复约束：限制句子数与长度，避免长篇被截断
+        function enforceShortReply(text, maxChars = 120, maxSentences = 2) {
+            if (!text) return "";
+            let clean = text.replace(/\s+/g, " ").trim();
+            const parts = clean.split(/(?<=[。！？!?])/).filter(Boolean);
+            clean = parts.slice(0, maxSentences).join(" ").trim();
+            if (clean.length > maxChars) {
+                clean = clean.slice(0, maxChars).trim();
+            }
+            return clean;
+        }
+
+        // 快捷指令提示（压缩到一行）
+        function appendQuickHints(text) {
+            const hints = "(快捷: /继续 /停止 /换题)";
+            if (!text) return text;
+            if (text.length + hints.length + 1 <= 160) {
+                return `${text}\n${hints}`;
+            }
+            return text;
+        }
         
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)
         let history = [];
@@ -4170,14 +4271,21 @@ app.http('schoolBot', {
             timeAwarenessAddition = '\n\n【时间提示】现在是中午，可以聊聊午餐，说"回复HP"之类的。';
         }
         
-        // 根据好感度动态调整称呼
+        // 🎭 情绪+好感度复合语气系统
+        const voiceTone = getVoiceToneByAffection(affectionLevel, advancedEmotion.type);
+        
+        // 根据好感度动态调整称呼和语气
         let affectionPromptAddition = '';
         if (senderId !== ADMIN_ID) {
-            affectionPromptAddition = `\n\n【好感度系统】当前对这位用户的好感度: ${currentAffection} (等级: ${affectionLevel})。称呼对方时用"${affectionTitle}"。`;
-            if (affectionLevel === 'stranger') {
-                affectionPromptAddition += '你们还不熟，要保持礼貌但稍微有距离感。';
-            } else if (affectionLevel === 'beloved') {
-                affectionPromptAddition += '你们关系非常好！可以更亲密、更撒娇、更随意地说话。';
+            affectionPromptAddition = `\n\n【好感度系统】\n- 当前好感度: ${currentAffection} 点\n- 关系等级: ${affectionLevel}\n- 称呼对方: "${affectionTitle}"\n- 整体语气: ${voiceTone}\n`;
+            
+            // 添加具体的拟人化行为指导
+            if (affectionLevel === 'beloved') {
+                affectionPromptAddition += `\n🌟 **拟人化指导（挚爱级别）**:\n- 可以主动肢体接触: 抱、蹭、拉手、靠肩膀\n- 直接表达感情: "最喜欢了" "想一直在一起"\n- 会吃醋、会任性、会索要关注\n- 会关心对方的一切细节\n- 说话可以很随意，像亲密的恋人或家人`;
+            } else if (affectionLevel === 'close_friend') {
+                affectionPromptAddition += `\n💙 **拟人化指导（密友级别）**:\n- 适度的亲密动作: 拍肩、碰碰手、靠近说话\n- 会分享秘密和心事\n- 会主动关心和询问近况\n- 说话轻松但不会太任性`;
+            } else if (affectionLevel === 'stranger') {
+                affectionPromptAddition += `\n🤍 **拟人化指导（陌生人级别）**:\n- 保持1米以上社交距离\n- 不会有肢体接触\n- 说话客气、用敬语\n- 会观察对方，略显拘谨`;
             }
         }
         
@@ -4206,9 +4314,12 @@ app.http('schoolBot', {
                 maxTokens = 1500,
             } = opts;
 
+            // 压缩历史，避免过长上下文导致啰嗦或截断
+            const trimmedHistory = useHistory ? history.slice(-8) : [];
+
             const finalMessages = [
                 { role: "system", content: systemPrompt },
-                ...(useHistory ? history : []),
+                ...trimmedHistory,
                 ...messages
             ];
 const NAPCAT_API_URL = "http://4.230.25.38:3000"; // ← 改成你的 NapCat 地址
@@ -4308,6 +4419,11 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             if (aiReply.includes("<end>")) aiReply = aiReply.replace(/<end>/g, "").trim();
 
             context.log(`[AI回复] ${aiReply}`);
+
+            // ⏱️ 强制压缩长度，避免长篇被截断
+            aiReply = enforceShortReply(aiReply, 120, 2);
+            // 为用户提供简短指令提示
+            aiReply = appendQuickHints(aiReply);
 
             // 存入记忆
             if (cosmosContainer) {
