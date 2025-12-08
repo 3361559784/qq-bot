@@ -141,6 +141,11 @@ const MAX_HISTORY = MEMORY_CONFIG.DEFAULT_HISTORY; // 保留兼容性
 const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
 
+// 戳一戳升级版配置
+const POKE_WINDOW_MS = 10000; // 10秒内连续戳计数窗口
+const POKE_ANGRY_THRESHOLD = 3; // 连续戳3次触发生气
+const JUST_REPLIED_MS = 15000; // 15秒内算"刚回复过"
+
 const CITY_MAP = {
     "安徽": "Hefei", "福建": "Fuzhou", "甘肃": "Lanzhou", "广东": "Guangzhou", "广西": "Nanning", 
     "贵州": "Guiyang", "海南": "Haikou", "河北": "Shijiazhuang", "河南": "Zhengzhou", "黑龙江": "Harbin",
@@ -2401,26 +2406,92 @@ app.http('schoolBot', {
 
                 // === 事件路由 (戳一戳 / 进群) ===
                 if (body.post_type === 'notice') {
-                    // 1. 戳一戳 (Notify - Poke)
-                    // 判断: 是 notify 类型, 子类型是 poke, 且目标是机器人自己
+                    // 1. 戳一戳升级版 (Notify - Poke - Advanced)
                     if (body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
-                        const pokeReplies = [
-                            "哇！( >﹏<。) Sensei，不要戳爱丽丝的开关！会误触必杀技的！",
-                            "(光环闪烁) 正在同步数据... 邦邦咔邦！同步完成！Sensei 有什么任务吗？(✨ω✨)",
-                            "检测到物理接触... 嘿嘿，Sensei 是想摸摸头吗？(乖巧蹲下)",
-                            "警告！警告！检测到不明手指攻击！护盾发生器启动！( •̀ ω •́ )y",
-                            "呜... 正在待机模式回血中... Sensei 也要一起休息吗？(拍拍膝盖)",
-                            "Sensei？爱丽丝在这里哦！随时可以出击！(｀・ω・´)ゞ"
-                        ];
-                        const randomReply = pokeReplies[Math.floor(Math.random() * pokeReplies.length)];
-                        context.log(`[事件] 戳一戳触发`);
+                        // 确定数据库 key（群聊优先，否则私聊）
+                        const pokeDbKey = body.group_id ? `group_${body.group_id}` : String(body.user_id);
                         
-                        // 尝试直接返回 reply (NapCat 支持快速操作)
-                        // 如果需要语音，可以加 [CQ:record]
+                        // 从 DB 读取现有数据
+                        let resDoc = null;
+                        let pokeStats = {};
+                        let lastBotReply = {};
+                        try {
+                            if (cosmosContainer) {
+                                try {
+                                    const { resource } = await cosmosContainer.item(pokeDbKey, pokeDbKey).read();
+                                    resDoc = resource;
+                                } catch (e) {
+                                    resDoc = null;
+                                }
+                                if (resDoc) {
+                                    pokeStats = resDoc.pokeStats || {};
+                                    lastBotReply = resDoc.lastBotReply || {};
+                                }
+                            }
+                        } catch (err) { context.log(`[Poke] DB读取失败: ${err}`); }
+
+                        // 统计 key：会话+用户
+                        const pokeKey = `${pokeDbKey}:${String(body.user_id)}`;
+                        const now = Date.now();
+
+                        pokeStats[pokeKey] = pokeStats[pokeKey] || { count: 0, lastTime: 0 };
+
+                        // 统计连续戳：窗口内则累加，否则重置
+                        if (now - (pokeStats[pokeKey].lastTime || 0) < POKE_WINDOW_MS) {
+                            pokeStats[pokeKey].count += 1;
+                        } else {
+                            pokeStats[pokeKey].count = 1;
+                        }
+                        pokeStats[pokeKey].lastTime = now;
+
+                        // 选择回复：优先处理三连戳（生气）
+                        let replyMessage = null;
+                        if (pokeStats[pokeKey].count >= POKE_ANGRY_THRESHOLD) {
+                            // 生气回复
+                            replyMessage = "不许再戳了！(▼へ▼メ)";
+                            // 重置计数，防止重复生气
+                            pokeStats[pokeKey].count = 0;
+                        } else {
+                            // 检查是否刚刚回复过
+                            const lastBotTs = lastBotReply[pokeKey] || 0;
+                            if (now - lastBotTs < JUST_REPLIED_MS) {
+                                replyMessage = "刚才不是说过了吗？(歪头)";
+                            } else {
+                                // 否则随机温柔回应
+                                const pokeReplies = [
+                                    "哇！( >﹏<。) Sensei，不要戳爱丽丝的开关！会误触必杀技的！",
+                                    "(光环闪烁) 正在同步数据... 邦邦咔邦！同步完成！Sensei 有什么任务吗？(✨ω✨)",
+                                    "检测到物理接触... 嘿嘿，Sensei 是想摸摸头吗？(乖巧蹲下)",
+                                    "警告！警告！检测到不明手指攻击！护盾发生器启动！( •̀ ω •́ )y",
+                                    "呜... 正在待机模式回血中... Sensei 也要一起休息吗？(拍拍膝盖)",
+                                    "Sensei？爱丽丝在这里哦！随时可以出击！(｀・ω・´)ゞ"
+                                ];
+                                replyMessage = pokeReplies[Math.floor(Math.random() * pokeReplies.length)];
+                            }
+                        }
+
+                        // 记录本次机器人回复时间
+                        lastBotReply[pokeKey] = now;
+
+                        // 保存回 DB
+                        if (cosmosContainer) {
+                            try {
+                                const existing = resDoc || { id: pokeDbKey, history: [], activity: {} };
+                                existing.pokeStats = pokeStats;
+                                existing.lastBotReply = lastBotReply;
+                                existing.last_updated = new Date().toISOString();
+                                await cosmosContainer.items.upsert(existing);
+                            } catch (err) {
+                                context.error(`[Poke] 保存到 DB 失败: ${err}`);
+                            }
+                        }
+
+                        context.log(`[事件] 戳一戳触发 (key=${pokeKey}, count=${pokeStats[pokeKey].count}) -> ${replyMessage}`);
+
                         return {
                             headers: { 'Content-Type': 'application/json; charset=utf-8' },
                             body: JSON.stringify({ 
-                                reply: randomReply,
+                                reply: replyMessage,
                                 auto_escape: false
                             })
                         };
@@ -2610,9 +2681,11 @@ app.http('schoolBot', {
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)
         let history = [];
         let userActivityData = {}; // B. 活跃度统计数据
+        let resDoc = null; // 保存完整的 Cosmos DB document，用于后续 upsert 时保留 pokeStats 等字段
         if (cosmosContainer) {
             try {
                 const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
+                resDoc = resource; // 保存完整文档
                 if (resource && resource.history) history = resource.history;
                 if (resource && resource.activity) userActivityData = resource.activity; // 加载活跃度数据
             } catch (err) {}
@@ -2905,6 +2978,8 @@ app.http('schoolBot', {
                         id: dbKey, 
                         history: history,
                         activity: userActivityData, // B. 保存活跃度数据
+                        pokeStats: resDoc?.pokeStats || {}, // 保留戳一戳统计
+                        lastBotReply: resDoc?.lastBotReply || {}, // 保留最后回复时间
                         last_updated: new Date().toISOString()
                     });
                 } catch (err) { context.error("[DB保存错误]", err); }
@@ -3085,6 +3160,8 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                         id: dbKey, 
                         history: history,
                         activity: userActivityData, // B. 保存活跃度数据
+                        pokeStats: resDoc?.pokeStats || {}, // 保留戳一戳统计
+                        lastBotReply: resDoc?.lastBotReply || {}, // 保留最后回复时间
                         last_updated: new Date().toISOString()
                     });
                 } catch (err) { context.error("[DB保存错误]", err); }
