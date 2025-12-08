@@ -293,16 +293,39 @@ function checkKeywordAudio(text, context) {
  * @param {object} context - Azure Function 的 context 对象
  * @returns {{source: 'URL'|'LOCAL_TTS'|'CLOUD_TTS', url?: string, model?: string} | null}
  */
-function getAudioSource(text, context) {
-    // 1. Tier 1 Check: 游戏原声/标志性语音 (最高优先级,保证品质)
-    const signatureAudioUrl = checkKeywordAudio(text, context);
-    if (signatureAudioUrl) {
-        // 返回 URL 模式,让 NapCat 直接去 GitHub 下载播放
-        return { source: "URL", url: signatureAudioUrl };
+function getAudioSource(text, context, language = "auto") {
+    // C. 多语言检测
+    let detectedLang = language;
+    if (language === "auto") {
+        // 简单语言检测逻辑
+        if (/[\u4e00-\u9fa5]/.test(text)) {
+            detectedLang = "zh"; // 中文
+        } else if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) {
+            detectedLang = "ja"; // 日文
+        } else if (/^[a-zA-Z\s.,!?]+$/.test(text)) {
+            detectedLang = "en"; // 英文
+        } else {
+            detectedLang = "ja"; // 默认日文（爱丽丝的原声）
+        }
     }
     
-    // 2. Tier 2/3: 暂时禁用 TTS (节省服务器资源)
-    // 如果没有匹配到原声,则不发送语音
+    context.log(`[语音路由] 检测语言: ${detectedLang}`);
+    
+    // 1. Tier 1 Check: 游戏原声/标志性语音 (最高优先级,保证品质)
+    // 注意：原声库目前只有日文，如果检测为中文/英文，跳过 Tier 1
+    if (detectedLang === "ja") {
+        const signatureAudioUrl = checkKeywordAudio(text, context);
+        if (signatureAudioUrl) {
+            // 返回 URL 模式,让 NapCat 直接去 GitHub 下载播放
+            return { source: "URL", url: signatureAudioUrl, lang: "ja" };
+        }
+    }
+    
+    // 2. Tier 2: 多语言 TTS (未来扩展)
+    // TODO: 当有中文/英文 TTS 模型时，这里可以根据 detectedLang 调用对应的引擎
+    // 例如: if (detectedLang === "zh") return synthesizeChineseTTS(text, context);
+    
+    // 3. Fallback: 没有匹配到原声,则不发送语音
     return null;
 }
 
@@ -2586,19 +2609,38 @@ app.http('schoolBot', {
         
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)
         let history = [];
+        let userActivityData = {}; // B. 活跃度统计数据
         if (cosmosContainer) {
             try {
                 const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
                 if (resource && resource.history) history = resource.history;
+                if (resource && resource.activity) userActivityData = resource.activity; // 加载活跃度数据
             } catch (err) {}
         }
 
+        // === B. 群聊活跃度统计 ===
+        if (!userActivityData[senderId]) {
+            userActivityData[senderId] = { count: 0, lastSeen: new Date().toISOString(), nickname: userNickname };
+        }
+        userActivityData[senderId].count += 1;
+        userActivityData[senderId].lastSeen = new Date().toISOString();
+        userActivityData[senderId].nickname = userNickname; // 更新昵称
+
+        const userMsgCount = userActivityData[senderId].count;
+        let activityLevel = "新人"; // 默认
+        if (userMsgCount > 100) activityLevel = "老朋友";
+        else if (userMsgCount > 50) activityLevel = "熟人";
+        else if (userMsgCount > 10) activityLevel = "常客";
+
         let finalContentForAI = []; 
         
-        // 【核心修改】构建带身份的 Label
+        // 【核心修改】构建带身份的 Label (增加活跃度提示)
         let userLabel = `[ID:${senderId} | Name:${userNickname}]`;
         if (senderId === ADMIN_ID) {
             userLabel = `[👑ID:${senderId}(Sensei) | Name:${userNickname}]`;
+        } else if (dbKey.startsWith('group_')) {
+            // 仅在群聊中显示活跃度
+            userLabel = `[ID:${senderId} | Name:${userNickname} | 活跃度:${activityLevel}(${userMsgCount}条)]`;
         }
         let textForMemory = `${userLabel}: ${msg}`; 
         const imageUrls = [];
@@ -2862,6 +2904,7 @@ app.http('schoolBot', {
                     await cosmosContainer.items.upsert({
                         id: dbKey, 
                         history: history,
+                        activity: userActivityData, // B. 保存活跃度数据
                         last_updated: new Date().toISOString()
                     });
                 } catch (err) { context.error("[DB保存错误]", err); }
@@ -3041,6 +3084,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                     await cosmosContainer.items.upsert({
                         id: dbKey, 
                         history: history,
+                        activity: userActivityData, // B. 保存活跃度数据
                         last_updated: new Date().toISOString()
                     });
                 } catch (err) { context.error("[DB保存错误]", err); }
