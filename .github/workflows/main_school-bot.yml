@@ -38,14 +38,15 @@ jobs:
 
       - name: Create deployment package
         run: |
-          cd ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          zip -r ../deployment.zip . -x "*.git*" -x "*/.DS_Store"
+          pushd '${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
+          zip -r deployment.zip . -x "*.git*" -x "*/.DS_Store" -x "deployment.zip"
+          popd
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: deployment.zip
+          path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/deployment.zip
 
   deploy:
     runs-on: ubuntu-latest
