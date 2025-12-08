@@ -149,7 +149,7 @@ const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15�
 const USER_POKE_COOLDOWN_MS = Number(process.env["USER_POKE_COOLDOWN_MS"] || 2000); // 单用户戳一戳冷却(防刷屏)
 
 // NapCat API 配置
-const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:3000';
+const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:6009';
 const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
 const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，用于防止自触发循环
 
