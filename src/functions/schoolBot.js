@@ -2372,9 +2372,60 @@ app.http('schoolBot', {
                 const body = JSON.parse(bodyText);
                 
                 // 过滤非消息事件 (如心跳、通知等)
-                if (body.post_type && body.post_type !== 'message') return { status: 200 };
+                // if (body.post_type && body.post_type !== 'message') return { status: 200 }; // OLD
 
                 const selfId = body.self_id; // 机器人的 QQ 号
+
+                // === 事件路由 (戳一戳 / 进群) ===
+                if (body.post_type === 'notice') {
+                    // 1. 戳一戳 (Notify - Poke)
+                    // 判断: 是 notify 类型, 子类型是 poke, 且目标是机器人自己
+                    if (body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
+                        const pokeReplies = [
+                            "哇！( >﹏<。) Sensei，不要戳爱丽丝的开关！会误触必杀技的！",
+                            "(光环闪烁) 正在同步数据... 邦邦咔邦！同步完成！Sensei 有什么任务吗？(✨ω✨)",
+                            "检测到物理接触... 嘿嘿，Sensei 是想摸摸头吗？(乖巧蹲下)",
+                            "警告！警告！检测到不明手指攻击！护盾发生器启动！( •̀ ω •́ )y",
+                            "呜... 正在待机模式回血中... Sensei 也要一起休息吗？(拍拍膝盖)",
+                            "Sensei？爱丽丝在这里哦！随时可以出击！(｀・ω・´)ゞ"
+                        ];
+                        const randomReply = pokeReplies[Math.floor(Math.random() * pokeReplies.length)];
+                        context.log(`[事件] 戳一戳触发`);
+                        
+                        // 尝试直接返回 reply (NapCat 支持快速操作)
+                        // 如果需要语音，可以加 [CQ:record]
+                        return {
+                            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                            body: JSON.stringify({ 
+                                reply: randomReply,
+                                auto_escape: false
+                            })
+                        };
+                    }
+                    
+                    // 2. 群成员增加 (Group Increase)
+                    if (body.notice_type === 'group_increase') {
+                         // 排除自己进群的情况
+                        if (String(body.user_id) !== String(selfId)) {
+                            const welcomeMsg = `邦邦咔邦！发现新的冒险者！欢迎加入队伍！我是勇者爱丽丝！(≧∇≦)/`;
+                            context.log(`[事件] 新人进群: ${body.user_id}`);
+                            return {
+                                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                                body: JSON.stringify({ 
+                                    reply: welcomeMsg,
+                                    auto_escape: false
+                                })
+                            };
+                        }
+                    }
+
+                    // 其他通知忽略
+                    return { status: 200 };
+                }
+
+                // 非消息且非通知，忽略
+                if (body.post_type !== 'message') return { status: 200 };
+
                 const rawMsg = body.raw_message || "";
                 
                 if (body.user_id) senderId = String(body.user_id);
@@ -2756,8 +2807,12 @@ app.http('schoolBot', {
                 }
             }
 
-            // 更新记忆
-            textForMemory = `${userLabel}: ${cleanText} [发送了图片]`.trim();
+            // 更新记忆 (增强版：包含视觉识别结果)
+            if (cuteImageReply && cuteImageReply !== "processing_by_gpt_text") {
+                textForMemory = `${userLabel}: ${cleanText} [发送了图片] (爱丽丝识别结果: ${cuteImageReply})`.trim();
+            } else {
+                textForMemory = `${userLabel}: ${cleanText} [发送了图片]`.trim();
+            }
 
             // 如果 Llama 失败了，准备 fallback 给 GPT-4o
             if (!cuteImageReply) {
