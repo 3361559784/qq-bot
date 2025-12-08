@@ -2624,13 +2624,15 @@ app.http('schoolBot', {
             if (bodyText) {
                 const body = JSON.parse(bodyText);
                 
-                // 过滤非消息事件 (如心跳、通知等)
-                // if (body.post_type && body.post_type !== 'message') return { status: 200 }; // OLD
-
+                // 🔍 调试日志：记录所有收到的事件
+                context.log(`[事件接收] post_type=${body.post_type}, notice_type=${body.notice_type || 'N/A'}, sub_type=${body.sub_type || 'N/A'}, message_type=${body.message_type || 'N/A'}`);
+                
                 const selfId = body.self_id; // 机器人的 QQ 号
 
                 // === 事件路由 (戳一戳 / 进群) ===
                 if (body.post_type === 'notice') {
+                    context.log(`[Notice事件] 收到通知事件, notice_type=${body.notice_type}, sub_type=${body.sub_type}, target_id=${body.target_id}, user_id=${body.user_id}, self_id=${selfId}`);
+                    
                     // 1. 真实戳一戳事件 - 新格式 (NapCat官方支持)
                     if (body.notice_type === 'notify' && body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
                         context.log(`[真实Poke-新格式] 收到 notice.notify.poke 事件, user=${body.user_id}, target=${body.target_id}`);
@@ -2665,7 +2667,8 @@ app.http('schoolBot', {
                         }
                     }
 
-                    // 其他通知忽略
+                    // 其他通知事件记录并忽略
+                    context.log(`[Notice事件] 未处理的通知类型: notice_type=${body.notice_type}, sub_type=${body.sub_type}`);
                     return { status: 200 };
                 }
 
