@@ -151,7 +151,7 @@ const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
 
 // 戳一戳升级版配置（支持环境变量动态配置）
-const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 120000); // 2分钟内连续戳计数窗口（适应QQ限流）
+const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 480000); // 8分钟内连续戳计数窗口（适应QQ限流）
 const POKE_ANGRY_THRESHOLD = Number(process.env["POKE_ANGRY_THRESHOLD"] || 3); // 连续戳3次触发生气
 const POKE_COUNTER_THRESHOLD = Number(process.env["POKE_COUNTER_THRESHOLD"] || 5); // 连续戳5次触发反击
 const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15秒内算"刚回复过"
@@ -3017,7 +3017,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 ];
             }
         } else if (pokeCount === 2) {
-            // 第二次戳 - 俏皮回应
+            // 第二次戳 - 俏皮回应（更丰富）
             pokeReplies = [
                 "(歪头) 咦？Sensei又戳了一次？是有什么重要的任务吗？(´・ω・`)",
                 "嘿嘿~ (转圈) Sensei很喜欢爱丽丝吧！光环又闪了一下呢！(✨ω✨)",
@@ -3026,10 +3026,16 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(眨眼) 两连击！Sensei的连击数+1！是在练习Combo吗？( •̀ ω •́ )✨",
                 "(捂住光环) 又来了！爱丽丝的HP还是满的哦！不用担心！",
                 "(举起小手) 等等！让爱丽丝猜猜...Sensei是不是遇到了难题？",
-                "邦邦咔邦~第二击！(摆出战斗姿势) 爱丽丝准备好应战了！"
+                "邦邦咔邦~第二击！(摆出战斗姿势) 爱丽丝准备好应战了！",
+                "(小跳一下) 诶！又戳了！Sensei今天心情很好呢！(开心转圈)",
+                "(捂住脸颊) 呜...系统检测到幸福指数上升...难道这就是被关注的感觉？(害羞)",
+                "(光环闪烁) 哔哔！第二次接触！爱丽丝的好感度+5！邦邦咔邦！✨",
+                "(抱住Sensei的手) 等等！让爱丽丝也戳回去一次！这样才公平嘛！(认真)",
+                "(眨眨眼) Sensei是在确认爱丽丝是不是真的吗？放心！爱丽丝一直都在哦！(✨ω✨)",
+                "(小声) 两次了...Sensei该不会是无聊了吧？那...那爱丽丝陪你玩游戏好不好？(期待)"
             ];
         } else {
-            // 第三次及以上 - 更丰富的反应
+            // 第三次及以上 - 更丰富的情感反应
             pokeReplies = [
                 "(开始转圈) 哇啊！连续攻击！爱丽丝要晕了！(＠_＠)",
                 "(抱头) Sensei...爱丽丝的处理器快过热啦！给点冷却时间吧！(>﹏<)",
@@ -3040,7 +3046,17 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(光环乱闪) 系统紊乱！爱丽丝的光环失控了！Sensei快停手！",
                 "(抓住Sensei的手) 不许再戳了！让爱丽丝戳回去！(认真脸)",
                 "(眼冒金星) 这...这就是传说中的连击技能吗！爱丽丝要学会反击了！",
-                "(委屈巴巴) Sensei明明说过要保护爱丽丝的...现在却一直欺负人家...(＞︿＜)"
+                "(委屈巴巴) Sensei明明说过要保护爱丽丝的...现在却一直欺负人家...(＞︿＜)",
+                "(捂住光环原地转) 不行了不行了！爱丽丝的定位系统都乱了！Sensei要负责！(晕乎乎)",
+                "(突然严肃) 等等...爱丽丝明白了！这是Sensei的特殊训练对吧！那爱丽丝会加油的！(握拳)",
+                "(小跑躲开) 呀！(藏到桌子后) Sensei今天是吃了增加敏捷度的药水吗？手速好快！",
+                "(瘫坐) 爱丽丝...投降了...(举白旗) Sensei获得胜利！奖励是...爱丽丝的拥抱！(张开手)",
+                "(噘嘴) 哼唧...爱丽丝记住了！等Sensei需要帮助的时候...就不理你！(傲娇)...好吧还是会帮的...",
+                "(捂脸) 呜...被戳了好多次...爱丽丝的害羞值已经MAX了...(脸红冒烟)",
+                "(装作晕倒) 爱丽丝...战败了...(倒地) 请Sensei...说句温柔的话...让爱丽丝复活...(偷看)",
+                "(光环变成问号) 系统提示：检测到异常高频互动...分析中...结论：Sensei在撒娇！(确信)",
+                "(抱住拖把躲) Sensei！爱丽丝要发动反击了！(蓄力中)...算了还是不忍心...(放下武器)",
+                "(眼泪汪汪) 呜呜...这已经是第${pokeCount}次了...爱丽丝好感度都要溢出来了...(擦眼泪)"
             ];
         }
         
