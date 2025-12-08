@@ -2922,7 +2922,8 @@ app.http('schoolBot', {
                 ...(useHistory ? history : []),
                 ...messages
             ];
-
+const NAPCAT_API_URL = "http://4.230.25.38:3000"; // ← 改成你的 NapCat 地址
+const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // ← 改成你想发送的群号列表
             // 多脑策略: 从最聪明到最稳定
             const MODEL_CHAIN = [
                 { 
