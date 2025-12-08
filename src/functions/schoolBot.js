@@ -43,6 +43,7 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
             }, 7000);
 
             if (!res) {
+                console.error(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: fetchWithTimeout 返回 null`);
                 if (attempt === maxRetry) return null;
                 await sleep(400 + Math.random() * 400);
                 continue;
@@ -51,6 +52,7 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
             if (res.status === 429) {
                 const retryAfterRaw = res.headers?.get?.("retry-after") || res.headers?.["retry-after"];
                 const retryDelayMs = (Number(retryAfterRaw) || 1) * 1000;
+                console.log(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: 429 限流，等待 ${retryDelayMs}ms`);
                 if (attempt < maxRetry) {
                     await sleep(retryDelayMs + 200 + Math.random() * 400);
                     continue;
@@ -59,13 +61,20 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
             }
 
             if (!res.ok) {
+                console.error(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: HTTP ${res.status}`);
                 if (res.status >= 400 && res.status < 500) return res;
                 if (attempt === maxRetry) return res;
                 await sleep(300 + Math.random() * 400);
                 continue;
             }
+            console.log(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: 成功 (${res.status})`);
             return res;
         } catch (err) {
+            console.error(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: 异常捕获`);
+            console.error(`[fetchBypass] 错误类型: ${err.name}`);
+            console.error(`[fetchBypass] 错误代码: ${err.code || 'N/A'}`);
+            console.error(`[fetchBypass] 错误消息: ${err.message}`);
+            console.error(`[fetchBypass] 请求URL: ${url}`);
             if (attempt === maxRetry) return null;
             await sleep(500 + Math.random() * 300);
         }
@@ -2789,17 +2798,23 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             try {
                 context.log(`[戳一戳-调试] 开始第${attempt + 1}次尝试...`);
                 
+                // 构建请求头（只有 Token 非空时才添加 Authorization）
+                const headers = { 'Content-Type': 'application/json' };
+                if (NAPCAT_TOKEN && NAPCAT_TOKEN.trim()) {
+                    headers['Authorization'] = `Bearer ${NAPCAT_TOKEN}`;
+                    context.log(`[戳一戳-调试] 已添加 Authorization header`);
+                } else {
+                    context.log(`[戳一戳-调试] 未添加 Authorization (Token为空)`);
+                }
+                
                 const sendResponse = await fetchBypass(
                     sendMsgUrl,
                     {
                         method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${NAPCAT_TOKEN}`
-                        },
+                        headers: headers,
                         body: JSON.stringify(msgPayload)
                     },
-                    0
+                    2  // 让 fetchBypass 自己重试2次
                 );
                 
                 context.log(`[戳一戳-调试] 收到响应: ${sendResponse ? `状态码=${sendResponse.status}` : 'null'}`);
@@ -2862,17 +2877,20 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             try {
                 context.log(`[戳一戳反击-调试] 开始第${attempt + 1}次尝试...`);
                 
+                // 构建请求头
+                const headers = { 'Content-Type': 'application/json' };
+                if (NAPCAT_TOKEN && NAPCAT_TOKEN.trim()) {
+                    headers['Authorization'] = `Bearer ${NAPCAT_TOKEN}`;
+                }
+                
                 const pokeResponse = await fetchBypass(
                     napcatUrl,
                     {
                         method: 'POST',
-                        headers: { 
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${NAPCAT_TOKEN}`
-                        },
+                        headers: headers,
                         body: JSON.stringify(pokePayload)
                     },
-                    0
+                    2  // 让 fetchBypass 自己重试2次
                 );
                 
                 context.log(`[戳一戳反击-调试] 收到响应: ${pokeResponse ? `状态码=${pokeResponse.status}` : 'null'}`);
