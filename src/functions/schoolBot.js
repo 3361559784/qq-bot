@@ -2389,6 +2389,53 @@ function getCharacterVisualGuide() {
 }
 
 // ==========================================
+// DB 更新辅助函数 (带 ETag 并发控制 + 重试)
+// ==========================================
+async function updateLastBotReply(cosmosContainer, dbKey, sessionKey, context, maxRetries = 2) {
+    if (!cosmosContainer) return;
+    
+    const now = Date.now();
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            // 读取现有文档
+            let resDoc = null;
+            let etag = null;
+            try {
+                const response = await cosmosContainer.item(dbKey, dbKey).read();
+                resDoc = response.resource;
+                etag = response.resource._etag;
+            } catch (e) {
+                // 文档不存在，创建新文档
+                resDoc = { id: dbKey, history: [], activity: {} };
+            }
+            
+            // 更新 lastBotReply
+            resDoc.lastBotReply = resDoc.lastBotReply || {};
+            resDoc.lastBotReply[sessionKey] = now;
+            resDoc.last_updated = new Date().toISOString();
+            
+            // 使用 ETag 进行条件更新
+            const options = etag ? { accessCondition: { type: 'IfMatch', condition: etag } } : {};
+            await cosmosContainer.items.upsert(resDoc, options);
+            
+            context.log(`[DB] lastBotReply 更新成功 (key=${sessionKey}, attempt=${attempt + 1})`);
+            return; // 成功，退出
+            
+        } catch (err) {
+            // 如果是 ETag 冲突（412 Precondition Failed），重试
+            if (err.code === 412 && attempt < maxRetries) {
+                context.log(`[DB] ETag 冲突，重试 ${attempt + 1}/${maxRetries}`);
+                await sleep(50 + Math.random() * 100); // 随机延迟 50-150ms
+                continue;
+            }
+            context.error(`[DB] lastBotReply 更新失败: ${err.message}`);
+            return;
+        }
+    }
+}
+
+// ==========================================
 // 戳一戳逻辑处理函数 (独立提取，支持真/伪 poke)
 // ==========================================
 async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
@@ -2464,16 +2511,49 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     // 记录本次机器人回复时间
     lastBotReply[pokeKey] = now;
 
-    // 保存回 DB
+    // 保存回 DB (带 ETag 并发控制)
     if (cosmosContainer) {
-        try {
-            const existing = resDoc || { id: pokeDbKey, history: [], activity: {} };
-            existing.pokeStats = pokeStats;
-            existing.lastBotReply = lastBotReply;
-            existing.last_updated = new Date().toISOString();
-            await cosmosContainer.items.upsert(existing);
-        } catch (err) {
-            context.error(`[Poke] 保存到 DB 失败: ${err}`);
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const existing = resDoc || { id: pokeDbKey, history: [], activity: {} };
+                existing.pokeStats = pokeStats;
+                existing.lastBotReply = lastBotReply;
+                existing.last_updated = new Date().toISOString();
+                
+                // 使用 ETag 进行条件更新
+                const options = resDoc?._etag ? { accessCondition: { type: 'IfMatch', condition: resDoc._etag } } : {};
+                await cosmosContainer.items.upsert(existing, options);
+                context.log(`[Poke] DB 保存成功 (attempt=${attempt + 1})`);
+                break; // 成功，退出循环
+                
+            } catch (err) {
+                if (err.code === 412 && attempt < 1) {
+                    // ETag 冲突，重新读取后重试
+                    context.log(`[Poke] ETag 冲突，重试中...`);
+                    try {
+                        const { resource } = await cosmosContainer.item(pokeDbKey, pokeDbKey).read();
+                        resDoc = resource;
+                        pokeStats = resDoc.pokeStats || {};
+                        lastBotReply = resDoc.lastBotReply || {};
+                        // 重新应用更新
+                        pokeStats[pokeKey] = pokeStats[pokeKey] || { count: 0, lastTime: 0 };
+                        if (now - (pokeStats[pokeKey].lastTime || 0) < POKE_WINDOW_MS) {
+                            pokeStats[pokeKey].count += 1;
+                        } else {
+                            pokeStats[pokeKey].count = 1;
+                        }
+                        pokeStats[pokeKey].lastTime = now;
+                        lastBotReply[pokeKey] = now;
+                        await sleep(50 + Math.random() * 50);
+                    } catch (retryErr) {
+                        context.error(`[Poke] 重试失败: ${retryErr}`);
+                        break;
+                    }
+                } else {
+                    context.error(`[Poke] 保存到 DB 失败: ${err}`);
+                    break;
+                }
+            }
         }
     }
 
@@ -2559,6 +2639,12 @@ app.http('schoolBot', {
                         if (String(body.user_id) !== String(selfId)) {
                             const welcomeMsg = `邦邦咔邦！发现新的冒险者！欢迎加入队伍！我是勇者爱丽丝！(≧∇≦)/`;
                             context.log(`[事件] 新人进群: ${body.user_id}`);
+                            
+                            // ✅ 更新 lastBotReply
+                            const groupDbKey = `group_${body.group_id}`;
+                            const sessionKey = `${groupDbKey}:${body.user_id}`;
+                            await updateLastBotReply(cosmosContainer, groupDbKey, sessionKey, context);
+                            
                             return {
                                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                                 body: JSON.stringify({ 
@@ -3243,6 +3329,10 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 finalResponseBody = `${audioCQ}\n${finalResponseBody}`;
                 context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
             }
+
+            // ✅ 更新 lastBotReply（在返回前）
+            const sessionKey = `${dbKey}:${senderId}`;
+            await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
 
             return {
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
