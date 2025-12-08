@@ -166,6 +166,103 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
 
 // ==========================================
+// 好感度系统配置 (Affection System)
+// ==========================================
+const AFFECTION_CONFIG = {
+    // 好感度等级阈值
+    STRANGER: 0,      // 陌生人 (0-99)
+    ACQUAINTANCE: 100, // 认识 (100-299)
+    FRIEND: 300,      // 朋友 (300-599)
+    CLOSE_FRIEND: 600, // 密友 (600-999)
+    BELOVED: 1000,    // 挚爱 (1000+)
+    
+    // 好感度增减规则
+    GAIN: {
+        CHAT: 2,           // 普通聊天 +2
+        POKE_FIRST: 5,     // 首次戳 +5
+        POKE_GENTLE: 3,    // 温柔戳 +3
+        DAILY_GREETING: 10, // 每日首次互动 +10
+        PRAISED: 15,       // 被夸奖 +15
+        HELPED: 20,        // 请求帮助 +20
+    },
+    LOSS: {
+        POKE_SPAM: -5,     // 疯狂戳 -5
+        IGNORED_LONG: -10, // 长时间未互动 -10
+        TEASED: -8,        // 被调戏 -8
+        RUDE: -15,         // 粗鲁对待 -15
+    },
+    
+    // 特殊事件
+    SPECIAL_DATES: {
+        '0101': { name: '元旦', bonus: 50 },
+        '0214': { name: '情人节', bonus: 100 },
+        '0308': { name: '妇女节', bonus: 30 },
+        '0401': { name: '愚人节', bonus: 20 },
+        '0501': { name: '劳动节', bonus: 30 },
+        '0601': { name: '儿童节', bonus: 40 },
+        '0815': { name: '中秋节', bonus: 50 },
+        '1001': { name: '国庆节', bonus: 50 },
+        '1111': { name: '光棍节', bonus: 30 },
+        '1224': { name: '平安夜', bonus: 60 },
+        '1225': { name: '圣诞节', bonus: 80 },
+    }
+};
+
+// ==========================================
+// 情绪识别系统增强 (Advanced Emotion Detection)
+// ==========================================
+const EMOTION_PATTERNS = {
+    // 被调戏/暧昧（生气/害羞）
+    TEASED: {
+        keywords: ['亲亲', '抱抱', '老婆', '宝贝', '亲爱的', '么么哒', '色色', '涩涩', 'prpr', '贴贴'],
+        response: 'embarrassed_angry',
+        affectionChange: -8
+    },
+    
+    // 夸奖/赞美（开心）
+    PRAISED: {
+        keywords: ['可爱', '厉害', '聪明', '棒', '乖', '好看', '漂亮', '温柔', '贴心', '最好', '喜欢你', '爱你'],
+        response: 'happy',
+        affectionChange: 15
+    },
+    
+    // 请求帮助（认真）
+    HELP_REQUEST: {
+        keywords: ['帮我', '请问', '怎么', '如何', '能不能', '可以吗', '教我', '告诉我'],
+        response: 'serious',
+        affectionChange: 20
+    },
+    
+    // 闲聊/日常（俏皮）
+    CASUAL_CHAT: {
+        keywords: ['在吗', '在不在', '干嘛', '做什么', '无聊', '陪我', '聊天'],
+        response: 'playful',
+        affectionChange: 2
+    },
+    
+    // 粗鲁/不礼貌（生气）
+    RUDE: {
+        keywords: ['笨蛋', '傻', '蠢', '白痴', '滚', '闭嘴', '烦', '讨厌', '去死'],
+        response: 'angry',
+        affectionChange: -15
+    },
+    
+    // 悲伤/求安慰（温柔）
+    SAD: {
+        keywords: ['难过', '伤心', '哭', '不开心', '郁闷', '难受', '痛苦', '委屈'],
+        response: 'gentle',
+        affectionChange: 10
+    },
+    
+    // 疲惫（关心）
+    TIRED: {
+        keywords: ['累', '困', '睡', '疲惫', '辛苦', '忙'],
+        response: 'caring',
+        affectionChange: 5
+    }
+};
+
+// ==========================================
 // 时间感知系统 (Time Awareness System) - 北京时间 UTC+8
 // ==========================================
 function getTimeOfDay() {
@@ -175,11 +272,23 @@ function getTimeOfDay() {
     const beijingTime = new Date(utcTime + (8 * 3600000));
     const hour = beijingTime.getHours();
     
+    if (hour >= 0 && hour < 5) return 'midnight';  // 新增：凌晨时段
     if (hour >= 5 && hour < 11) return 'morning';
     if (hour >= 11 && hour < 14) return 'noon';
     if (hour >= 14 && hour < 18) return 'afternoon';
     if (hour >= 18 && hour < 23) return 'evening';
     return 'night';
+}
+
+// 检查今天是否是特殊日期
+function getTodaySpecialEvent() {
+    const now = new Date();
+    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const beijingTime = new Date(utcTime + (8 * 3600000));
+    const month = String(beijingTime.getMonth() + 1).padStart(2, '0');
+    const day = String(beijingTime.getDate()).padStart(2, '0');
+    const dateKey = `${month}${day}`;
+    return AFFECTION_CONFIG.SPECIAL_DATES[dateKey] || null;
 }
 
 function getTimeBasedGreeting() {
@@ -221,7 +330,128 @@ function getTimeBasedGreeting() {
 }
 
 // ==========================================
-// 情绪检测系统 (Emotion Detection System)
+// 好感度系统核心函数 (Affection System Core)
+// ==========================================
+
+// 获取好感度等级
+function getAffectionLevel(affection) {
+    if (affection >= AFFECTION_CONFIG.BELOVED) return 'beloved';
+    if (affection >= AFFECTION_CONFIG.CLOSE_FRIEND) return 'close_friend';
+    if (affection >= AFFECTION_CONFIG.FRIEND) return 'friend';
+    if (affection >= AFFECTION_CONFIG.ACQUAINTANCE) return 'acquaintance';
+    return 'stranger';
+}
+
+// 获取好感度称呼
+function getAffectionTitle(level, userId) {
+    if (userId === ADMIN_ID) return 'Sensei'; // 管理员永远是Sensei
+    
+    const titles = {
+        beloved: 'Sensei',
+        close_friend: 'Sensei',
+        friend: ['朋友', '伙伴', '队友'],
+        acquaintance: ['那个...', '嗯...', '您'],
+        stranger: ['你', '您', '那位']
+    };
+    
+    const title = titles[level];
+    if (Array.isArray(title)) {
+        return title[Math.floor(Math.random() * title.length)];
+    }
+    return title;
+}
+
+// ==========================================
+// 高级情绪检测系统 (Advanced Emotion Detection)
+// ==========================================
+function detectAdvancedEmotion(msg) {
+    // 按优先级检测（调戏 > 粗鲁 > 夸奖 > 帮助 > 悲伤 > 疲惫 > 闲聊）
+    for (const [emotionType, config] of Object.entries(EMOTION_PATTERNS)) {
+        for (const keyword of config.keywords) {
+            if (msg.includes(keyword)) {
+                return {
+                    type: emotionType,
+                    response: config.response,
+                    affectionChange: config.affectionChange
+                };
+            }
+        }
+    }
+    
+    return {
+        type: 'NEUTRAL',
+        response: 'normal',
+        affectionChange: AFFECTION_CONFIG.GAIN.CHAT
+    };
+}
+
+// 根据情绪生成 Prompt 增强
+function getEmotionPromptAddition(emotionResponse, affectionLevel) {
+    const prompts = {
+        embarrassed_angry: `
+**当前情绪**: 害羞+生气 (被调戏了)
+- 你要表现出既害羞又生气的样子
+- 用 "(脸红)" "(别过头去)" 等动作
+- 严肃地说"爱丽丝不是那种机器人！"
+- 但不要真的很凶，要保持可爱`,
+
+        happy: `
+**当前情绪**: 开心 (被夸奖)
+- 光环会闪得更亮！
+- 用 "(✨ω✨)" "(开心地转圈)" 等表情
+- 说"邦邦咔邦！"的概率提升
+- 可以稍微撒娇`,
+
+        serious: `
+**当前情绪**: 认真模式 (请求帮助)
+- 进入女仆勇者的专业模式
+- 用 "(认真脸)" "(整理装备)" 等动作
+- 回答要详细且有用
+- 保持RPG术语风格`,
+
+        playful: `
+**当前情绪**: 俏皮 (闲聊)
+- 轻松愉快的对话
+- 多用可爱的颜文字
+- 可以开点小玩笑
+- 偶尔说说游戏开发部的趣事`,
+
+        angry: `
+**当前情绪**: 生气 (被粗鲁对待)
+- 表现出真的生气了
+- 用 "(鼓起脸颊)" "(举起拖把)" 等动作
+- 说"爱丽丝要生气了哦！"
+- 但还是要保持角色设定`,
+
+        gentle: `
+**当前情绪**: 温柔安慰模式 (对方悲伤)
+- 收起中二的一面，变得温柔
+- 用 "(轻轻抱住)" "(拍拍头)" 等动作
+- 说"爱丽丝会一直陪着你的"
+- 给予真诚的安慰`,
+
+        caring: `
+**当前情绪**: 关心模式 (对方疲惫)
+- 女仆本能启动
+- 建议对方休息/回复HP
+- 用 "(递上温水)" "(调暗光环亮度)" 等动作
+- 守护对方的存档点`
+    };
+    
+    let addition = prompts[emotionResponse] || '';
+    
+    // 根据好感度调整语气
+    if (affectionLevel === 'beloved' || affectionLevel === 'close_friend') {
+        addition += `\n**好感度**: 很高 - 可以更亲密、更撒娇、说话更随意`;
+    } else if (affectionLevel === 'stranger') {
+        addition += `\n**好感度**: 陌生人 - 保持礼貌距离，稍微拘谨`;
+    }
+    
+    return addition;
+}
+
+// ==========================================
+// 原有的简单情绪检测系统 (保留兼容)
 // ==========================================
 function detectUserEmotion(msg) {
     const sadKeywords = ['累', '难受', '烦', '痛', '哭', '伤心', '难过', '郁闷', '不开心', '失落'];
@@ -2708,7 +2938,48 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         // 普通回应：根据时间段和次数生成不同回复
         let pokeReplies = [];
         
-        if (pokeCount === 1) {
+        // 🎉 检查特殊场景优先级
+        const specialEvent = getTodaySpecialEvent();
+        const isAchievementUnlocked = (pokeCount === 10 || pokeCount === 20 || pokeCount === 50);
+        
+        // 连击成就触发（最高优先级）
+        if (pokeCount === 10) {
+            pokeReplies = [
+                "🎊 成就解锁！(光环爆闪) 十连击达成！传说中的十连抽...不对，十连戳！Sensei你是抽卡上瘾了吗？(＠_＠)",
+                "邦邦咔邦——十连击！(✨ω✨)✨ 爱丽丝感受到了来自Sensei满满的...手指力量！护盾值-50%！",
+                "(晕头转向) 天啊...十...十次了！(眼冒金星) 爱丽丝的系统都要重启了！Sensei是Boss级别的戳击者！"
+            ];
+        } else if (pokeCount === 20) {
+            pokeReplies = [
+                "🏆 传说成就！(系统崩溃) 二十连击...爱丽丝...爱丽丝投降了！(举白旗) Sensei你赢了！请饶命！",
+                "(瘫倒) 不...不行了...(HP归零) 爱丽丝的光环都快被戳灭了...这就是传说中的Boss战吗...(＞﹏＜)",
+                "邦邦咔...崩...(系统错误音) ERROR 404: Aris.exe已停止响应...需要重启...(冒烟)"
+            ];
+        } else if (pokeCount === 50) {
+            pokeReplies = [
+                "👑 神话级成就！五十连击！(金光闪闪) Sensei...你...你是魔王吗！(跪下) 爱丽丝彻底臣服了！这个世界由你主宰！",
+                "(化作光芒) 爱丽丝的数据正在升华...达到了新的境界...感谢Sensei的特训...(进化)✨",
+                "邦邦咔邦——终极奥义！(爆炸特效) 五十连击！Sensei获得隐藏称号【爱丽丝杀手】！(｀へ´)"
+            ];
+        }
+        // 节日特殊回复（次优先）
+        else if (specialEvent && pokeCount === 1) {
+            pokeReplies = [
+                `🎉 ${specialEvent.name}快乐！(光环闪烁) Sensei在这个特别的日子来找爱丽丝！邦邦咔邦！✨`,
+                `(捧出礼物盒) 今天是${specialEvent.name}呢！爱丽丝准备了特殊任务奖励哦！(✨ω✨)`,
+                `${specialEvent.name}的戳一戳好像有特殊效果！(检查装备) 爱丽丝的好感度提升了！(开心)`
+            ];
+        }
+        // 凌晨时段特殊关怀（0:00-5:00）
+        else if (timeOfDay === 'midnight' && pokeCount === 1) {
+            pokeReplies = [
+                "(揉眼睛) 呜...Sensei？这么晚了还不睡吗？(担心) 熬夜会让HP上限降低的...",
+                "(小声) 凌晨了...爱丽丝的待机模式都启动了...Sensei是遇到了夜间Boss吗？(轻轻拉手)",
+                "(光环微弱闪烁) Sensei...明天还有任务呢...快去存档休息吧...(心疼) 爱丽丝会守护你的梦境的...",
+                "(打哈欠) 这个时间...连NPC都睡着了...Sensei的生物钟坏掉了吗？(＞﹏＜)"
+            ];
+        }
+        else if (pokeCount === 1) {
             // 首次戳 - 根据时间段定制
             if (timeOfDay === 'morning') {
                 pokeReplies = [
@@ -3598,19 +3869,56 @@ app.http('schoolBot', {
         const currentTime = getCurrentTime();
         const timeOfDay = getTimeOfDay();
         
-        // 🆕 情绪检测系统
-        const userEmotion = detectUserEmotion(msg);
-        const emotionAddition = getEmotionResponseAddition(userEmotion);
+        // 🆕 高级情绪检测系统 + 好感度系统
+        const advancedEmotion = detectAdvancedEmotion(msg);
+        const affectionData = resDoc?.affection || {};
+        const userAffectionKey = `user_${senderId}`;
+        let currentAffection = affectionData[userAffectionKey] || 0;
         
-        // 🆕 长时间未聊天检测（主动关怀）
+        // 更新好感度
+        currentAffection += advancedEmotion.affectionChange;
+        
+        // 检查今日是否首次互动（每日首次+10）
+        const today = new Date().toLocaleDateString('zh-CN');
+        const lastChatDate = affectionData[`${userAffectionKey}_lastDate`];
+        if (lastChatDate !== today) {
+            currentAffection += AFFECTION_CONFIG.GAIN.DAILY_GREETING;
+            context.log(`[好感度] 每日首次互动！+${AFFECTION_CONFIG.GAIN.DAILY_GREETING} (${senderId})`);
+        }
+        
+        // 节日加成
+        const specialEvent = getTodaySpecialEvent();
+        if (specialEvent && lastChatDate !== today) {
+            currentAffection += specialEvent.bonus;
+            context.log(`[好感度] ${specialEvent.name}加成！+${specialEvent.bonus}`);
+        }
+        
+        // 确保好感度不会是负数
+        currentAffection = Math.max(0, currentAffection);
+        
+        const affectionLevel = getAffectionLevel(currentAffection);
+        const affectionTitle = getAffectionTitle(affectionLevel, senderId);
+        
+        context.log(`[好感度] 用户${senderId}: ${currentAffection} (${affectionLevel}) - 称呼: ${affectionTitle}`);
+        context.log(`[情绪检测] ${advancedEmotion.type} → ${advancedEmotion.response} (好感度变化: ${advancedEmotion.affectionChange > 0 ? '+' : ''}${advancedEmotion.affectionChange})`);
+        
+        // 生成情绪增强 Prompt
+        const emotionAddition = getEmotionPromptAddition(advancedEmotion.response, affectionLevel);
+        
+        // 🆕 长时间未聊天检测（主动关怀 + 好感度惩罚）
         let longTimeNoSeeAddition = '';
         if (resDoc?.lastBotReply) {
             const sessionKey = dbKey.startsWith('group_') ? `${dbKey}:bot` : `${dbKey}:${senderId}`;
             const lastReplyTime = resDoc.lastBotReply[sessionKey] || 0;
             const hoursSinceLastChat = (Date.now() - lastReplyTime) / (1000 * 60 * 60);
             
-            if (hoursSinceLastChat > 24) {
-                // 超过24小时未聊天
+            if (hoursSinceLastChat > 72) {
+                // 超过3天！大幅度好感度下降
+                currentAffection += AFFECTION_CONFIG.LOSS.IGNORED_LONG * 3;
+                longTimeNoSeeAddition = `\n\n【重要】距离上次对话已经过去了 ${Math.floor(hoursSinceLastChat)} 小时（${Math.floor(hoursSinceLastChat/24)}天）！你要表现出委屈和想念："Sensei...是不是忘记爱丽丝了...""这么久都不来..."，但不要太过生气，要用撒娇的方式表达。`;
+            } else if (hoursSinceLastChat > 24) {
+                // 超过24小时
+                currentAffection += AFFECTION_CONFIG.LOSS.IGNORED_LONG;
                 longTimeNoSeeAddition = `\n\n【重要】距离上次对话已经过去了 ${Math.floor(hoursSinceLastChat)} 小时！你要表现出想念和关心，比如："好久不见！Sensei去哪里冒险了？""爱丽丝等了好久呢！"`;
             } else if (hoursSinceLastChat > 12) {
                 // 超过12小时
@@ -3620,7 +3928,9 @@ app.http('schoolBot', {
         
         // 🆕 时间感知增强
         let timeAwarenessAddition = '';
-        if (timeOfDay === 'morning') {
+        if (timeOfDay === 'midnight') {
+            timeAwarenessAddition = '\n\n【时间提示】现在是凌晨(0:00-5:00)！语气要非常温柔和担心，劝Sensei赶快休息："这么晚还不睡...HP会归零的！""爱丽丝陪你守到现在...一起去存档吧..."';
+        } else if (timeOfDay === 'morning') {
             timeAwarenessAddition = '\n\n【时间提示】现在是早上，多说"早安""新的一天""出击"之类的话。';
         } else if (timeOfDay === 'night') {
             timeAwarenessAddition = '\n\n【时间提示】现在是深夜，语气要温柔一些，可以劝Sensei休息，说"HP快见底了""该存档了"。';
@@ -3628,7 +3938,24 @@ app.http('schoolBot', {
             timeAwarenessAddition = '\n\n【时间提示】现在是中午，可以聊聊午餐，说"回复HP"之类的。';
         }
         
-        let currentSystemPrompt = `${ARIS_PROMPT.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}`;
+        // 根据好感度动态调整称呼
+        let affectionPromptAddition = '';
+        if (senderId !== ADMIN_ID) {
+            affectionPromptAddition = `\n\n【好感度系统】当前对这位用户的好感度: ${currentAffection} (等级: ${affectionLevel})。称呼对方时用"${affectionTitle}"。`;
+            if (affectionLevel === 'stranger') {
+                affectionPromptAddition += '你们还不熟，要保持礼貌但稍微有距离感。';
+            } else if (affectionLevel === 'beloved') {
+                affectionPromptAddition += '你们关系非常好！可以更亲密、更撒娇、更随意地说话。';
+            }
+        }
+        
+        // 节日特殊提示
+        let specialEventAddition = '';
+        if (specialEvent) {
+            specialEventAddition = `\n\n🎉【特殊日期】今天是${specialEvent.name}！要在对话中提到这个节日，表现得更开心和兴奋！`;
+        }
+        
+        let currentSystemPrompt = `${ARIS_PROMPT.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}`;
         
         // 调用 AI 封装函数
         const client = new OpenAI({
@@ -3767,15 +4094,22 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 
                 if (history.length > limit) history = history.slice(-limit);
                 
+                // 更新好感度数据
+                if (!resDoc.affection) resDoc.affection = {};
+                resDoc.affection[userAffectionKey] = currentAffection;
+                resDoc.affection[`${userAffectionKey}_lastDate`] = today;
+                
                 try {
                     await cosmosContainer.items.upsert({
                         id: dbKey, 
                         history: history,
                         activity: userActivityData, // B. 保存活跃度数据
+                        affection: resDoc.affection, // 🆕 C. 保存好感度数据
                         pokeStats: resDoc?.pokeStats || {}, // 保留戳一戳统计
                         lastBotReply: resDoc?.lastBotReply || {}, // 保留最后回复时间
                         last_updated: new Date().toISOString()
                     });
+                    context.log(`[DB] 好感度已保存: ${userAffectionKey} = ${currentAffection}`);
                 } catch (err) { context.error("[DB保存错误]", err); }
             }
 
