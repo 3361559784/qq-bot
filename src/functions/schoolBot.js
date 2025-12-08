@@ -144,6 +144,7 @@ const DEFAULT_CITY = "Wuhan";
 // 戳一戳升级版配置
 const POKE_WINDOW_MS = 10000; // 10秒内连续戳计数窗口
 const POKE_ANGRY_THRESHOLD = 3; // 连续戳3次触发生气
+const POKE_COUNTER_THRESHOLD = 5; // 连续戳5次触发反击
 const JUST_REPLIED_MS = 15000; // 15秒内算"刚回复过"
 
 const CITY_MAP = {
@@ -2423,13 +2424,20 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     }
     pokeStats[pokeKey].lastTime = now;
 
-    // 选择回复：优先处理三连戳（生气）
+    // 选择回复:优先处理五连戳(反击) > 三连戳(生气) > 普通回应
     let replyMessage = null;
-    if (pokeStats[pokeKey].count >= POKE_ANGRY_THRESHOLD) {
+    let shouldCounterPoke = false;
+    
+    if (pokeStats[pokeKey].count >= POKE_COUNTER_THRESHOLD) {
+        // 五连戳:触发反击
+        replyMessage = "受够了！看我反击！(╬▔皿▔)╯";
+        shouldCounterPoke = true;
+        // 重置计数,防止重复反击
+        pokeStats[pokeKey].count = 0;
+    } else if (pokeStats[pokeKey].count >= POKE_ANGRY_THRESHOLD) {
         // 生气回复
         replyMessage = "不许再戳了！(▼へ▼メ)";
-        // 重置计数，防止重复生气
-        pokeStats[pokeKey].count = 0;
+        // 不重置计数,让用户可以继续触发反击
     } else {
         // 检查是否刚刚回复过
         const lastBotTs = lastBotReply[pokeKey] || 0;
@@ -2465,7 +2473,33 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         }
     }
 
-    context.log(`[戳一戳] 触发 (key=${pokeKey}, count=${pokeStats[pokeKey].count}) -> ${replyMessage}`);
+    // 执行反击(如果需要)
+    if (shouldCounterPoke && groupId) {
+        try {
+            const napcatUrl = 'http://4.230.25.38:3000/group_poke';
+            const pokePayload = {
+                group_id: groupId,
+                user_id: userId
+            };
+            context.log(`[戳一戳反击] 正在戳回用户 ${userId} 在群 ${groupId}`);
+            
+            const pokeResponse = await fetch(napcatUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(pokePayload)
+            });
+            
+            if (pokeResponse.ok) {
+                context.log(`[戳一戳反击] 成功! 状态码: ${pokeResponse.status}`);
+            } else {
+                context.warn(`[戳一戳反击] 失败, 状态码: ${pokeResponse.status}, 响应: ${await pokeResponse.text()}`);
+            }
+        } catch (err) {
+            context.error(`[戳一戳反击] 异常: ${err}`);
+        }
+    }
+
+    context.log(`[戳一戳] 触发 (key=${pokeKey}, count=${pokeStats[pokeKey].count}, 反击=${shouldCounterPoke}) -> ${replyMessage}`);
 
     return {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -2499,13 +2533,19 @@ app.http('schoolBot', {
 
                 // === 事件路由 (戳一戳 / 进群) ===
                 if (body.post_type === 'notice') {
-                    // 1. 真实戳一戳事件 (兼容模式，以防NapCat恢复)
-                    if (body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
-                        context.log(`[真实Poke] 收到真实戳一戳事件`);
+                    // 1. 真实戳一戳事件 - 新格式 (NapCat官方支持)
+                    if (body.notice_type === 'notify' && body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
+                        context.log(`[真实Poke-新格式] 收到 notice.notify.poke 事件, user=${body.user_id}, target=${body.target_id}`);
                         return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
                     }
                     
-                    // 2. 群成员增加 (Group Increase)
+                    // 2. 真实戳一戳事件 - 旧格式 (兼容模式)
+                    if (body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
+                        context.log(`[真实Poke-旧格式] 收到 sub_type=poke 事件, user=${body.user_id}, target=${body.target_id}`);
+                        return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
+                    }
+                    
+                    // 3. 群成员增加 (Group Increase)
                     if (body.notice_type === 'group_increase') {
                          // 排除自己进群的情况
                         if (String(body.user_id) !== String(selfId)) {
