@@ -1097,6 +1097,13 @@ async function checkAnimeDB(imgUrl, context, minConfidence = 0.7) {
                     || (animeName || "").includes("蔚蓝档案");
 
                 const mappedName = blueArchiveNameMap[charName] || charName;
+                
+                // 🔍 Debug: 检查映射是否生效
+                if (charName !== mappedName) {
+                    context.log(`[AnimeTrace映射] ${charName} → ${mappedName} ✅`);
+                } else {
+                    context.log(`[AnimeTrace映射] 未找到映射: "${charName}" (保持原样)`);
+                }
 
                 // 特判：爱丽丝自己
                 const isArisSelf = mappedName === "天童爱丽丝";
