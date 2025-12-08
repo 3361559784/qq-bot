@@ -141,18 +141,20 @@ const MAX_HISTORY = MEMORY_CONFIG.DEFAULT_HISTORY; // 保留兼容性
 const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
 
-// 戳一戳升级版配置
-const POKE_WINDOW_MS = 10000; // 10秒内连续戳计数窗口
-const POKE_ANGRY_THRESHOLD = 3; // 连续戳3次触发生气
-const POKE_COUNTER_THRESHOLD = 5; // 连续戳5次触发反击
-const JUST_REPLIED_MS = 15000; // 15秒内算"刚回复过"
+// 戳一戳升级版配置（支持环境变量动态配置）
+const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 10000); // 10秒内连续戳计数窗口
+const POKE_ANGRY_THRESHOLD = Number(process.env["POKE_ANGRY_THRESHOLD"] || 3); // 连续戳3次触发生气
+const POKE_COUNTER_THRESHOLD = Number(process.env["POKE_COUNTER_THRESHOLD"] || 5); // 连续戳5次触发反击
+const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15秒内算"刚回复过"
+const USER_POKE_COOLDOWN_MS = Number(process.env["USER_POKE_COOLDOWN_MS"] || 2000); // 单用户戳一戳冷却(防刷屏)
 
 // NapCat API 配置
-const NAPCAT_API_URL = 'http://4.230.25.38:3000';
+const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:3000';
 const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
+const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，用于防止自触发循环
 
 // 防刷屏配置
-const GROUP_COOLDOWN_MS = 8000; // 群内8秒冷却期
+const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
 
 const CITY_MAP = {
     "安徽": "Hefei", "福建": "Fuzhou", "甘肃": "Lanzhou", "广东": "Guangzhou", "广西": "Nanning", 
@@ -2428,12 +2430,62 @@ async function updateLastBotReply(cosmosContainer, dbKey, sessionKey, context, m
         } catch (err) {
             // 如果是 ETag 冲突（412 Precondition Failed），重试
             if (err.code === 412 && attempt < maxRetries) {
-                context.log(`[DB] ETag 冲突，重试 ${attempt + 1}/${maxRetries}`);
-                await sleep(50 + Math.random() * 100); // 随机延迟 50-150ms
+                context.log(`[DB] lastBotReply ETag 冲突，重试 ${attempt + 1}/${maxRetries}`);
+                await sleep(50 + Math.random() * 100);
                 continue;
+            } else {
+                context.error(`[DB] lastBotReply 更新失败: ${err.message}`);
+                return;
             }
-            context.error(`[DB] lastBotReply 更新失败: ${err.message}`);
-            return;
+        }
+    }
+}
+
+// ==========================================
+// DB 戳一戳统计更新 (带 ETag 并发控制 + 重试)
+// ==========================================
+async function updatePokeStats(cosmosContainer, dbKey, pokeKey, newStats = {}, context, maxRetries = 2) {
+    if (!cosmosContainer) return;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            // 读取现有文档
+            let resDoc = null;
+            let etag = null;
+            try {
+                const response = await cosmosContainer.item(dbKey, dbKey).read();
+                resDoc = response.resource;
+                etag = response.resource._etag;
+            } catch (e) {
+                // 文档不存在，创建新文档
+                resDoc = { id: dbKey, history: [], activity: {} };
+            }
+            
+            // 更新 pokeStats
+            resDoc.pokeStats = resDoc.pokeStats || {};
+            resDoc.pokeStats[pokeKey] = {
+                ...resDoc.pokeStats[pokeKey],
+                ...newStats
+            };
+            resDoc.last_updated = new Date().toISOString();
+            
+            // 使用 ETag 进行条件更新
+            const options = etag ? { accessCondition: { type: 'IfMatch', condition: etag } } : {};
+            await cosmosContainer.items.upsert(resDoc, options);
+            
+            context.log(`[DB] pokeStats 更新成功 (key=${pokeKey}, count=${newStats.count}, attempt=${attempt + 1})`);
+            return; // 成功，退出
+            
+        } catch (err) {
+            // 如果是 ETag 冲突（412 Precondition Failed），重试
+            if (err.code === 412 && attempt < maxRetries) {
+                context.log(`[DB] pokeStats ETag 冲突，重试 ${attempt + 1}/${maxRetries}`);
+                await sleep(50 + Math.random() * 100);
+                continue;
+            } else {
+                context.error(`[DB] pokeStats 更新失败: ${err.message}`);
+                return;
+            }
         }
     }
 }
@@ -2448,6 +2500,12 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     // 确定数据库 key（群聊优先，否则私聊）
     const pokeDbKey = groupId ? `group_${groupId}` : String(userId);
     context.log(`[Poke] pokeDbKey=${pokeDbKey}`);
+    
+    // 🚨 防止自触发循环：如果是机器人自己戳自己，直接返回
+    if (BOT_QQ_ID && String(userId) === String(BOT_QQ_ID)) {
+        context.log(`[Poke] 忽略来自机器人自身的戳 (userId=${userId})`);
+        return { status: 200 };
+    }
     
     // 从 DB 读取现有数据
     let resDoc = null;
@@ -2473,9 +2531,16 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     const now = Date.now();
 
     pokeStats[pokeKey] = pokeStats[pokeKey] || { count: 0, lastTime: 0 };
+    
+    // 🚨 Per-user cooldown 检查：防止单用户刷屏
+    const timeSinceLastPoke = now - (pokeStats[pokeKey].lastTime || 0);
+    if (timeSinceLastPoke < USER_POKE_COOLDOWN_MS && timeSinceLastPoke > 0) {
+        context.log(`[Poke] 用户 ${userId} 在冷却中 (${timeSinceLastPoke}ms < ${USER_POKE_COOLDOWN_MS}ms)，忽略`);
+        return { status: 200 };
+    }
 
     // 统计连续戳：窗口内则累加，否则重置
-    if (now - (pokeStats[pokeKey].lastTime || 0) < POKE_WINDOW_MS) {
+    if (timeSinceLastPoke < POKE_WINDOW_MS) {
         pokeStats[pokeKey].count += 1;
     } else {
         pokeStats[pokeKey].count = 1;
@@ -2518,54 +2583,15 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         }
     }
 
-    // 记录本次机器人回复时间
-    lastBotReply[pokeKey] = now;
-
-    // 保存回 DB (带 ETag 并发控制)
-    if (cosmosContainer) {
-        for (let attempt = 0; attempt < 2; attempt++) {
-            try {
-                const existing = resDoc || { id: pokeDbKey, history: [], activity: {} };
-                existing.pokeStats = pokeStats;
-                existing.lastBotReply = lastBotReply;
-                existing.last_updated = new Date().toISOString();
-                
-                // 使用 ETag 进行条件更新
-                const options = resDoc?._etag ? { accessCondition: { type: 'IfMatch', condition: resDoc._etag } } : {};
-                await cosmosContainer.items.upsert(existing, options);
-                context.log(`[Poke] DB 保存成功 (attempt=${attempt + 1})`);
-                break; // 成功，退出循环
-                
-            } catch (err) {
-                if (err.code === 412 && attempt < 1) {
-                    // ETag 冲突，重新读取后重试
-                    context.log(`[Poke] ETag 冲突，重试中...`);
-                    try {
-                        const { resource } = await cosmosContainer.item(pokeDbKey, pokeDbKey).read();
-                        resDoc = resource;
-                        pokeStats = resDoc.pokeStats || {};
-                        lastBotReply = resDoc.lastBotReply || {};
-                        // 重新应用更新
-                        pokeStats[pokeKey] = pokeStats[pokeKey] || { count: 0, lastTime: 0 };
-                        if (now - (pokeStats[pokeKey].lastTime || 0) < POKE_WINDOW_MS) {
-                            pokeStats[pokeKey].count += 1;
-                        } else {
-                            pokeStats[pokeKey].count = 1;
-                        }
-                        pokeStats[pokeKey].lastTime = now;
-                        lastBotReply[pokeKey] = now;
-                        await sleep(50 + Math.random() * 50);
-                    } catch (retryErr) {
-                        context.error(`[Poke] 重试失败: ${retryErr}`);
-                        break;
-                    }
-                } else {
-                    context.error(`[Poke] 保存到 DB 失败: ${err}`);
-                    break;
-                }
-            }
-        }
-    }
+    // 使用安全的 DB 更新函数（ETag + 重试）
+    await updatePokeStats(cosmosContainer, pokeDbKey, pokeKey, { 
+        count: pokeStats[pokeKey].count, 
+        lastTime: pokeStats[pokeKey].lastTime 
+    }, context);
+    
+    // 更新 lastBotReply
+    const sessionKey = `${pokeDbKey}:bot`;
+    await updateLastBotReply(cosmosContainer, pokeDbKey, sessionKey, context);
 
     // 执行反击(如果需要)
     if (shouldCounterPoke && groupId) {
@@ -2625,13 +2651,62 @@ app.http('schoolBot', {
                 const body = JSON.parse(bodyText);
                 
                 // 🔍 调试日志：记录所有收到的事件
-                context.log(`[事件接收] post_type=${body.post_type}, notice_type=${body.notice_type || 'N/A'}, sub_type=${body.sub_type || 'N/A'}, message_type=${body.message_type || 'N/A'}`);
+                const msgType = body.msg_type ?? body.msgType;
+                const subMsgType = body.sub_msg_type ?? body.subMsgType;
+                context.log(`[事件接收] post_type=${body.post_type}, notice_type=${body.notice_type || 'N/A'}, sub_type=${body.sub_type || 'N/A'}, message_type=${body.message_type || 'N/A'}, msg_type=${msgType || 'N/A'}, sub_msg_type=${subMsgType || 'N/A'}`);
                 
                 const selfId = body.self_id; // 机器人的 QQ 号
+
+                // === 检测灰条消息类型的戳一戳 (NapCat 原始格式) ===
+                // msgType=5 是灰条消息, subMsgType=12 是戳一戳
+                if (msgType === 5 && subMsgType === 12) {
+                    context.log(`[灰条戳一戳] 检测到 msgType=5, subMsgType=12 格式的戳一戳`);
+                    
+                    // 尝试从 elements 中提取戳人者和被戳者的信息
+                    try {
+                        const elements = body.elements || [];
+                        const grayTipElement = elements.find(el => el.elementType === 8)?.grayTipElement;
+                        
+                        if (grayTipElement?.jsonGrayTipElement?.jsonStr) {
+                            const jsonStr = grayTipElement.jsonGrayTipElement.jsonStr;
+                            context.log(`[灰条戳一戳] jsonStr=${jsonStr}`);
+                            
+                            // 检查是否包含"戳了戳"文本
+                            if (jsonStr.includes('戳了戳')) {
+                                // NapCat 暂未提供 uid->QQ 的直接映射，这里优先使用 senderUin 作为戳人者 QQ
+                                const pokerId = body.senderUin || body.user_id;
+                                const groupId = body.peerUin; // 群号
+                                
+                                context.log(`[灰条戳一戳] 确认是戳一戳事件, poker=${pokerId}, peer=${groupId}`);
+                                
+                                // 🚨 防止自触发循环
+                                if (BOT_QQ_ID && String(pokerId) === String(BOT_QQ_ID)) {
+                                    context.log(`[灰条戳一戳] 忽略来自机器人自身的戳 (pokerId=${pokerId})`);
+                                    return { status: 200 };
+                                }
+                                
+                                if (pokerId && groupId) {
+                                    return await handlePokeLogic(pokerId, groupId, context, cosmosContainer);
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        context.log(`[灰条戳一戳] 解析失败: ${err.message}`);
+                    }
+                    
+                    // 即使解析失败，也返回 200 避免 NapCat 重试
+                    return { status: 200 };
+                }
 
                 // === 事件路由 (戳一戳 / 进群) ===
                 if (body.post_type === 'notice') {
                     context.log(`[Notice事件] 收到通知事件, notice_type=${body.notice_type}, sub_type=${body.sub_type}, target_id=${body.target_id}, user_id=${body.user_id}, self_id=${selfId}`);
+                    
+                    // 🚨 防止自触发循环：忽略来自机器人自己的 notice 事件
+                    if (BOT_QQ_ID && String(body.user_id) === String(BOT_QQ_ID)) {
+                        context.log(`[Notice事件] 忽略来自机器人自身的事件 (user_id=${body.user_id})`);
+                        return { status: 200 };
+                    }
                     
                     // 1. 真实戳一戳事件 - 新格式 (NapCat官方支持)
                     if (body.notice_type === 'notify' && body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
