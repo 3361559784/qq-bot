@@ -3017,7 +3017,8 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         lastTime: 0, 
         intervals: [],           // 记录最近5次间隔用于节奏分析
         pokeStyle: 'normal',     // gentle/fast/flirty/normal
-        lastCounterTime: 0       // 上次反击时间
+        lastCounterTime: 0,      // 上次反击时间
+        lastReplyTime: 0         // 上次给该用户回复的时间
     };
     
     // 🚨 Per-user cooldown 检查：防止单用户刷屏
@@ -3189,8 +3190,8 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(眨眨眼) Sensei是在确认爱丽丝是不是真的吗？放心！爱丽丝一直都在哦！(✨ω✨)",
                 "(小声) 两次了...Sensei该不会是无聊了吧？那...那爱丽丝陪你玩游戏好不好？(期待)"
             ];
-        } else {
-            // 第三次及以上 - 更丰富的情感反应
+        } else if (pokeCount <= 5) {
+            // 第三次到第五次 - 更丰富的情感反应
             pokeReplies = [
                 "(开始转圈) 哇啊！连续攻击！爱丽丝要晕了！(＠_＠)",
                 "(抱头) Sensei...爱丽丝的处理器快过热啦！给点冷却时间吧！(>﹏<)",
@@ -3201,7 +3202,11 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(光环乱闪) 系统紊乱！爱丽丝的光环失控了！Sensei快停手！",
                 "(抓住Sensei的手) 不许再戳了！让爱丽丝戳回去！(认真脸)",
                 "(眼冒金星) 这...这就是传说中的连击技能吗！爱丽丝要学会反击了！",
-                "(委屈巴巴) Sensei明明说过要保护爱丽丝的...现在却一直欺负人家...(＞︿＜)",
+                "(委屈巴巴) Sensei明明说过要保护爱丽丝的...现在却一直欺负人家...(＞︿＜)"
+            ];
+        } else {
+            // 第六次及以上 - 极限状态回复
+            pokeReplies = [
                 "(捂住光环原地转) 不行了不行了！爱丽丝的定位系统都乱了！Sensei要负责！(晕乎乎)",
                 "(突然严肃) 等等...爱丽丝明白了！这是Sensei的特殊训练对吧！那爱丽丝会加油的！(握拳)",
                 "(小跑躲开) 呀！(藏到桌子后) Sensei今天是吃了增加敏捷度的药水吗？手速好快！",
@@ -3211,16 +3216,18 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(装作晕倒) 爱丽丝...战败了...(倒地) 请Sensei...说句温柔的话...让爱丽丝复活...(偷看)",
                 "(光环变成问号) 系统提示：检测到异常高频互动...分析中...结论：Sensei在撒娇！(确信)",
                 "(抱住拖把躲) Sensei！爱丽丝要发动反击了！(蓄力中)...算了还是不忍心...(放下武器)",
-                "(眼泪汪汪) 呜呜...这已经是第${pokeCount}次了...爱丽丝好感度都要溢出来了...(擦眼泪)"
+                `(眼泪汪汪) 呜呜...这已经是第${pokeCount}次了...爱丽丝好感度都要溢出来了...(擦眼泪)`,
+                "(系统过载) 警告！戳击次数超过阈值！爱丽丝的核心快要融化了！(冒烟)",
+                "(抱住Sensei) 够了够了！(撒娇) 再戳的话...爱丽丝真的要哭了哦...(可怜巴巴)"
             ];
         }
         
         // 🎨 根据 pokeStyle 调整回复内容
         pokeReplies = adjustRepliesByStyle(pokeReplies, pokeStyle);
         
-        // 检查是否刚刚回复过（15秒内）
-        const lastBotTs = lastBotReply[pokeKey] || 0;
-        if (now - lastBotTs < JUST_REPLIED_MS) {
+        // ✅ 使用per-user的回复时间检查（避免多人互相干扰）
+        const lastUserReplyTime = pokeStats[pokeKey].lastReplyTime || 0;
+        if (now - lastUserReplyTime < JUST_REPLIED_MS) {
             const recentReplies = [
                 "刚才不是说过了吗？(歪头) Sensei 的记忆缓存有问题？",
                 "(无奈) 爱丽丝刚才已经响应过了哦...Sensei是不是忘记存档了？",
@@ -3229,13 +3236,19 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             replyMessage = recentReplies[Math.floor(Math.random() * recentReplies.length)];
         } else {
             replyMessage = pokeReplies[Math.floor(Math.random() * pokeReplies.length)];
+            // 更新该用户的最后回复时间
+            pokeStats[pokeKey].lastReplyTime = now;
         }
     }
 
     // 使用安全的 DB 更新函数（ETag + 重试）
     await updatePokeStats(cosmosContainer, pokeDbKey, pokeKey, { 
         count: pokeStats[pokeKey].count, 
-        lastTime: pokeStats[pokeKey].lastTime 
+        lastTime: pokeStats[pokeKey].lastTime,
+        lastReplyTime: pokeStats[pokeKey].lastReplyTime,
+        intervals: pokeStats[pokeKey].intervals,
+        pokeStyle: pokeStats[pokeKey].pokeStyle,
+        lastCounterTime: pokeStats[pokeKey].lastCounterTime
     }, context);
     
     // 更新 lastBotReply
