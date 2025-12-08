@@ -2768,19 +2768,27 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     const sessionKey = `${pokeDbKey}:bot`;
     await updateLastBotReply(cosmosContainer, pokeDbKey, sessionKey, context);
 
-    // 发送回复消息到群（带重试机制）
+    // 发送回复消息到群（带重试机制 + 详细错误日志）
     if (groupId && replyMessage) {
         const sendMsgUrl = `${NAPCAT_API_URL}/send_group_msg`;
         const msgPayload = {
             group_id: Number(groupId),
             message: replyMessage
         };
-        context.log(`[戳一戳] 正在发送回复到群 ${groupId}: ${replyMessage}`);
+        
+        // 🔍 详细日志：打印完整请求信息
+        context.log(`[戳一戳-调试] 准备发送消息到群 ${groupId}`);
+        context.log(`[戳一戳-调试] 完整URL: ${sendMsgUrl}`);
+        context.log(`[戳一戳-调试] Payload: ${JSON.stringify(msgPayload)}`);
+        context.log(`[戳一戳-调试] Token长度: ${NAPCAT_TOKEN ? NAPCAT_TOKEN.length : 0}`);
+        context.log(`[戳一戳-调试] 消息内容: ${replyMessage}`);
         
         // 使用重试机制（最多3次）
         let sendSuccess = false;
         for (let attempt = 0; attempt < 3 && !sendSuccess; attempt++) {
             try {
+                context.log(`[戳一戳-调试] 开始第${attempt + 1}次尝试...`);
+                
                 const sendResponse = await fetchBypass(
                     sendMsgUrl,
                     {
@@ -2794,43 +2802,66 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                     0
                 );
                 
+                context.log(`[戳一戳-调试] 收到响应: ${sendResponse ? `状态码=${sendResponse.status}` : 'null'}`);
+                
                 if (sendResponse && sendResponse.ok) {
                     const respData = await sendResponse.json();
-                    context.log(`[戳一戳] 消息发送成功! message_id=${respData.data?.message_id || 'N/A'} (尝试${attempt + 1}次)`);
+                    context.log(`[戳一戳] ✅ 消息发送成功! message_id=${respData.data?.message_id || 'N/A'} (尝试${attempt + 1}次)`);
+                    context.log(`[戳一戳-调试] 完整响应: ${JSON.stringify(respData)}`);
                     sendSuccess = true;
                 } else if (sendResponse) {
                     const errorText = await sendResponse.text();
-                    context.error(`[戳一戳] 消息发送失败, 状态码: ${sendResponse.status}, 响应: ${errorText} (尝试${attempt + 1}次)`);
+                    context.error(`[戳一戳] ❌ 消息发送失败`);
+                    context.error(`[戳一戳-调试] 状态码: ${sendResponse.status}`);
+                    context.error(`[戳一戳-调试] 响应体: ${errorText}`);
+                    context.error(`[戳一戳-调试] 响应头: ${JSON.stringify(Object.fromEntries(sendResponse.headers.entries()))}`);
                 } else {
-                    context.error(`[戳一戳] NapCat 无响应 (尝试${attempt + 1}次)`);
+                    context.error(`[戳一戳] ❌ NapCat 返回 null 响应 (尝试${attempt + 1}次)`);
                 }
             } catch (err) {
-                context.error(`[戳一戳] 发送消息异常: ${err.message} (尝试${attempt + 1}次)`);
+                // 🔍 详细错误信息
+                context.error(`[戳一戳] ❌ 发送消息异常 (尝试${attempt + 1}次)`);
+                context.error(`[戳一戳-调试] 错误类型: ${err.name}`);
+                context.error(`[戳一戳-调试] 错误代码: ${err.code || 'N/A'}`);
+                context.error(`[戳一戳-调试] 错误消息: ${err.message}`);
+                context.error(`[戳一戳-调试] 错误堆栈: ${err.stack}`);
+                context.error(`[戳一戳-调试] 完整错误对象: ${JSON.stringify(err, Object.getOwnPropertyNames(err))}`);
             }
             
             if (!sendSuccess && attempt < 2) {
-                await sleep(1000 + attempt * 500);
+                const delay = 1000 + attempt * 500;
+                context.log(`[戳一戳-调试] 等待 ${delay}ms 后重试...`);
+                await sleep(delay);
                 context.log(`[戳一戳] 重试发送消息...`);
             }
         }
         
         if (!sendSuccess) {
-            context.error(`[戳一戳] ❌ 消息发送失败，已尝试3次。请检查 NapCat 服务器 (${NAPCAT_API_URL}) 是否运行正常。`);
+            context.error(`[戳一戳] ❌ 消息发送失败，已尝试3次`);
+            context.error(`[戳一戳-调试] 目标服务器: ${NAPCAT_API_URL}`);
+            context.error(`[戳一戳-调试] 完整URL: ${sendMsgUrl}`);
+            context.error(`[戳一戳-调试] 建议检查: 1) NapCat服务是否运行 2) 端口6009是否开放 3) 网络连通性`);
         }
     }
 
-    // 执行反击(如果需要)（带重试机制）
+    // 执行反击(如果需要)（带重试机制 + 详细错误日志）
     if (shouldCounterPoke && groupId) {
         const napcatUrl = `${NAPCAT_API_URL}/group_poke`;
         const pokePayload = {
             group_id: Number(groupId),
             user_id: Number(userId)
         };
-        context.log(`[戳一戳反击] 正在戳回用户 ${userId} 在群 ${groupId}`);
+        
+        // 🔍 详细日志
+        context.log(`[戳一戳反击-调试] 准备反击用户 ${userId}`);
+        context.log(`[戳一戳反击-调试] 完整URL: ${napcatUrl}`);
+        context.log(`[戳一戳反击-调试] Payload: ${JSON.stringify(pokePayload)}`);
         
         let counterSuccess = false;
         for (let attempt = 0; attempt < 3 && !counterSuccess; attempt++) {
             try {
+                context.log(`[戳一戳反击-调试] 开始第${attempt + 1}次尝试...`);
+                
                 const pokeResponse = await fetchBypass(
                     napcatUrl,
                     {
@@ -2844,27 +2875,40 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                     0
                 );
                 
+                context.log(`[戳一戳反击-调试] 收到响应: ${pokeResponse ? `状态码=${pokeResponse.status}` : 'null'}`);
+                
                 if (pokeResponse && pokeResponse.ok) {
                     const respText = await pokeResponse.text();
-                    context.log(`[戳一戳反击] 成功! 状态码: ${pokeResponse.status}, 响应: ${respText} (尝试${attempt + 1}次)`);
+                    context.log(`[戳一戳反击] ✅ 成功! (尝试${attempt + 1}次)`);
+                    context.log(`[戳一戳反击-调试] 响应: ${respText}`);
                     counterSuccess = true;
                 } else if (pokeResponse) {
-                    context.warn(`[戳一戳反击] 失败, 状态码: ${pokeResponse.status}, 响应: ${await pokeResponse.text()} (尝试${attempt + 1}次)`);
+                    const errorText = await pokeResponse.text();
+                    context.warn(`[戳一戳反击] ❌ 失败 (尝试${attempt + 1}次)`);
+                    context.warn(`[戳一戳反击-调试] 状态码: ${pokeResponse.status}`);
+                    context.warn(`[戳一戳反击-调试] 响应: ${errorText}`);
                 } else {
-                    context.warn(`[戳一戳反击] NapCat 无响应 (尝试${attempt + 1}次)`);
+                    context.warn(`[戳一戳反击] ❌ NapCat 返回 null 响应 (尝试${attempt + 1}次)`);
                 }
             } catch (err) {
-                context.error(`[戳一戳反击] 异常: ${err.message} (尝试${attempt + 1}次)`);
+                // 🔍 详细错误信息
+                context.error(`[戳一戳反击] ❌ 异常 (尝试${attempt + 1}次)`);
+                context.error(`[戳一戳反击-调试] 错误代码: ${err.code || 'N/A'}`);
+                context.error(`[戳一戳反击-调试] 错误消息: ${err.message}`);
+                context.error(`[戳一戳反击-调试] 错误堆栈: ${err.stack}`);
             }
             
             if (!counterSuccess && attempt < 2) {
-                await sleep(1000 + attempt * 500);
+                const delay = 1000 + attempt * 500;
+                context.log(`[戳一戳反击-调试] 等待 ${delay}ms 后重试...`);
+                await sleep(delay);
                 context.log(`[戳一戳反击] 重试反击...`);
             }
         }
         
         if (!counterSuccess) {
-            context.error(`[戳一戳反击] ❌ 反击失败，已尝试3次。`);
+            context.error(`[戳一戳反击] ❌ 反击失败，已尝试3次`);
+            context.error(`[戳一戳反击-调试] 目标URL: ${napcatUrl}`);
         }
     }
 
