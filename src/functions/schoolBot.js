@@ -2820,7 +2820,7 @@ app.http('schoolBot', {
             const audioSource = getAudioSource(cuteImageReply, context);
             if (audioSource && audioSource.source === "URL") {
                 // Tier 1 命中: 发送 GitHub 直链音频 + 文字回复
-                const audioCQ = `[CQ:record,file=${audioSource.url}]`;
+                const audioCQ = `[CQ:record,file=${audioSource.url},cache=0]`;
                 bodyText = `${audioCQ}\n${bodyText}`;
                 context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
             }
@@ -3000,7 +3000,7 @@ app.http('schoolBot', {
             const audioSource = getAudioSource(aiReply, context);
             if (audioSource && audioSource.source === "URL") {
                 // Tier 1 命中: 发送 GitHub 直链音频 + 文字回复
-                const audioCQ = `[CQ:record,file=${audioSource.url}]`;
+                const audioCQ = `[CQ:record,file=${audioSource.url},cache=0]`;
                 finalResponseBody = `${audioCQ}\n${finalResponseBody}`;
                 context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
             }
