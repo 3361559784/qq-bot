@@ -3065,7 +3065,10 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     // 🚨 防止自触发循环：如果是机器人自己戳自己，直接返回
     if (BOT_QQ_ID && String(userId) === String(BOT_QQ_ID)) {
         context.log(`[Poke] 忽略来自机器人自身的戳 (userId=${userId})`);
-        return { status: 200 };
+        return {
+            status: 200,
+            jsonBody: { status: 'ok', message: 'self_poke_ignored' }
+        };
     }
     
     // 从 DB 读取现有数据
@@ -3104,7 +3107,10 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     const timeSinceLastPoke = now - (pokeStats[pokeKey].lastTime || 0);
     if (timeSinceLastPoke < USER_POKE_COOLDOWN_MS && timeSinceLastPoke > 0) {
         context.log(`[Poke] 用户 ${userId} 在冷却中 (${timeSinceLastPoke}ms < ${USER_POKE_COOLDOWN_MS}ms)，忽略`);
-        return { status: 200 };
+        return {
+            status: 200,
+            jsonBody: { status: 'ok', message: 'user_cooldown' }
+        };
     }
 
     // 统计连续戳：窗口内则累加，否则重置
@@ -3527,8 +3533,11 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
 
     context.log(`[戳一戳] 处理完成 (key=${pokeKey}, count=${pokeStats[pokeKey].count}, 反击=${shouldCounterPoke})`);
 
-    // 返回 200 表示事件已处理
-    return { status: 200 };
+    // 返回成功响应表示事件已处理
+    return {
+        status: 200,
+        jsonBody: { status: 'ok', message: 'poke_processed' }
+    };
 }
 
 app.http('schoolBot', {
@@ -3579,7 +3588,10 @@ app.http('schoolBot', {
                                 // 🚨 防止自触发循环
                                 if (BOT_QQ_ID && String(pokerId) === String(BOT_QQ_ID)) {
                                     context.log(`[灰条戳一戳] 忽略来自机器人自身的戳 (pokerId=${pokerId})`);
-                                    return { status: 200 };
+                                    return {
+                                        status: 200,
+                                        jsonBody: { status: 'ok', message: 'self_poke_ignored' }
+                                    };
                                 }
                                 
                                 if (pokerId && groupId) {
@@ -3591,8 +3603,11 @@ app.http('schoolBot', {
                         context.log(`[灰条戳一戳] 解析失败: ${err.message}`);
                     }
                     
-                    // 即使解析失败，也返回 200 避免 NapCat 重试
-                    return { status: 200 };
+                    // 即使解析失败，也返回成功响应避免 NapCat 重试
+                    return {
+                        status: 200,
+                        jsonBody: { status: 'ok', message: 'gray_tip_processed' }
+                    };
                 }
 
                 // === 事件路由 (戳一戳 / 进群) ===
@@ -3602,7 +3617,10 @@ app.http('schoolBot', {
                     // 🚨 防止自触发循环：忽略来自机器人自己的 notice 事件
                     if (BOT_QQ_ID && String(body.user_id) === String(BOT_QQ_ID)) {
                         context.log(`[Notice事件] 忽略来自机器人自身的事件 (user_id=${body.user_id})`);
-                        return { status: 200 };
+                        return {
+                            status: 200,
+                            jsonBody: { status: 'ok', message: 'self_notice_ignored' }
+                        };
                     }
                     
                     // 1. 真实戳一戳事件 - 新格式 (NapCat官方支持)
@@ -3641,11 +3659,19 @@ app.http('schoolBot', {
 
                     // 其他通知事件记录并忽略
                     context.log(`[Notice事件] 未处理的通知类型: notice_type=${body.notice_type}, sub_type=${body.sub_type}`);
-                    return { status: 200 };
+                    return {
+                        status: 200,
+                        jsonBody: { status: 'ok', message: 'notice_logged' }
+                    };
                 }
 
                 // 非消息且非通知，忽略
-                if (body.post_type !== 'message') return { status: 200 };
+                if (body.post_type !== 'message') {
+                    return {
+                        status: 200,
+                        jsonBody: { status: 'ok', message: 'non_message_event' }
+                    };
+                }
 
                 const rawMsg = body.raw_message || "";
                 
@@ -3696,7 +3722,12 @@ app.http('schoolBot', {
                         }
                     }
                     
-                    if (!shouldRespond) return { status: 200 };
+                    if (!shouldRespond) {
+                        return {
+                            status: 200,
+                            jsonBody: { status: 'ok', message: 'group_ignored' }
+                        };
+                    }
                     
                     // 【清洗步骤 1】移除 @本体 的 CQ 码
                     let tempMsg = rawMsg.replace(atCode, "");
@@ -3721,7 +3752,12 @@ app.http('schoolBot', {
                         return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
                     }
                     
-                    if (!msg) return { status: 200 };
+                    if (!msg) {
+                        return {
+                            status: 200,
+                            jsonBody: { status: 'ok', message: 'empty_message' }
+                        };
+                    }
                 } else {
                     // 私聊也做简单清洗
                     msg = rawMsg.replace(/\[CQ:(?!image).*?\]/g, "").trim();
@@ -3748,7 +3784,12 @@ app.http('schoolBot', {
         }
 
         // 如果 msg 依然为空 (解析失败或被过滤)，结束运行
-        if (!msg) return { status: 200 };
+        if (!msg) {
+            return {
+                status: 200,
+                jsonBody: { status: 'ok', message: 'no_message_content' }
+            };
+        }
         if (!token) return { body: JSON.stringify({ reply: "Error: Token missing" }) };
         // ==========================================
         // 2. 天气查询插件 (集成 fetchBypass)
