@@ -2593,13 +2593,44 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     const sessionKey = `${pokeDbKey}:bot`;
     await updateLastBotReply(cosmosContainer, pokeDbKey, sessionKey, context);
 
+    // 发送回复消息到群
+    if (groupId && replyMessage) {
+        try {
+            const sendMsgUrl = `${NAPCAT_API_URL}/send_group_msg`;
+            const msgPayload = {
+                group_id: Number(groupId),
+                message: replyMessage
+            };
+            context.log(`[戳一戳] 正在发送回复到群 ${groupId}: ${replyMessage}`);
+            
+            const sendResponse = await fetch(sendMsgUrl, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${NAPCAT_TOKEN}`
+                },
+                body: JSON.stringify(msgPayload)
+            });
+            
+            if (sendResponse.ok) {
+                const respData = await sendResponse.json();
+                context.log(`[戳一戳] 消息发送成功! message_id=${respData.data?.message_id || 'N/A'}`);
+            } else {
+                const errorText = await sendResponse.text();
+                context.error(`[戳一戳] 消息发送失败, 状态码: ${sendResponse.status}, 响应: ${errorText}`);
+            }
+        } catch (err) {
+            context.error(`[戳一戳] 发送消息异常: ${err.message}`);
+        }
+    }
+
     // 执行反击(如果需要)
     if (shouldCounterPoke && groupId) {
         try {
             const napcatUrl = `${NAPCAT_API_URL}/group_poke`;
             const pokePayload = {
-                group_id: groupId,
-                user_id: userId
+                group_id: Number(groupId),
+                user_id: Number(userId)
             };
             context.log(`[戳一戳反击] 正在戳回用户 ${userId} 在群 ${groupId}`);
             
@@ -2619,19 +2650,14 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 context.warn(`[戳一戳反击] 失败, 状态码: ${pokeResponse.status}, 响应: ${await pokeResponse.text()}`);
             }
         } catch (err) {
-            context.error(`[戳一戳反击] 异常: ${err}`);
+            context.error(`[戳一戳反击] 异常: ${err.message}`);
         }
     }
 
-    context.log(`[戳一戳] 触发 (key=${pokeKey}, count=${pokeStats[pokeKey].count}, 反击=${shouldCounterPoke}) -> ${replyMessage}`);
+    context.log(`[戳一戳] 处理完成 (key=${pokeKey}, count=${pokeStats[pokeKey].count}, 反击=${shouldCounterPoke})`);
 
-    return {
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        body: JSON.stringify({ 
-            reply: replyMessage,
-            auto_escape: false
-        })
-    };
+    // 返回 200 表示事件已处理
+    return { status: 200 };
 }
 
 app.http('schoolBot', {
