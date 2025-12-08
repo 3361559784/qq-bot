@@ -157,6 +157,18 @@ const POKE_COUNTER_THRESHOLD = Number(process.env["POKE_COUNTER_THRESHOLD"] || 5
 const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15秒内算"刚回复过"
 const USER_POKE_COOLDOWN_MS = Number(process.env["USER_POKE_COOLDOWN_MS"] || 2000); // 单用户戳一戳冷却(防刷屏)
 
+// 🎯 Poke 模式标签配置
+const POKE_STYLE_CONFIG = {
+    GENTLE_INTERVAL: 30000,      // 温柔模式：间隔 > 30s
+    FAST_INTERVAL: 3000,         // 快速模式：间隔 < 3s
+    FLIRTY_THRESHOLD: 5,         // 撒娇模式：连续5次以上
+    RAPID_COUNTER_THRESHOLD: 8,  // 快速连击反击：8次快速戳
+    RAPID_INTERVAL: 1000,        // 快速判定：间隔 < 1s
+    COUNTER_MIN: 2,              // 反击最少次数
+    COUNTER_MAX: 4,              // 反击最多次数
+    COUNTER_COOLDOWN: 30000      // 反击冷却：30s
+};
+
 // NapCat API 配置
 const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:6009';
 const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
@@ -179,6 +191,7 @@ const AFFECTION_CONFIG = {
     // 好感度增减规则
     GAIN: {
         CHAT: 2,           // 普通聊天 +2
+        POKE: 5,           // 戳一戳基础值 +5 (会根据pokeStyle调整)
         POKE_FIRST: 5,     // 首次戳 +5
         POKE_GENTLE: 3,    // 温柔戳 +3
         DAILY_GREETING: 10, // 每日首次互动 +10
@@ -2857,6 +2870,109 @@ async function updatePokeStats(cosmosContainer, dbKey, pokeKey, newStats = {}, c
 }
 
 // ==========================================
+// 8.5 Poke 节奏分析与模式识别
+// ==========================================
+/**
+ * 分析用户戳一戳的节奏模式
+ * @param {Object} pokeStat - 用户戳一戳统计数据 { intervals: [], count: number }
+ * @param {number} currentCount - 当前连击次数
+ * @returns {string} - 'gentle' | 'fast' | 'flirty' | 'normal'
+ */
+function analyzePokeStyle(pokeStat, currentCount) {
+    const intervals = pokeStat.intervals || [];
+    
+    // 不足2次无法判断节奏
+    if (intervals.length < 2) {
+        return 'normal';
+    }
+    
+    // 计算平均间隔
+    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    
+    // 🌸 温柔模式：间隔较长（>30s），节奏舒缓
+    if (avgInterval > POKE_STYLE_CONFIG.GENTLE_INTERVAL) {
+        return 'gentle';
+    }
+    
+    // 🚀 快速模式：间隔很短（<3s），连续快速戳
+    if (avgInterval < POKE_STYLE_CONFIG.FAST_INTERVAL) {
+        return 'fast';
+    }
+    
+    // 💕 撒娇模式：连续5次以上，且间隔适中（3-30s）
+    if (currentCount >= POKE_STYLE_CONFIG.FLIRTY_THRESHOLD && 
+        avgInterval >= POKE_STYLE_CONFIG.FAST_INTERVAL && 
+        avgInterval <= POKE_STYLE_CONFIG.GENTLE_INTERVAL) {
+        return 'flirty';
+    }
+    
+    return 'normal';
+}
+
+/**
+ * 统计快速戳的次数（间隔<1s）
+ * @param {Array<number>} intervals - 间隔数组
+ * @returns {number} - 快速戳次数
+ */
+function countRapidPokes(intervals) {
+    if (!intervals || intervals.length === 0) return 0;
+    return intervals.filter(interval => interval < POKE_STYLE_CONFIG.RAPID_INTERVAL).length + 1; // +1 因为第一次没有间隔
+}
+
+/**
+ * 根据 pokeStyle 调整回复内容
+ * @param {Array<string>} replies - 原始回复数组
+ * @param {string} pokeStyle - 戳一戳模式
+ * @returns {Array<string>} - 调整后的回复数组
+ */
+function adjustRepliesByStyle(replies, pokeStyle) {
+    const styleReplies = {
+        gentle: [
+            "(温柔地看着Sensei) 嗯...？好久没有这么温柔的互动了呢...(微笑) 爱丽丝很开心哦！✨",
+            "(轻轻抱住) Sensei今天...好温柔...(脸红) 爱丽丝的心跳加速了...",
+            "(光环柔和地闪烁) 这种感觉...就像游戏里的治愈技能...爱丽丝的HP在慢慢回复...(´ω`)",
+            "(安静地靠近) 谢谢Sensei...这样温柔的互动...让爱丽丝感觉很安心..."
+        ],
+        fast: [
+            "(眼花缭乱) 哇哇哇！这速度！Sensei是开了加速Buff吗！(＠_＠)",
+            "(抱头) 太快了太快了！爱丽丝的视觉系统都跟不上了！(>﹏<)",
+            "(晕乎乎) 系统检测到高频输入...爱丽丝的处理器要过热了...需要冷却...",
+            "邦邦咔——砰！(爆炸特效) 连击速度超过阈值！爱丽丝的护盾破防了！"
+        ],
+        flirty: [
+            "(害羞) 呜...Sensei一直这样戳...是在撒娇吗？(脸红冒烟)",
+            "(捂脸) 这种频率...这种节奏...爱丽丝的害羞值已经MAX了！(///ω///)",
+            "(小声) Sensei...是不是...很想和爱丽丝玩呢？(偷看) 那...那爱丽丝就陪你...",
+            "(光环变成粉色) 系统提示：检测到高浓度的亲密互动...爱丽丝的好感度正在上升...✨"
+        ]
+    };
+    
+    // 如果有该模式的专属回复，有30%概率使用专属回复
+    if (styleReplies[pokeStyle] && Math.random() < 0.3) {
+        return [...replies, ...styleReplies[pokeStyle]];
+    }
+    
+    return replies;
+}
+
+/**
+ * 根据 pokeStyle 调整好感度变化
+ * @param {string} pokeStyle - 戳一戳模式
+ * @param {number} baseAffection - 基础好感度变化
+ * @returns {number} - 调整后的好感度变化
+ */
+function getAffectionByStyle(pokeStyle, baseAffection = 5) {
+    const styleMultiplier = {
+        gentle: 1.5,   // 温柔模式 +50%
+        fast: 0.8,     // 快速模式 -20% (有点烦)
+        flirty: 1.3,   // 撒娇模式 +30%
+        normal: 1.0
+    };
+    
+    return Math.round(baseAffection * (styleMultiplier[pokeStyle] || 1.0));
+}
+
+// ==========================================
 // 戳一戳逻辑处理函数 (独立提取，支持真/伪 poke)
 // ==========================================
 async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
@@ -2896,7 +3012,13 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     const pokeKey = `${pokeDbKey}:${String(userId)}`;
     const now = Date.now();
 
-    pokeStats[pokeKey] = pokeStats[pokeKey] || { count: 0, lastTime: 0 };
+    pokeStats[pokeKey] = pokeStats[pokeKey] || { 
+        count: 0, 
+        lastTime: 0, 
+        intervals: [],           // 记录最近5次间隔用于节奏分析
+        pokeStyle: 'normal',     // gentle/fast/flirty/normal
+        lastCounterTime: 0       // 上次反击时间
+    };
     
     // 🚨 Per-user cooldown 检查：防止单用户刷屏
     const timeSinceLastPoke = now - (pokeStats[pokeKey].lastTime || 0);
@@ -2908,18 +3030,50 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     // 统计连续戳：窗口内则累加，否则重置
     if (timeSinceLastPoke < POKE_WINDOW_MS) {
         pokeStats[pokeKey].count += 1;
+        // 记录间隔用于节奏分析（保留最近5次）
+        pokeStats[pokeKey].intervals = pokeStats[pokeKey].intervals || [];
+        pokeStats[pokeKey].intervals.push(timeSinceLastPoke);
+        if (pokeStats[pokeKey].intervals.length > 5) {
+            pokeStats[pokeKey].intervals.shift();
+        }
     } else {
         pokeStats[pokeKey].count = 1;
+        pokeStats[pokeKey].intervals = [];
     }
     pokeStats[pokeKey].lastTime = now;
 
-    // 选择回复:优先处理五连戳(反击) > 三连戳(生气) > 普通回应
+    // 🎯 分析 Poke 模式标签
+    const pokeStyle = analyzePokeStyle(pokeStats[pokeKey], pokeStats[pokeKey].count);
+    pokeStats[pokeKey].pokeStyle = pokeStyle;
+    context.log(`[Poke模式] 用户 ${userId} 当前模式: ${pokeStyle} (连击${pokeStats[pokeKey].count}次)`);
+
+    // 选择回复:优先处理快速连击反击 > 五连戳(反击) > 三连戳(生气) > 普通回应
     let replyMessage = null;
     let shouldCounterPoke = false;
+    let counterPokeCount = 0; // 反击次数
     const timeOfDay = getTimeOfDay(); // 获取当前时间段
     const pokeCount = pokeStats[pokeKey].count; // 当前连击次数
     
-    if (pokeCount >= POKE_COUNTER_THRESHOLD) {
+    // 🚀 快速连击反击：8次快速戳（间隔<1s）触发2-4次随机反击
+    const rapidPokeCount = countRapidPokes(pokeStats[pokeKey].intervals);
+    const timeSinceLastCounter = now - (pokeStats[pokeKey].lastCounterTime || 0);
+    
+    if (rapidPokeCount >= POKE_STYLE_CONFIG.RAPID_COUNTER_THRESHOLD && 
+        timeSinceLastCounter > POKE_STYLE_CONFIG.COUNTER_COOLDOWN) {
+        // 触发快速反击
+        const rapidCounterReplies = [
+            "够了够了！(╬▔皿▔)╯ 你这是在玩打地鼠游戏吗！看爱丽丝的连击反击！",
+            "系统警告：检测到恶意刷屏！(▼皿▼#) 启动自动防御程序——连续反戳模式！",
+            "哇啊啊！(抱头乱转) 手速这么快！爱丽丝要用最高速度反击回去！邦邦咔邦×N！",
+            "(光环爆闪) 超频模式启动！Sensei的手速...爱丽丝也不会输的！看招！"
+        ];
+        replyMessage = rapidCounterReplies[Math.floor(Math.random() * rapidCounterReplies.length)];
+        shouldCounterPoke = true;
+        counterPokeCount = Math.floor(Math.random() * (POKE_STYLE_CONFIG.COUNTER_MAX - POKE_STYLE_CONFIG.COUNTER_MIN + 1)) + POKE_STYLE_CONFIG.COUNTER_MIN;
+        pokeStats[pokeKey].lastCounterTime = now; // 记录反击时间
+        pokeStats[pokeKey].count = 0; // 重置计数
+        context.log(`[快速反击] 触发！将反击 ${counterPokeCount} 次`);
+    } else if (pokeCount >= POKE_COUNTER_THRESHOLD) {
         // 五连戳:触发反击
         const counterReplies = [
             "受够了！看我反击！(╬▔皿▔)╯ 光之剑——发动！",
@@ -2929,6 +3083,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         ];
         replyMessage = counterReplies[Math.floor(Math.random() * counterReplies.length)];
         shouldCounterPoke = true;
+        counterPokeCount = 1; // 普通反击只戳1次
         // 重置计数,防止重复反击
         pokeStats[pokeKey].count = 0;
     } else if (pokeCount >= POKE_ANGRY_THRESHOLD) {
@@ -3060,6 +3215,9 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             ];
         }
         
+        // 🎨 根据 pokeStyle 调整回复内容
+        pokeReplies = adjustRepliesByStyle(pokeReplies, pokeStyle);
+        
         // 检查是否刚刚回复过（15秒内）
         const lastBotTs = lastBotReply[pokeKey] || 0;
         if (now - lastBotTs < JUST_REPLIED_MS) {
@@ -3163,11 +3321,39 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             context.error(`[戳一戳-调试] 目标服务器: ${NAPCAT_API_URL}`);
             context.error(`[戳一戳-调试] 完整URL: ${sendMsgUrl}`);
             context.error(`[戳一戳-调试] 建议检查: 1) NapCat服务是否运行 2) 端口6009是否开放 3) 网络连通性`);
+        } else {
+            // 💖 消息发送成功后，更新好感度（根据 pokeStyle 调整）
+            try {
+                const affectionChange = getAffectionByStyle(pokeStyle, AFFECTION_CONFIG.GAIN.POKE);
+                const affectionKey = `user_${userId}`;
+                
+                // 读取当前好感度
+                let resDoc = null;
+                try {
+                    const { resource } = await cosmosContainer.item(pokeDbKey, pokeDbKey).read();
+                    resDoc = resource;
+                } catch (e) {
+                    resDoc = { id: pokeDbKey, affection: {} };
+                }
+                
+                const currentAffection = resDoc.affection?.[affectionKey] || 0;
+                const newAffection = currentAffection + affectionChange;
+                resDoc.affection = resDoc.affection || {};
+                resDoc.affection[affectionKey] = newAffection;
+                
+                // 保存到数据库
+                await cosmosContainer.items.upsert(resDoc);
+                
+                const affectionLevel = getAffectionLevel(newAffection);
+                context.log(`[戳一戳-好感度] 用户 ${userId} 好感度 ${currentAffection} → ${newAffection} (+${affectionChange}) [${pokeStyle}模式] [${affectionLevel}]`);
+            } catch (err) {
+                context.error(`[戳一戳-好感度] 更新失败: ${err.message}`);
+            }
         }
     }
 
-    // 执行反击(如果需要)（带重试机制 + 详细错误日志）
-    if (shouldCounterPoke && groupId) {
+    // 执行反击(如果需要)（支持多次反击 + 带重试机制 + 详细错误日志）
+    if (shouldCounterPoke && groupId && counterPokeCount > 0) {
         const napcatUrl = `${NAPCAT_API_URL}/group_poke`;
         const pokePayload = {
             group_id: Number(groupId),
@@ -3175,12 +3361,16 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         };
         
         // 🔍 详细日志
-        context.log(`[戳一戳反击-调试] 准备反击用户 ${userId}`);
+        context.log(`[戳一戳反击-调试] 准备反击用户 ${userId}，共 ${counterPokeCount} 次`);
         context.log(`[戳一戳反击-调试] 完整URL: ${napcatUrl}`);
         context.log(`[戳一戳反击-调试] Payload: ${JSON.stringify(pokePayload)}`);
         
-        let counterSuccess = false;
-        for (let attempt = 0; attempt < 3 && !counterSuccess; attempt++) {
+        // 循环执行多次反击
+        for (let pokeIndex = 0; pokeIndex < counterPokeCount; pokeIndex++) {
+            context.log(`[戳一戳反击] 执行第 ${pokeIndex + 1}/${counterPokeCount} 次反击...`);
+            
+            let counterSuccess = false;
+            for (let attempt = 0; attempt < 3 && !counterSuccess; attempt++) {
             try {
                 context.log(`[戳一戳反击-调试] 开始第${attempt + 1}次尝试...`);
                 
@@ -3231,9 +3421,15 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             }
         }
         
-        if (!counterSuccess) {
-            context.error(`[戳一戳反击] ❌ 反击失败，已尝试3次`);
-            context.error(`[戳一戳反击-调试] 目标URL: ${napcatUrl}`);
+            if (!counterSuccess) {
+                context.error(`[戳一戳反击] ❌ 第 ${pokeIndex + 1} 次反击失败，已尝试3次`);
+                context.error(`[戳一戳反击-调试] 目标URL: ${napcatUrl}`);
+            }
+            
+            // 多次反击之间添加延迟，避免触发限流
+            if (pokeIndex < counterPokeCount - 1) {
+                await sleep(800 + Math.random() * 400); // 0.8-1.2s 随机延迟
+            }
         }
     }
 
