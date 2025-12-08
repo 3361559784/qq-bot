@@ -3862,6 +3862,58 @@ app.http('schoolBot', {
             return text;
         }
         
+        // 检测并替换生硬的拒绝回复为拟人化版本
+        function replaceRobotRefusal(text, affectionLevel) {
+            // 检测常见的生硬拒绝模式
+            const refusalPatterns = [
+                /^不能回答这些问题。?$/,
+                /^我不能回答.*问题。?$/,
+                /^I cannot (answer|respond to|provide).*$/i,
+                /^I can't (answer|respond to|provide).*$/i,
+                /^Sorry, I can't.*$/i,
+                /^对不起,我不能.*$/,
+                /^抱歉,我无法.*$/
+            ];
+            
+            const isRobotRefusal = refusalPatterns.some(pattern => pattern.test(text.trim()));
+            
+            if (!isRobotRefusal) return text;
+            
+            // 根据好感度生成不同风格的拒绝
+            const refusalResponses = {
+                beloved: [
+                    "(脸红) 老...老师说什么呢! (捂住脸) 爱丽丝才不会回答这种问题啦!",
+                    "(▼皿▼#) Sensei真是的! (别过头去) 爱丽丝要生气了哦!",
+                    "(害羞) 这...这种事情...爱丽丝不能说的啦... (小声) 老师真坏..."
+                ],
+                close_friend: [
+                    "(歪头) 诶? 这个问题有点奇怪呢... (尴尬笑) 爱丽丝不太方便回答...",
+                    "(摆手) 不行不行! (认真脸) 这个爱丽丝可不能告诉你哦!",
+                    "(⊙o⊙) 唔...这个嘛... (挠头) 还是换个话题吧~"
+                ],
+                friend: [
+                    "(礼貌微笑) 抱歉,这个问题爱丽丝不太适合回答呢。(建议) 我们聊点别的吧?",
+                    "(摇头) 嗯...这个话题不太合适... (转移话题) 有什么爱丽丝能帮忙的吗?",
+                    "(认真) 这个问题超出了爱丽丝的回答范围... (鞠躬) 不好意思!"
+                ],
+                acquaintance: [
+                    "(保持距离) 抱歉,这类问题爱丽丝无法提供帮助。请问还有其他需要吗?",
+                    "(礼貌) 很抱歉,这不在爱丽丝的服务范围内。有什么正经事需要帮忙吗?",
+                    "(微笑但疏远) 不好意思,这个问题爱丽丝不能回答。"
+                ],
+                stranger: [
+                    "(保持礼貌距离) 很抱歉,您的问题不在服务范围内。请问有其他需要帮助的吗?",
+                    "(客气但冷淡) 对不起,爱丽丝无法回答此类问题。",
+                    "(公事公办) 抱歉,这个问题不适合回答。请提出其他问题。"
+                ]
+            };
+            
+            const levelResponses = refusalResponses[affectionLevel] || refusalResponses.friend;
+            const randomResponse = levelResponses[Math.floor(Math.random() * levelResponses.length)];
+            
+            return randomResponse;
+        }
+        
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)
         let history = [];
         let userActivityData = {}; // B. 活跃度统计数据
@@ -4208,22 +4260,30 @@ app.http('schoolBot', {
         const userAffectionKey = `user_${senderId}`;
         let currentAffection = affectionData[userAffectionKey] || 0;
         
-        // 更新好感度
-        currentAffection += advancedEmotion.affectionChange;
-        
-        // 检查今日是否首次互动（每日首次+10）
+        // 获取今日日期（用于记录）
         const today = new Date().toLocaleDateString('zh-CN');
-        const lastChatDate = affectionData[`${userAffectionKey}_lastDate`];
-        if (lastChatDate !== today) {
-            currentAffection += AFFECTION_CONFIG.GAIN.DAILY_GREETING;
-            context.log(`[好感度] 每日首次互动！+${AFFECTION_CONFIG.GAIN.DAILY_GREETING} (${senderId})`);
-        }
-        
-        // 节日加成
         const specialEvent = getTodaySpecialEvent();
-        if (specialEvent && lastChatDate !== today) {
-            currentAffection += specialEvent.bonus;
-            context.log(`[好感度] ${specialEvent.name}加成！+${specialEvent.bonus}`);
+        
+        // 🌟 管理员(Sensei)强制最高好感度
+        if (senderId === ADMIN_ID) {
+            currentAffection = 9999;  // 管理员永久MAX好感度
+            context.log(`[好感度] 管理员 Sensei - 永久MAX好感度: ${currentAffection}`);
+        } else {
+            // 更新好感度
+            currentAffection += advancedEmotion.affectionChange;
+            
+            // 检查今日是否首次互动（每日首次+10）
+            const lastChatDate = affectionData[`${userAffectionKey}_lastDate`];
+            if (lastChatDate !== today) {
+                currentAffection += AFFECTION_CONFIG.GAIN.DAILY_GREETING;
+                context.log(`[好感度] 每日首次互动！+${AFFECTION_CONFIG.GAIN.DAILY_GREETING} (${senderId})`);
+            }
+            
+            // 节日加成
+            if (specialEvent && lastChatDate !== today) {
+                currentAffection += specialEvent.bonus;
+                context.log(`[好感度] ${specialEvent.name}加成！+${specialEvent.bonus}`);
+            }
         }
         
         // 确保好感度不会是负数
@@ -4276,17 +4336,16 @@ app.http('schoolBot', {
         
         // 根据好感度动态调整称呼和语气
         let affectionPromptAddition = '';
-        if (senderId !== ADMIN_ID) {
-            affectionPromptAddition = `\n\n【好感度系统】\n- 当前好感度: ${currentAffection} 点\n- 关系等级: ${affectionLevel}\n- 称呼对方: "${affectionTitle}"\n- 整体语气: ${voiceTone}\n`;
-            
-            // 添加具体的拟人化行为指导
-            if (affectionLevel === 'beloved') {
-                affectionPromptAddition += `\n🌟 **拟人化指导（挚爱级别）**:\n- 可以主动肢体接触: 抱、蹭、拉手、靠肩膀\n- 直接表达感情: "最喜欢了" "想一直在一起"\n- 会吃醋、会任性、会索要关注\n- 会关心对方的一切细节\n- 说话可以很随意，像亲密的恋人或家人`;
-            } else if (affectionLevel === 'close_friend') {
-                affectionPromptAddition += `\n💙 **拟人化指导（密友级别）**:\n- 适度的亲密动作: 拍肩、碰碰手、靠近说话\n- 会分享秘密和心事\n- 会主动关心和询问近况\n- 说话轻松但不会太任性`;
-            } else if (affectionLevel === 'stranger') {
-                affectionPromptAddition += `\n🤍 **拟人化指导（陌生人级别）**:\n- 保持1米以上社交距离\n- 不会有肢体接触\n- 说话客气、用敬语\n- 会观察对方，略显拘谨`;
-            }
+        // ⚠️ 管理员也需要好感度系统提示！
+        affectionPromptAddition = `\n\n【好感度系统】\n- 当前好感度: ${currentAffection} 点\n- 关系等级: ${affectionLevel}\n- 称呼对方: "${affectionTitle}"\n- 整体语气: ${voiceTone}\n`;
+        
+        // 添加具体的拟人化行为指导
+        if (affectionLevel === 'beloved') {
+            affectionPromptAddition += `\n🌟 **拟人化指导（挚爱级别）**:\n- 可以主动肢体接触: 抱、蹭、拉手、靠肩膀\n- 直接表达感情: "最喜欢了" "想一直在一起"\n- 会吃醋、会任性、会索要关注\n- 会关心对方的一切细节\n- 说话可以很随意，像亲密的恋人或家人`;
+        } else if (affectionLevel === 'close_friend') {
+            affectionPromptAddition += `\n💙 **拟人化指导（密友级别）**:\n- 适度的亲密动作: 拍肩、碰碰手、靠近说话\n- 会分享秘密和心事\n- 会主动关心和询问近况\n- 说话轻松但不会太任性`;
+        } else if (affectionLevel === 'stranger') {
+            affectionPromptAddition += `\n🤍 **拟人化指导（陌生人级别）**:\n- 保持1米以上社交距离\n- 不会有肢体接触\n- 说话客气、用敬语\n- 会观察对方，略显拘谨`;
         }
         
         // 节日特殊提示
@@ -4422,6 +4481,10 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
 
             // ⏱️ 强制压缩长度，避免长篇被截断
             aiReply = enforceShortReply(aiReply, 120, 2);
+            
+            // 🎭 检测并替换生硬的拒绝为拟人化回复
+            aiReply = replaceRobotRefusal(aiReply, affectionLevel);
+            
             // 为用户提供简短指令提示
             aiReply = appendQuickHints(aiReply);
 
