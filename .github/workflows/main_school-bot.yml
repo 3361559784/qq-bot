@@ -31,22 +31,23 @@ jobs:
       - name: 'Resolve Project Dependencies Using Npm'
         shell: bash
         run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
           npm ci --production
           npm run build --if-present
-          popd
+          echo "Listing node_modules..."
+          ls -la node_modules
 
       - name: Create deployment package
         run: |
-          pushd '${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
           zip -r deployment.zip . -x "*.git*" -x "*/.DS_Store" -x "deployment.zip"
-          popd
+          echo "Verifying deployment.zip..."
+          ls -la deployment.zip
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/deployment.zip
+          path: deployment.zip
+          if-no-files-found: error
 
   deploy:
     runs-on: ubuntu-latest
