@@ -147,6 +147,10 @@ const POKE_ANGRY_THRESHOLD = 3; // 连续戳3次触发生气
 const POKE_COUNTER_THRESHOLD = 5; // 连续戳5次触发反击
 const JUST_REPLIED_MS = 15000; // 15秒内算"刚回复过"
 
+// NapCat API 配置
+const NAPCAT_API_URL = 'http://4.230.25.38:3000';
+const NAPCAT_TOKEN = 'Tpo+ZtKAC(g7MjH%';
+
 const CITY_MAP = {
     "安徽": "Hefei", "福建": "Fuzhou", "甘肃": "Lanzhou", "广东": "Guangzhou", "广西": "Nanning", 
     "贵州": "Guiyang", "海南": "Haikou", "河北": "Shijiazhuang", "河南": "Zhengzhou", "黑龙江": "Harbin",
@@ -2476,7 +2480,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     // 执行反击(如果需要)
     if (shouldCounterPoke && groupId) {
         try {
-            const napcatUrl = 'http://4.230.25.38:3000/group_poke';
+            const napcatUrl = `${NAPCAT_API_URL}/group_poke`;
             const pokePayload = {
                 group_id: groupId,
                 user_id: userId
@@ -2485,12 +2489,16 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             
             const pokeResponse = await fetch(napcatUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${NAPCAT_TOKEN}`
+                },
                 body: JSON.stringify(pokePayload)
             });
             
             if (pokeResponse.ok) {
-                context.log(`[戳一戳反击] 成功! 状态码: ${pokeResponse.status}`);
+                const respText = await pokeResponse.text();
+                context.log(`[戳一戳反击] 成功! 状态码: ${pokeResponse.status}, 响应: ${respText}`);
             } else {
                 context.warn(`[戳一戳反击] 失败, 状态码: ${pokeResponse.status}, 响应: ${await pokeResponse.text()}`);
             }
