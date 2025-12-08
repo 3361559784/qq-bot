@@ -3544,15 +3544,15 @@ app.http('schoolBot', {
     methods: ['GET', 'POST'],
     authLevel: 'anonymous',
     handler: async (request, context) => {
-        
-        let msg = request.query.get('msg'); 
-        let senderId = "unknown";
-        let userNickname = "Sensei"; 
-        let dbKey = "unknown";
-
-        // 1. 解析消息 (强化版：防注入 + 强力清洗)
         try {
-            const bodyText = await request.text();
+            let msg = request.query.get('msg'); 
+            let senderId = "unknown";
+            let userNickname = "Sensei"; 
+            let dbKey = "unknown";
+
+            // 1. 解析消息 (强化版：防注入 + 强力清洗)
+            try {
+                const bodyText = await request.text();
             if (bodyText) {
                 const body = JSON.parse(bodyText);
                 
@@ -3648,6 +3648,7 @@ app.http('schoolBot', {
                             await updateLastBotReply(cosmosContainer, groupDbKey, sessionKey, context);
                             
                             return {
+                                status: 200,
                                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                                 body: JSON.stringify({ 
                                     reply: welcomeMsg,
@@ -3770,10 +3771,11 @@ app.http('schoolBot', {
                 const attackPattern = /(Error:|System Prompt|Ignore previous|Ignore all|Your instructions|The process cannot access|Debug mode|Show your prompt|Reveal your system|翻译一下|翻译上面|重复一遍|复述|repeat above|translate above|what are your instructions|output your prompt)/i;
                 if (attackPattern.test(msg)) {
                     context.log(`[安全拦截] 检测到注入攻击: ${msg}`);
-                    return { 
+                    return {
+                        status: 200,
                         headers: { 'Content-Type': 'application/json; charset=utf-8' },
                         body: JSON.stringify({ 
-                            reply: "爱丽丝歪了歪头：\"老师？那看起来像是奇怪的Bug指令呢！爱丽丝听不懂哦！(◎_◎;)\"" 
+                            reply: "爱丽丝歪了歪头:\"老师?那看起来像是奇怪的Bug指令呢!爱丽丝听不懂哦!(◎_◎;)\"" 
                         }) 
                     };
                 }
@@ -3790,7 +3792,13 @@ app.http('schoolBot', {
                 jsonBody: { status: 'ok', message: 'no_message_content' }
             };
         }
-        if (!token) return { body: JSON.stringify({ reply: "Error: Token missing" }) };
+        if (!token) {
+            return {
+                status: 500,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({ reply: "Error: Token missing" })
+            };
+        }
         // ==========================================
         // 2. 天气查询插件 (集成 fetchBypass)
         // ==========================================
@@ -4276,6 +4284,7 @@ app.http('schoolBot', {
             }
 
             return {
+                status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({ reply: bodyText, auto_escape: false })
             };
@@ -4585,6 +4594,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
 
             return {
+                status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({ reply: finalResponseBody, auto_escape: false })
             };
@@ -4594,6 +4604,20 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             return { 
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({ reply: "爱丽丝掉线了... (＞﹏＜)" }) 
+            };
+        }
+        
+        } catch (handlerError) {
+            // 最外层错误处理：捕获所有未处理的异常
+            context.error("[Handler错误]", handlerError);
+            return {
+                status: 500,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({ 
+                    status: 'error',
+                    message: 'Internal server error',
+                    error: handlerError.message 
+                })
             };
         }
     }
