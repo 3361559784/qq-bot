@@ -2442,8 +2442,12 @@ async function updateLastBotReply(cosmosContainer, dbKey, sessionKey, context, m
 // 戳一戳逻辑处理函数 (独立提取，支持真/伪 poke)
 // ==========================================
 async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
+    context.log(`[Poke] ===== 进入 handlePokeLogic =====`);
+    context.log(`[Poke] userId=${userId}, groupId=${groupId || '私聊'}`);
+    
     // 确定数据库 key（群聊优先，否则私聊）
     const pokeDbKey = groupId ? `group_${groupId}` : String(userId);
+    context.log(`[Poke] pokeDbKey=${pokeDbKey}`);
     
     // 从 DB 读取现有数据
     let resDoc = null;
@@ -2731,9 +2735,14 @@ app.http('schoolBot', {
                     // 【清洗步骤 4】移除其它 CQ 码 (保留图片码用于后续处理)
                     msg = tempMsg.replace(/\[CQ:(?!image).*?\]/g, "").trim();
                     
-                    // 【伪戳一戳】检测：如果 @了机器人，但消息为空或只有标点，视为“戳一戳”
-                    if (isAtMe && (!msg || /^[\s\.,，。！？!?]*$/.test(msg))) {
-                        context.log(`[伪戳一戳] 检测到空@消息，触发戳一戳逻辑`);
+                    // 【伪戳一戳 - 增强版】检测多种戳一戳触发方式
+                    // 场景1: 空@ (最像真实戳一戳)
+                    // 场景2: 只有"戳"/"摸"/"poke"等戳一戳相关词
+                    const isPokeLikeMessage = msg && /^(戳|摸|poke|戳戳|摸摸|敲|叫|醒醒|在吗|在不在)$/i.test(msg);
+                    
+                    if (isAtMe && (!msg || /^[\s\.,，。！？!?]*$/.test(msg) || isPokeLikeMessage)) {
+                        const reason = !msg ? "空@消息" : isPokeLikeMessage ? `戳一戳关键词: ${msg}` : "纯标点消息";
+                        context.log(`[伪戳一戳] ✅ 触发! 原因: ${reason}, user=${body.user_id}, group=${body.group_id}`);
                         return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
                     }
                     
