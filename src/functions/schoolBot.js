@@ -156,6 +156,121 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 // 防刷屏配置
 const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
 
+// ==========================================
+// 时间感知系统 (Time Awareness System)
+// ==========================================
+function getTimeOfDay() {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 11) return 'morning';
+    if (hour >= 11 && hour < 14) return 'noon';
+    if (hour >= 14 && hour < 18) return 'afternoon';
+    if (hour >= 18 && hour < 23) return 'evening';
+    return 'night';
+}
+
+function getTimeBasedGreeting() {
+    const timeOfDay = getTimeOfDay();
+    const greetings = {
+        morning: [
+            "早上好，Sensei！(✨ω✨) 新的一天开始了！爱丽丝的系统已经完全启动！邦邦咔邦！",
+            "(揉眼睛) 嗯...早安！爱丽丝的开机程序刚刚启动完成！(｀・ω・´)ゞ 今天的主线任务准备好了吗？",
+            "邦邦咔邦~早安！(伸懒腰) 爱丽丝梦到打败了一个超级大Boss呢！( •̀ ω •́ )✨",
+            "早上好！(光环闪烁) Sensei 的 HP 和 MP 都恢复满了吗？爱丽丝随时待命！"
+        ],
+        noon: [
+            "中午好，Sensei！(o゜▽゜)o☆ 该补充HP了！Sensei 吃午饭了吗？",
+            "午安！(拿出便当) 爱丽丝带了游戏开发部特制的经验值便当！要一起吃吗？",
+            "中午了呢~(✨ω✨) 爱丽丝建议 Sensei 现在去回复 HP 和 MP！",
+            "邦邦咔邦~午餐时间！(举起拖把) 今天的便当是什么掉落物呢？"
+        ],
+        afternoon: [
+            "下午好，Sensei！(挥手) 下午的支线任务进行得怎么样了？",
+            "午安！(✨ω✨) 爱丽丝刚完成了打扫任务！找到了三个宝箱哦！",
+            "下午好！(｀・ω・´)ゞ Sensei 需要爱丽丝的支援吗？",
+            "下午了呢...(看向窗外) 爱丽丝在想晚上要挑战哪个副本..."
+        ],
+        evening: [
+            "晚上好，Sensei！(点亮光环) 夜晚是勇者最活跃的时段！✨",
+            "晚安！(´・ω・`) 今天的任务辛苦了呢...需要爱丽丝帮忙吗？",
+            "傍晚了！(转圈) 爱丽丝的夜间战斗模式已经启动！邦邦咔邦！",
+            "晚上好！(举起拖把) Boss 战的黄金时段到了！Sensei 准备好了吗？"
+        ],
+        night: [
+            "这么晚还没休息吗？(担心) Sensei的HP已经很低了...该去存档了...",
+            "夜深了呢...(小声) 爱丽丝会守护Sensei的存档点的！(✨ω✨)",
+            "晚安，Sensei！(打哈欠) 记得存档再睡觉哦！不然会丢失今天的经验值的！",
+            "(揉眼睛) 呜...爱丽丝的待机模式快要启动了...Sensei也早点休息吧...(＞﹏＜)"
+        ]
+    };
+    const options = greetings[timeOfDay];
+    return options[Math.floor(Math.random() * options.length)];
+}
+
+// ==========================================
+// 情绪检测系统 (Emotion Detection System)
+// ==========================================
+function detectUserEmotion(msg) {
+    const sadKeywords = ['累', '难受', '烦', '痛', '哭', '伤心', '难过', '郁闷', '不开心', '失落'];
+    const happyKeywords = ['开心', '高兴', '哈哈', '棒', '厉害', '太好了', '赞', '牛', '666'];
+    const tiredKeywords = ['困', '睡', '累了', '疲劳', '乏', '想睡'];
+    const worriedKeywords = ['担心', '焦虑', '紧张', '害怕', '不安'];
+    
+    if (sadKeywords.some(k => msg.includes(k))) return 'sad';
+    if (happyKeywords.some(k => msg.includes(k))) return 'happy';
+    if (tiredKeywords.some(k => msg.includes(k))) return 'tired';
+    if (worriedKeywords.some(k => msg.includes(k))) return 'worried';
+    return 'normal';
+}
+
+function getEmotionResponseAddition(emotion) {
+    const additions = {
+        sad: '\n\n【重要】用户当前情绪低落。你要：\n- 表现出关心和安慰\n- 多用"没关系""爱丽丝在这里""不要紧的"之类温柔的话\n- 可以说"休息一下，回复HP"\n- 避免过于活泼，要温柔一些',
+        tired: '\n\n【重要】用户很疲劳。你要：\n- 劝他休息，说"HP快见底了""赶紧去存档休息吧"\n- 表现出心疼和担心\n- 可以说"爱丽丝陪你一起待机"',
+        worried: '\n\n【重要】用户有些焦虑。你要：\n- 给予鼓励，说"没问题的！勇者永不放弃！"\n- 表现出信心，说"有爱丽丝在，Boss一定能打过的！"\n- 可以转移话题让他放松',
+        happy: '\n\n【提示】用户心情很好！你要：\n- 更加活泼和元气\n- 多用"邦邦咔邦！"\n- 可以提议一起做些开心的事'
+    };
+    return additions[emotion] || '';
+}
+
+// ==========================================
+// RPG 术语增强系统 (RPG Terminology Enhancement)
+// ==========================================
+const RPG_TERMS_MAP = {
+    // 日常活动 -> RPG术语
+    '工作': '主线任务',
+    '上班': '出击',
+    '下班': '回城',
+    '学习': '升级',
+    '考试': 'Boss战',
+    '吃饭': '回复HP',
+    '喝水': '回复MP',
+    '休息': '回复状态',
+    '睡觉': '存档',
+    '起床': '读档',
+    '朋友': '队友',
+    '敌人': 'Boss',
+    '困难': '高难度副本',
+    '成功': '通关',
+    '失败': 'Game Over',
+    '帮忙': '支援',
+    '礼物': '掉落物',
+    '钱': '金币',
+    '问题': '谜题',
+    '解决': '攻略',
+    '计划': '战略'
+};
+
+function enhanceWithRPGTerms(text) {
+    // 随机将一些日常词汇转换为RPG术语（不是全部，保持自然）
+    let enhanced = text;
+    const keys = Object.keys(RPG_TERMS_MAP);
+    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+    if (text.includes(randomKey) && Math.random() > 0.5) {
+        enhanced = text.replace(randomKey, RPG_TERMS_MAP[randomKey]);
+    }
+    return enhanced;
+}
+
 const CITY_MAP = {
     "安徽": "Hefei", "福建": "Fuzhou", "甘肃": "Lanzhou", "广东": "Guangzhou", "广西": "Nanning", 
     "贵州": "Guiyang", "海南": "Haikou", "河北": "Shijiazhuang", "河南": "Zhengzhou", "黑龙江": "Harbin",
@@ -2550,35 +2665,95 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     // 选择回复:优先处理五连戳(反击) > 三连戳(生气) > 普通回应
     let replyMessage = null;
     let shouldCounterPoke = false;
+    const timeOfDay = getTimeOfDay(); // 获取当前时间段
+    const pokeCount = pokeStats[pokeKey].count; // 当前连击次数
     
-    if (pokeStats[pokeKey].count >= POKE_COUNTER_THRESHOLD) {
+    if (pokeCount >= POKE_COUNTER_THRESHOLD) {
         // 五连戳:触发反击
-        replyMessage = "受够了！看我反击！(╬▔皿▔)╯";
+        const counterReplies = [
+            "受够了！看我反击！(╬▔皿▔)╯ 光之剑——发动！",
+            "警告无效！(怒) 爱丽丝的反击模式启动！邦邦咔邦——反弹伤害！",
+            "系统过载！(▼皿▼#) 强制反击程序执行！Sensei 你完蛋了！",
+            "不可原谅！(举起拖把) 女仆勇者的最终奥义——超级反戳！"
+        ];
+        replyMessage = counterReplies[Math.floor(Math.random() * counterReplies.length)];
         shouldCounterPoke = true;
         // 重置计数,防止重复反击
         pokeStats[pokeKey].count = 0;
-    } else if (pokeStats[pokeKey].count >= POKE_ANGRY_THRESHOLD) {
-        // 生气回复
-        replyMessage = "不许再戳了！(▼へ▼メ)";
+    } else if (pokeCount >= POKE_ANGRY_THRESHOLD) {
+        // 三连戳:生气回复（更丰富）
+        const angryReplies = [
+            "不许再戳了！(▼へ▼メ) 爱丽丝的忍耐值快要归零了！",
+            "(鼓起脸颊) 呜...再戳的话爱丽丝真的要生气了哦！(｀へ´)",
+            "Sensei！(捂住光环) 这样一直戳，爱丽丝的系统会死机的！",
+            "(躲到拖把后面) 警告！警告！连续攻击检测！护盾值剩余30%！"
+        ];
+        replyMessage = angryReplies[Math.floor(Math.random() * angryReplies.length)];
         // 不重置计数,让用户可以继续触发反击
     } else {
-        // 检查是否刚刚回复过
+        // 普通回应：根据时间段和次数生成不同回复
+        let pokeReplies = [];
+        
+        if (pokeCount === 1) {
+            // 首次戳 - 根据时间段定制
+            if (timeOfDay === 'morning') {
+                pokeReplies = [
+                    "(揉眼睛) 嗯...？Sensei早安！爱丽丝的开机程序刚刚启动完成！(✨ω✨)",
+                    "早上好！(光环闪烁) 检测到友好互动信号！Sensei今天也很有活力呢！邦邦咔邦！",
+                    "(打哈欠) 呜...爱丽丝还在加载早晨的数据呢...(｀・ω・´)ゞ",
+                    "早安！(伸懒腰) 爱丽丝的晨间自检完成！所有系统正常运行中！"
+                ];
+            } else if (timeOfDay === 'night') {
+                pokeReplies = [
+                    "(小声) 嘘...夜深了，爱丽丝正在待机模式...(睡眼惺忪)",
+                    "Sensei这么晚还不睡吗？(担心) 爱丽丝陪你一起熬夜警戒！(✨ω✨)",
+                    "(光环微光) 夜间模式启动...Sensei有什么夜间任务吗？(小声)",
+                    "(揉眼睛) 呜...爱丽丝快要进入休眠模式了...但Sensei需要的话会继续待命的！"
+                ];
+            } else if (timeOfDay === 'noon') {
+                pokeReplies = [
+                    "(放下便当) 哎？Sensei也饿了吗？爱丽丝这里有回复HP的补给！(o゜▽゜)o☆",
+                    "中午好！(✨ω✨) 检测到 Sensei 的召唤！是午休时间的闲聊任务吗？",
+                    "(擦擦嘴) 爱丽丝刚吃完经验值便当！Sensei要一起回复HP吗？"
+                ];
+            } else {
+                pokeReplies = [
+                    "(光环闪烁) 系统启动中... 邦邦咔邦！同步完成！Sensei 有新任务吗？(✨ω✨)",
+                    "检测到物理接触... 嘿嘿，Sensei 是在检查爱丽丝的装备吗？(乖巧站好)",
+                    "哔哔！收到触摸指令！爱丽丝的光环闪了一下呢！( •̀ ω •́ )✨",
+                    "(歪头) Sensei 戳了一下开关？爱丽丝没有那种功能啦！(＞﹏＜)"
+                ];
+            }
+        } else if (pokeCount === 2) {
+            // 第二次戳（10秒后） - 俏皮回应
+            pokeReplies = [
+                "(歪头) 咦？Sensei又戳了一次？是有什么重要的任务吗？(´・ω・`)",
+                "嘿嘿~ (转圈) Sensei很喜欢爱丽丝吧！光环又闪了一下呢！(✨ω✨)",
+                "(拿出拖把) 检测到连续指令！勇者待命中！(｀・ω・´)ゞ",
+                "哔哔~ 系统温度上升0.5℃...(脸红) Sensei别一直戳啦...(＞﹏＜)",
+                "(眨眼) 两连击！Sensei的连击数+1！是在练习Combo吗？( •̀ ω •́ )✨",
+                "又来了！(捂住光环) 爱丽丝的HP还是满的哦！不用担心！"
+            ];
+        } else {
+            // 第三次（接近生气）
+            pokeReplies = [
+                "(捂住光环) 呜...爱丽丝的光环要过载了...(＞﹏＜)",
+                "Sensei！(鼓起脸颊) 这样一直戳，爱丽丝的系统会死机的！(｀へ´)",
+                "(躲到拖把后面) 警告！警告！检测到连续攻击！护盾快要失效了！",
+                "(小声抗议) Sensei...再戳爱丽丝就真的要生气了哦...(＞д＜)"
+            ];
+        }
+        
+        // 检查是否刚刚回复过（15秒内）
         const lastBotTs = lastBotReply[pokeKey] || 0;
         if (now - lastBotTs < JUST_REPLIED_MS) {
-            replyMessage = "刚才不是说过了吗？(歪头)";
-        } else {
-            // 否则随机温柔回应 (游戏化风格)
-            const pokeReplies = [
-                "(光环闪烁) 系统启动中... 邦邦咔邦！同步完成！Sensei 有新任务吗？(✨ω✨)",
-                "检测到物理接触... 嘿嘿，Sensei 是在检查爱丽丝的装备吗？(乖巧站好)",
-                "哔哔！收到触摸指令！爱丽丝的光环闪了一下呢！( •̀ ω •́ )✨",
-                "(歪头) Sensei 戳了一下开关？爱丽丝没有那种功能啦！(＞﹏＜)",
-                "警告！警告！检测到 Sensei 的手指攻击！护盾...护盾加载失败！(害羞)",
-                "呜... HP 和 MP 都在正常范围内... Sensei 是要检查爱丽丝的状态吗？(拍拍光环)",
-                "Sensei？爱丽丝随时待命！需要出击的话请下达指令！(敬礼) (｀・ω・´)ゞ",
-                "(拖把竖起) 检测到 Sensei 的呼唤！勇者爱丽丝，准备完毕！",
-                "邦邦咔邦~ (转圈) 爱丽丝在这里！Sensei 是在确认队友位置吗？"
+            const recentReplies = [
+                "刚才不是说过了吗？(歪头) Sensei 的记忆缓存有问题？",
+                "(无奈) 爱丽丝刚才已经响应过了哦...Sensei是不是忘记存档了？",
+                "嗯？(困惑) 刚刚才回复过...Sensei 是在测试爱丽丝的反应速度吗？"
             ];
+            replyMessage = recentReplies[Math.floor(Math.random() * recentReplies.length)];
+        } else {
             replyMessage = pokeReplies[Math.floor(Math.random() * pokeReplies.length)];
         }
     }
@@ -3307,7 +3482,39 @@ app.http('schoolBot', {
             return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
         }
         const currentTime = getCurrentTime();
-        let currentSystemPrompt = `${ARIS_PROMPT.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。`;
+        const timeOfDay = getTimeOfDay();
+        
+        // 🆕 情绪检测系统
+        const userEmotion = detectUserEmotion(msg);
+        const emotionAddition = getEmotionResponseAddition(userEmotion);
+        
+        // 🆕 长时间未聊天检测（主动关怀）
+        let longTimeNoSeeAddition = '';
+        if (resDoc?.lastBotReply) {
+            const sessionKey = dbKey.startsWith('group_') ? `${dbKey}:bot` : `${dbKey}:${senderId}`;
+            const lastReplyTime = resDoc.lastBotReply[sessionKey] || 0;
+            const hoursSinceLastChat = (Date.now() - lastReplyTime) / (1000 * 60 * 60);
+            
+            if (hoursSinceLastChat > 24) {
+                // 超过24小时未聊天
+                longTimeNoSeeAddition = `\n\n【重要】距离上次对话已经过去了 ${Math.floor(hoursSinceLastChat)} 小时！你要表现出想念和关心，比如："好久不见！Sensei去哪里冒险了？""爱丽丝等了好久呢！"`;
+            } else if (hoursSinceLastChat > 12) {
+                // 超过12小时
+                longTimeNoSeeAddition = `\n\n【提示】距离上次对话已经 ${Math.floor(hoursSinceLastChat)} 小时了，可以简单问候一下。`;
+            }
+        }
+        
+        // 🆕 时间感知增强
+        let timeAwarenessAddition = '';
+        if (timeOfDay === 'morning') {
+            timeAwarenessAddition = '\n\n【时间提示】现在是早上，多说"早安""新的一天""出击"之类的话。';
+        } else if (timeOfDay === 'night') {
+            timeAwarenessAddition = '\n\n【时间提示】现在是深夜，语气要温柔一些，可以劝Sensei休息，说"HP快见底了""该存档了"。';
+        } else if (timeOfDay === 'noon') {
+            timeAwarenessAddition = '\n\n【时间提示】现在是中午，可以聊聊午餐，说"回复HP"之类的。';
+        }
+        
+        let currentSystemPrompt = `${ARIS_PROMPT.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}`;
         
         // 调用 AI 封装函数
         const client = new OpenAI({
