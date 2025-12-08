@@ -151,7 +151,7 @@ const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
 
 // 戳一戳升级版配置（支持环境变量动态配置）
-const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 10000); // 10秒内连续戳计数窗口
+const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 120000); // 2分钟内连续戳计数窗口（适应QQ限流）
 const POKE_ANGRY_THRESHOLD = Number(process.env["POKE_ANGRY_THRESHOLD"] || 3); // 连续戳3次触发生气
 const POKE_COUNTER_THRESHOLD = Number(process.env["POKE_COUNTER_THRESHOLD"] || 5); // 连续戳5次触发反击
 const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15秒内算"刚回复过"
@@ -166,10 +166,15 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
 
 // ==========================================
-// 时间感知系统 (Time Awareness System)
+// 时间感知系统 (Time Awareness System) - 北京时间 UTC+8
 // ==========================================
 function getTimeOfDay() {
-    const hour = new Date().getHours();
+    // 获取北京时间（UTC+8）
+    const now = new Date();
+    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const beijingTime = new Date(utcTime + (8 * 3600000));
+    const hour = beijingTime.getHours();
+    
     if (hour >= 5 && hour < 11) return 'morning';
     if (hour >= 11 && hour < 14) return 'noon';
     if (hour >= 14 && hour < 18) return 'afternoon';
@@ -2734,22 +2739,30 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 ];
             }
         } else if (pokeCount === 2) {
-            // 第二次戳（10秒后） - 俏皮回应
+            // 第二次戳 - 俏皮回应
             pokeReplies = [
                 "(歪头) 咦？Sensei又戳了一次？是有什么重要的任务吗？(´・ω・`)",
                 "嘿嘿~ (转圈) Sensei很喜欢爱丽丝吧！光环又闪了一下呢！(✨ω✨)",
                 "(拿出拖把) 检测到连续指令！勇者待命中！(｀・ω・´)ゞ",
                 "哔哔~ 系统温度上升0.5℃...(脸红) Sensei别一直戳啦...(＞﹏＜)",
                 "(眨眼) 两连击！Sensei的连击数+1！是在练习Combo吗？( •̀ ω •́ )✨",
-                "又来了！(捂住光环) 爱丽丝的HP还是满的哦！不用担心！"
+                "(捂住光环) 又来了！爱丽丝的HP还是满的哦！不用担心！",
+                "(举起小手) 等等！让爱丽丝猜猜...Sensei是不是遇到了难题？",
+                "邦邦咔邦~第二击！(摆出战斗姿势) 爱丽丝准备好应战了！"
             ];
         } else {
-            // 第三次（接近生气）
+            // 第三次及以上 - 更丰富的反应
             pokeReplies = [
-                "(捂住光环) 呜...爱丽丝的光环要过载了...(＞﹏＜)",
-                "Sensei！(鼓起脸颊) 这样一直戳，爱丽丝的系统会死机的！(｀へ´)",
-                "(躲到拖把后面) 警告！警告！检测到连续攻击！护盾快要失效了！",
-                "(小声抗议) Sensei...再戳爱丽丝就真的要生气了哦...(＞д＜)"
+                "(开始转圈) 哇啊！连续攻击！爱丽丝要晕了！(＠_＠)",
+                "(抱头) Sensei...爱丽丝的处理器快过热啦！给点冷却时间吧！(>﹏<)",
+                "(举起拖把当盾牌) 第三击！爱丽丝要使用防御技能了！",
+                "呜呜呜...(躲到角落) 为什么一直戳爱丽丝啦！是爱丽丝哪里做错了吗？(´；ω；`)",
+                "(故作严肃) 警告！系统检测到连续骚扰行为！护盾值下降中！",
+                "(生闷气) 哼！(转身) 爱丽丝不理Sensei了！...才怪啦~(偷偷回头)",
+                "(光环乱闪) 系统紊乱！爱丽丝的光环失控了！Sensei快停手！",
+                "(抓住Sensei的手) 不许再戳了！让爱丽丝戳回去！(认真脸)",
+                "(眼冒金星) 这...这就是传说中的连击技能吗！爱丽丝要学会反击了！",
+                "(委屈巴巴) Sensei明明说过要保护爱丽丝的...现在却一直欺负人家...(＞︿＜)"
             ];
         }
         
