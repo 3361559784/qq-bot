@@ -3097,7 +3097,7 @@ function getArisVisionPrompt(visualReference, userIntent = 'auto') {
     let behaviorRule = "";
     
     if (userIntent === 'identify') {
-        behaviorRule = "【当前任务：角色识别】用户正在询问图中是谁。请根据【视觉特征数据库】和辅助情报，大胆推测角色名字。";
+        behaviorRule = "【当前任务：角色识别】用户正在询问图中是谁。⚠️ 关键规则：如果辅助识别系统已经提供了角色名，请优先信任该结果！只有在辅助识别失败或结果明显错误时，才根据【视觉特征数据库】进行推测。";
     } else {
         // 关键修改：如果不是问是谁，严禁乱猜名字
         behaviorRule = "【当前任务：闲聊/互动】用户并没有询问图中角色是谁。⚠️ 严禁主动猜测或提及非《蔚蓝档案》的角色名字！除非你100%确定是爱丽丝自己或其它BA角色，否则只描述画面动作、氛围，并对此做出可爱的反应。";
@@ -3449,6 +3449,11 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     context.log(`[Poke] ===== 进入 handlePokeLogic =====`);
     context.log(`[Poke] userId=${userId}, groupId=${groupId || '私聊'}, POKE_GROUP_COUNTING=${POKE_GROUP_COUNTING}`);
     
+    // 🎯 在函数顶部声明所有需要的变量
+    let replyMessage = null;
+    let shouldCounterPoke = false;
+    let counterPokeCount = 0;
+    
     // 确定数据库 key（群聊优先，否则私聊）
     const pokeDbKey = groupId ? `group_${groupId}` : String(userId);
     context.log(`[Poke] pokeDbKey=${pokeDbKey}`);
@@ -3552,11 +3557,6 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         
         const groupPokeCount = pokeStats.group.count;
         const userLastReplyTime = pokeStats.users[userId].lastReplyTime || 0;
-        
-        // 根据groupMood选择回复
-        let replyMessage = null;
-        let shouldCounterPoke = false;
-        let counterPokeCount = 0;
         
         // 🎭 根据群组情绪等级选择回复
         if (groupMood.value === 'furious') {
@@ -4708,9 +4708,19 @@ app.http('schoolBot', {
                 // 1. 角色情报 (AnimeTrace) - 仅在动漫识图模式下添加
                 if (userIntent !== 'translate' && userIntent !== 'analyze') {
                     if (animeData && animeData.type === "ba-character") {
-                        visionUserPrompt += `\n辅助识别系统提示可能是：【${animeData.name}】。\n⚠️ 请务必用你的视觉核对一遍！如果画面中的发色、瞳色、光环形状等特征与该角色明显不符，请忽略此提示，根据你看到的实际特征进行识别。`;
+                        if (userIntent === 'identify') {
+                            // 识别查询模式：强调辅助识别结果的可靠性
+                            visionUserPrompt += `\n✅ 【辅助识别系统】已匹配到：【${animeData.name}】（来自《蔚蓝档案》）。\n请基于此结果回答老师的问题，除非你发现画面中的特征（发色、瞳色、光环、制服）与该角色完全不符。`;
+                        } else {
+                            // 自动模式：轻描淡写，让 AI 自然融入
+                            visionUserPrompt += `\n辅助识别系统提示可能是：【${animeData.name}】。\n⚠️ 请务必用你的视觉核对一遍！如果画面中的发色、瞳色、光环形状等特征与该角色明显不符，请忽略此提示，根据你看到的实际特征进行识别。`;
+                        }
                     } else if (animeData && animeData.type === "other-anime-character") {
-                        visionUserPrompt += `\n辅助识别系统提示可能来自：《${animeData.work}》的【${animeData.name}】。\n⚠️ 请先用视觉核对特征是否匹配！如果不确定，可以描述你看到的角色特征（发型、服装等），而不是直接使用识别结果。`;
+                        if (userIntent === 'identify') {
+                            visionUserPrompt += `\n✅ 【辅助识别系统】匹配到：《${animeData.work}》的【${animeData.name}】。\n请基于此结果回答老师，除非你认为识别明显错误。`;
+                        } else {
+                            visionUserPrompt += `\n辅助识别系统提示可能来自：《${animeData.work}》的【${animeData.name}】。\n⚠️ 请先用视觉核对特征是否匹配！如果不确定，可以描述你看到的角色特征（发型、服装等），而不是直接使用识别结果。`;
+                        }
                     }
                 }
 
