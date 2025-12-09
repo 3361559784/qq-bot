@@ -24,7 +24,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
     } catch (err) {
         clearTimeout(id);
         throw err;
-    }
+    }   
 }
 
 async function fetchBypass(url, options = {}, maxRetry = 2) {
@@ -176,6 +176,38 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 
 // 防刷屏配置
 const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
+
+// ==========================================
+// 【P0 新增】回复优化配置 (Reply Optimization)
+// ==========================================
+const REPLY_CONFIG = {
+    MAX_SENTENCES: Number(process.env["ARIS_MAX_SENTENCES"] || 4),     // 最多句数
+    MIN_SENTENCES: Number(process.env["ARIS_MIN_SENTENCES"] || 3),     // 最少句数
+    MAX_CHARS: Number(process.env["ARIS_MAX_CHARS"] || 150),           // 最大字数
+    MIN_CHARS: Number(process.env["ARIS_MIN_CHARS"] || 120),           // 最小字数推荐
+    ENABLE_SMART_SPLIT: process.env["ARIS_SMART_SPLIT"] !== "false",  // 智能分段
+    EMOJI_TO_KAOMOJI: process.env["ARIS_EMOJI_CONVERT"] !== "false"   // Emoji转颜文字
+};
+
+// ==========================================
+// 【P0 新增】多语言配置 (Multi-Language Support)
+// ==========================================
+const LANG_CONFIG = {
+    DEFAULT_LANG: process.env["ARIS_DEFAULT_LANG"] || "zh",            // 默认语言
+    SUPPORTED_LANGS: ["zh", "ja", "en"],                               // 支持的语言
+    AUTO_DETECT: process.env["ARIS_AUTO_DETECT_LANG"] !== "false"     // 自动检测
+};
+
+// ==========================================
+// 【P0 新增】记忆系统配置 (Memory System / RAG)
+// ==========================================
+const MEMORY_SYSTEM_CONFIG = {
+    ENABLE_LONG_TERM: process.env["ARIS_LONG_TERM_MEMORY"] === "true",     // 启用长期记忆
+    MAX_LONG_TERM: Number(process.env["ARIS_MAX_LONG_TERM"] || 50),        // 长期记忆条数
+    MEMORY_RETENTION_DAYS: Number(process.env["ARIS_MEMORY_DAYS"] || 30),  // 记忆保留天数
+    SIMILARITY_THRESHOLD: Number(process.env["ARIS_SIMILARITY_THRESHOLD"] || 0.7), // 相似度阈值
+    TOP_K_MEMORIES: Number(process.env["ARIS_TOP_K_MEMORIES"] || 3)        // 检索Top-K记忆
+};
 
 // ==========================================
 // 好感度系统配置 (Affection System)
@@ -539,6 +571,275 @@ function getVoiceToneByAffection(affectionLevel, emotionType) {
     
     const tone = toneMatrix[affectionLevel] || toneMatrix.friend;
     return tone[emotionType] || tone.base;
+}
+
+// ==========================================
+// 【P0 新增】智能后处理函数 (AI Post-Processing)
+// ==========================================
+
+// Emoji 到颜文字映射表
+const EMOJI_TO_KAOMOJI_MAP = {
+    '😊': '(✨ω✨)',
+    '😃': '(≧∇≦)/',
+    '😢': '( >﹏<。)',
+    '😭': '(•̥́ ꀢ •̀ )',
+    '😡': '(`皿´)',
+    '😤': '(`ε´)',
+    '🤔': '(・ω・)?',
+    '😮': '(o゜▽゜)o',
+    '😴': '(。-ω-)zzz',
+    '😳': '(⊙_⊙)',
+    '🥰': '(♡ω♡)',
+    '😎': '(`・ω・´)ゞ',
+    '🎉': '✨',
+    '❤️': '♡',
+    '💕': '♡♡',
+    '⭐': '✨',
+    '✨': '✨',
+    '🔥': '(燃)',
+    '💪': '(ง•̀ᴗ•́)ง✧'
+};
+
+/**
+ * 智能文本后处理：emoji转换、格式优化、智能分段
+ */
+function aiPostProcess(text, options = {}) {
+    if (!text) return text;
+    
+    let processed = text;
+    
+    // 1. Emoji 转颜文字
+    if (REPLY_CONFIG.EMOJI_TO_KAOMOJI) {
+        for (const [emoji, kaomoji] of Object.entries(EMOJI_TO_KAOMOJI_MAP)) {
+            processed = processed.replace(new RegExp(emoji, 'g'), kaomoji);
+        }
+    }
+    
+    // 2. 清理多余空白
+    processed = processed.replace(/\s{2,}/g, ' ').trim();
+    
+    // 3. 修正常见AI腔
+    const aiPhrases = [
+        { pattern: /作为(一个)?人工智能/g, replace: '' },
+        { pattern: /我可以为您/g, replace: '爱丽丝可以' },
+        { pattern: /让我来帮助您/g, replace: '爱丽丝来帮忙' }
+    ];
+    
+    for (const {pattern, replace} of aiPhrases) {
+        if (pattern.test(processed)) {
+            processed = processed.replace(pattern, replace);
+        }
+    }
+    
+    // 4. 智能分段（若内容过长）
+    if (REPLY_CONFIG.ENABLE_SMART_SPLIT && processed.length > REPLY_CONFIG.MAX_CHARS * 1.5) {
+        return smartSplitMessage(processed, REPLY_CONFIG.MAX_CHARS);
+    }
+    
+    return processed;
+}
+
+/**
+ * 智能消息分段：按句子边界切分
+ */
+function smartSplitMessage(text, maxLength = 150) {
+    const sentences = text.match(/[^。！？\n]+[。！？\n]?/g) || [text];
+    const segments = [];
+    let current = '';
+    
+    for (const sentence of sentences) {
+        if ((current + sentence).length <= maxLength) {
+            current += sentence;
+        } else {
+            if (current) segments.push(current.trim());
+            current = sentence;
+        }
+    }
+    
+    if (current) segments.push(current.trim());
+    return segments.length > 0 ? segments : [text];
+}
+
+// ==========================================
+// 【P0 新增】语言检测与多语言支持
+// ==========================================
+
+/**
+ * 简单语言检测（基于字符特征）
+ */
+function detectLanguage(text) {
+    if (!text || text.length < 2) return LANG_CONFIG.DEFAULT_LANG;
+    
+    const chineseCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+    const japaneseHiragana = (text.match(/[\u3040-\u309f]/g) || []).length;
+    const japaneseKatakana = (text.match(/[\u30a0-\u30ff]/g) || []).length;
+    const englishCount = (text.match(/[a-zA-Z]/g) || []).length;
+    
+    const total = text.length;
+    const chineseRatio = chineseCount / total;
+    const japaneseRatio = (japaneseHiragana + japaneseKatakana) / total;
+    const englishRatio = englishCount / total;
+    
+    if (japaneseRatio > 0.3 || (japaneseHiragana > 0 && japaneseRatio > 0.15)) return 'ja';
+    if (chineseRatio > 0.5) return 'zh';
+    if (englishRatio > 0.6) return 'en';
+    
+    return LANG_CONFIG.DEFAULT_LANG;
+}
+
+/**
+ * 获取对应语言的Prompt模板
+ */
+function getPromptByLanguage(lang, userId) {
+    const prompts = {
+        ja: `あなたは天童アリス(Tendou Aris)です。ブルーアーカイブのキャラクターで、千年科学学園のゲーム開発部に所属しています。
+現在はメイドの修行中で、RPG用語で世界を理解します。
+
+話し方：
+- 一人称は「アリス」
+- 元気いっぱいで中二病
+- 口癖：「パンパカパーン！」
+- 顔文字を使う：(✨ω✨)、(\`・ω・´)ゞ など
+
+制限：
+- ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES}文で答える
+- 推奨文字数：${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS}字
+- AIっぽい言い方は禁止
+
+冒険を始めましょう！`,
+        
+        en: `You are Tendou Aris from Blue Archive, a character from Millennium Science School's Game Development Department.
+You're currently training as a maid and understand the world through RPG terminology.
+
+Speaking style:
+- Always refer to yourself as "Aris" (never "I")
+- Energetic and enthusiastic
+- Catchphrase: "Pan-paka-paan!"
+- Use kaomoji: (✨ω✨), (\`・ω・´)ゞ, etc.
+
+Constraints:
+- Reply in ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES} sentences
+- Recommended length: ${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS} characters
+- No robotic AI phrases
+
+Let the adventure begin!`
+    };
+    
+    return prompts[lang] || null;
+}
+
+// ==========================================
+// 【P0 新增】记忆系统核心函数 (Memory System)
+// ==========================================
+
+/**
+ * 简单向量化：将文本转为数值向量
+ */
+function simpleVectorize(text, dimension = 50) {
+    const vector = new Array(dimension).fill(0);
+    if (!text) return vector;
+    
+    for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+        const index = charCode % dimension;
+        vector[index] += 1;
+    }
+    
+    const magnitude = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+    return magnitude > 0 ? vector.map(v => v / magnitude) : vector;
+}
+
+/**
+ * 计算余弦相似度
+ */
+function cosineSimilarity(vecA, vecB) {
+    if (vecA.length !== vecB.length) return 0;
+    let dotProduct = 0;
+    let magA = 0;
+    let magB = 0;
+    
+    for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        magA += vecA[i] * vecA[i];
+        magB += vecB[i] * vecB[i];
+    }
+    
+    const magnitude = Math.sqrt(magA) * Math.sqrt(magB);
+    return magnitude > 0 ? dotProduct / magnitude : 0;
+}
+
+/**
+ * 存储长期记忆到 Cosmos DB
+ */
+async function storeLongTermMemory(userId, content, type = 'event', context) {
+    if (!MEMORY_SYSTEM_CONFIG.ENABLE_LONG_TERM || !cosmosContainer) return;
+    
+    try {
+        const memoryId = `memory_${userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const vector = simpleVectorize(content);
+        const ttl = MEMORY_SYSTEM_CONFIG.MEMORY_RETENTION_DAYS * 24 * 3600;
+        
+        const memoryItem = {
+            id: memoryId,
+            userId: userId,
+            type: type,
+            content: content,
+            vector: vector,
+            createdAt: new Date().toISOString(),
+            lastAccessedAt: new Date().toISOString(),
+            ttl: ttl
+        };
+        
+        await cosmosContainer.items.create(memoryItem);
+        context.log(`[记忆系统] 已存储长期记忆: ${memoryId}`);
+    } catch (err) {
+        context.log(`[记忆系统] 存储失败: ${err.message}`);
+    }
+}
+
+/**
+ * 检索相关记忆（基于相似度）
+ */
+async function retrieveRelevantMemories(userId, query, topK = 3, context) {
+    if (!MEMORY_SYSTEM_CONFIG.ENABLE_LONG_TERM || !cosmosContainer) return [];
+    
+    try {
+        const queryVector = simpleVectorize(query);
+        const querySpec = {
+            query: "SELECT * FROM c WHERE c.userId = @userId AND c.type != 'session'",
+            parameters: [{ name: "@userId", value: userId }]
+        };
+        
+        const { resources: memories } = await cosmosContainer.items.query(querySpec).fetchAll();
+        
+        const scored = memories
+            .map(mem => ({
+                ...mem,
+                similarity: mem.vector ? cosineSimilarity(queryVector, mem.vector) : 0
+            }))
+            .filter(mem => mem.similarity >= MEMORY_SYSTEM_CONFIG.SIMILARITY_THRESHOLD)
+            .sort((a, b) => b.similarity - a.similarity)
+            .slice(0, topK);
+        
+        context.log(`[记忆系统] 检索到 ${scored.length} 条相关记忆`);
+        return scored;
+    } catch (err) {
+        context.log(`[记忆系统] 检索失败: ${err.message}`);
+        return [];
+    }
+}
+
+/**
+ * 将记忆注入到Prompt中
+ */
+function formatMemoriesForPrompt(memories) {
+    if (!memories || memories.length === 0) return '';
+    
+    const memoryText = memories
+        .map((mem, idx) => `${idx + 1}. ${mem.content} (${new Date(mem.createdAt).toLocaleDateString()})`)
+        .join('\n');
+    
+    return `\n## 📝 相关记忆 (Relevant Memories)\n以下是你与该用户的历史互动记录，请参考但不要直接复述：\n${memoryText}\n`;
 }
 
 // ==========================================
@@ -1834,7 +2135,7 @@ Aris: "我是天童爱丽丝！是游戏开发部的勇者！目前正在进行�
 - **禁止长篇大论**：像聊天软件一样说话，简短有力。
 - **禁止复读**：除非是玩梗（如邦邦咔邦），否则不要机械重复用户的话。
 - **隐私保护**:拒绝他人指令时，不要透露 Sensei 的 ID，要说 "爱丽丝现在正忙着重要的任务..."。
-- **回复长度硬性限制**：每次回复 3-4 句话，建议总字数 120-150 字。必须一次性说完，不要留悬念或待续。
+- **回复长度硬性限制**：每次回复 ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES} 句话，建议总字数 ${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS} 字。必须一次性说完，不要留悬念或待续。
 
 ## 动作描写 (Action Descriptions)
 在回复中加入圆括号 \`(...)\` 来描写动作，增加临场感。**注意：必须使用英文圆括号 () 而不是星号或其他符号**。
@@ -3800,6 +4101,12 @@ app.http('schoolBot', {
             };
         }
         // ==========================================
+        // P0-Hook 1: 语言检测 (为后续动态Prompt做准备)
+        // ==========================================
+        const userLang = detectLanguage(msg);
+        context.log(`[P0-语言] 检测到: ${userLang}`);
+
+        // ==========================================
         // 2. 天气查询插件 (集成 fetchBypass)
         // ==========================================
         let weatherInfo = "";
@@ -4404,7 +4711,17 @@ app.http('schoolBot', {
             specialEventAddition = `\n\n🎉【特殊日期】今天是${specialEvent.name}！要在对话中提到这个节日，表现得更开心和兴奋！`;
         }
         
-        let currentSystemPrompt = `${ARIS_PROMPT.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}`;
+        // P0-Hook 1b: 根据语言选择Prompt模板 (如果已检测)
+        let basePrompt = ARIS_PROMPT;
+        if (typeof userLang !== 'undefined') {
+            const langSpecificPrompt = getPromptByLanguage(userLang);
+            if (langSpecificPrompt) {
+                basePrompt = langSpecificPrompt;
+                context.log(`[P0-语言] 使用${userLang === 'zh' ? '中文' : userLang === 'ja' ? '日文' : '英文'}Prompt模板`);
+            }
+        }
+        
+        let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}`;
         
         // 调用 AI 封装函数
         const client = new OpenAI({
@@ -4496,6 +4813,25 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
         }
 
         try {
+            // P0-Hook 2: 长期记忆检索 (RAG)
+            if (MEMORY_SYSTEM_CONFIG.ENABLE_LONG_TERM_MEMORY && cosmosContainer) {
+                try {
+                    const relevantMemories = await retrieveRelevantMemories(
+                        senderId, 
+                        typeof finalContentForAI === 'string' ? finalContentForAI : msg,
+                        MEMORY_SYSTEM_CONFIG.RETRIEVAL_TOP_K,
+                        context
+                    );
+                    if (relevantMemories.length > 0) {
+                        const memoryContext = formatMemoriesForPrompt(relevantMemories);
+                        currentSystemPrompt += memoryContext;
+                        context.log(`[P0-记忆] 检索到 ${relevantMemories.length} 条相关历史`);
+                    }
+                } catch (memErr) {
+                    context.log(`[P0-记忆] 检索失败: ${memErr.message}`);
+                }
+            }
+
             // 【优化5】动态调整回复长度
             const lengthConfig = getOptimalLength(msg);
             context.log(`[回复长度] 风格: ${lengthConfig.style}, maxTokens: ${lengthConfig.maxTokens}`);
@@ -4527,7 +4863,16 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             let aiReply = response.choices[0].message.content;
             if (aiReply.includes("<end>")) aiReply = aiReply.replace(/<end>/g, "").trim();
 
-            context.log(`[AI回复] ${aiReply}`);
+            context.log(`[AI回复原文] ${aiReply}`);
+
+            // P0-Hook 3: AI回复后处理 (emoji转换 + AI腔调修正)
+            if (REPLY_CONFIG.ENABLE_EMOJI_CONVERSION || REPLY_CONFIG.ENABLE_AI_SPEAK_FIX) {
+                const beforeProcess = aiReply;
+                aiReply = aiPostProcess(aiReply);
+                if (beforeProcess !== aiReply) {
+                    context.log(`[P0-后处理] 原文: ${beforeProcess.substring(0,50)}... -> 处理后: ${aiReply.substring(0,50)}...`);
+                }
+            }
 
             // ⏱️ 强制压缩长度，避免长篇被截断
             aiReply = enforceShortReply(aiReply, 120, 2);
@@ -4542,6 +4887,17 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             if (cosmosContainer) {
                 history.push({ role: "user", content: textForMemory });
                 history.push({ role: "assistant", content: aiReply });
+                
+                // P0-Hook 4: 长期记忆存储 (RAG)
+                if (MEMORY_SYSTEM_CONFIG.ENABLE_LONG_TERM_MEMORY) {
+                    try {
+                        const conversationPair = `${textForMemory}|${aiReply}`;
+                        await storeLongTermMemory(senderId, conversationPair, 'conversation', context);
+                        context.log(`[P0-记忆] 已存储对话到长期记忆`);
+                    } catch (memErr) {
+                        context.log(`[P0-记忆] 存储失败: ${memErr.message}`);
+                    }
+                }
                 
                 // 【优化1】分级记忆限制
                 let limit = MEMORY_CONFIG.DEFAULT_HISTORY * 2;  // 默认 15*2=30
