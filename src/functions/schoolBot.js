@@ -3603,6 +3603,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             ];
             replyMessage = recentReplies[Math.floor(Math.random() * recentReplies.length)];
         } else {
+            // replyMessage已经在上面根据groupMood设置好了，这里只更新lastReplyTime
             pokeStats.users[userId].lastReplyTime = now;
         }
         
@@ -4060,7 +4061,10 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         }
     }
 
-    context.log(`[戳一戳] 处理完成 (key=${pokeKey}, count=${pokeStats[pokeKey].count}, 反击=${shouldCounterPoke})`);
+    // 记录处理完成（兼容新旧模式）
+    const logKey = POKE_GROUP_COUNTING && groupId ? `group_${groupId}` : `${pokeDbKey}:${userId}`;
+    const logCount = POKE_GROUP_COUNTING && groupId ? pokeStats.group?.count : pokeStats[`${pokeDbKey}:${userId}`]?.count;
+    context.log(`[戳一戳] 处理完成 (key=${logKey}, count=${logCount}, mood=${groupMood?.value || 'N/A'})`);
 
     // 返回成功响应表示事件已处理
     return {
