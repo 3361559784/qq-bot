@@ -160,7 +160,7 @@ const USER_POKE_COOLDOWN_MS = Number(process.env["USER_POKE_COOLDOWN_MS"] || 200
 // 🎯 群组情绪系统配置 (按群计数 + 渐进式衰减)
 const POKE_GROUP_THRESHOLD = Number(process.env["POKE_GROUP_THRESHOLD"] || 5); // 群组被戳5次进入furious状态
 const GROUP_MOOD_DECAY_CONFIG = {
-    DECAY_INTERVAL_MS: 5 * 60 * 1000,  // 5分钟后降一级
+    DECAY_INTERVAL_MS: 8 * 60 * 1000,  // ⏰ 8分钟后降一级（从 5分钟 改为 8分钟）
     LEVELS: ['neutral', 'annoyed', 'angry', 'furious'],  // 情绪等级 (从低到高)
     THRESHOLDS: {  // 群组连续戳击次数 -> 情绪等级
         3: 'annoyed',   // 3次 -> 烦躁
@@ -3097,7 +3097,11 @@ function getArisVisionPrompt(visualReference, userIntent = 'auto') {
     let behaviorRule = "";
     
     if (userIntent === 'identify') {
-        behaviorRule = "【当前任务：角色识别】用户正在询问图中是谁。⚠️ 关键规则：如果辅助识别系统已经提供了角色名，请优先信任该结果！只有在辅助识别失败或结果明显错误时，才根据【视觉特征数据库】进行推测。";
+        behaviorRule = `【当前任务：角色识别】
+⚠️ 【最高优先级规则】：
+- 如果下方的"用户消息"中包含 ✅【辅助识别系统】的结果，你**必须直接使用该角色名**回答问题。
+- **禁止**根据你自己的视觉判断推翻辅助识别结果！
+- 只有在辅助识别明确标注"识别失败"或"无结果"时，才可以使用【视觉特征数据库】进行推测。`;
     } else {
         // 关键修改：如果不是问是谁，严禁乱猜名字
         behaviorRule = "【当前任务：闲聊/互动】用户并没有询问图中角色是谁。⚠️ 严禁主动猜测或提及非《蔚蓝档案》的角色名字！除非你100%确定是爱丽丝自己或其它BA角色，否则只描述画面动作、氛围，并对此做出可爱的反应。";
@@ -3558,7 +3562,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         const groupPokeCount = pokeStats.group.count;
         const userLastReplyTime = pokeStats.users[userId].lastReplyTime || 0;
         
-        // 🎭 根据群组情绪等级选择回复
+        // 🎭 根据群组情绪等级选择回复（并触发反击）
         if (groupMood.value === 'furious') {
             const furiousReplies = [
                 "(暴怒) 够了！(╬▔皿▔)╯ 整个群都在戳爱丽丝！你们是故意的吧！系统即将崩溃！",
@@ -3567,6 +3571,10 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(系统过载) ERROR！群组恶意互动检测！爱丽丝要重启了...(冒烟)"
             ];
             replyMessage = furiousReplies[Math.floor(Math.random() * furiousReplies.length)];
+            // 🎯 群组反击：furious 状态触发反击
+            shouldCounterPoke = true;
+            counterPokeCount = Math.floor(Math.random() * 3) + 3; // 3-5次随机反击
+            context.log(`[群组反击] furious状态触发！将反击 ${counterPokeCount} 次`);
         } else if (groupMood.value === 'angry') {
             const angryReplies = [
                 "(生气) 你们...够了！(｀へ´) 爱丽丝真的要生气了！不要以为人多就能欺负人！",
@@ -3575,6 +3583,12 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "(躲到角落) 太过分了...(＞﹏＜) 爱丽丝要罢工了！"
             ];
             replyMessage = angryReplies[Math.floor(Math.random() * angryReplies.length)];
+            // 🎯 群组反击：angry 状态有50%概率触发单次反击
+            if (Math.random() < 0.5) {
+                shouldCounterPoke = true;
+                counterPokeCount = 1;
+                context.log(`[群组反击] angry状态触发！将反击1次`);
+            }
         } else if (groupMood.value === 'annoyed') {
             const annoyedReplies = [
                 "(烦躁) 哎呀...大家别一起戳啦...(揉太阳穴) 爱丽丝的处理器有点跟不上了...",
@@ -4709,15 +4723,15 @@ app.http('schoolBot', {
                 if (userIntent !== 'translate' && userIntent !== 'analyze') {
                     if (animeData && animeData.type === "ba-character") {
                         if (userIntent === 'identify') {
-                            // 识别查询模式：强调辅助识别结果的可靠性
-                            visionUserPrompt += `\n✅ 【辅助识别系统】已匹配到：【${animeData.name}】（来自《蔚蓝档案》）。\n请基于此结果回答老师的问题，除非你发现画面中的特征（发色、瞳色、光环、制服）与该角色完全不符。`;
+                            // 🔥 识别查询模式：必须使用辅助识别结果
+                            visionUserPrompt += `\n\n🎯 ===== 【辅助识别系统报告】 =====\n✅ **已成功匹配角色**：【${animeData.name}】\n📍 **来源作品**：《蔚蓝档案》(Blue Archive)\n⚠️ **重要指令**：请直接使用上述角色名回答老师的问题。你看到的画面特征应该与该角色一致。\n==============================`;
                         } else {
                             // 自动模式：轻描淡写，让 AI 自然融入
                             visionUserPrompt += `\n辅助识别系统提示可能是：【${animeData.name}】。\n⚠️ 请务必用你的视觉核对一遍！如果画面中的发色、瞳色、光环形状等特征与该角色明显不符，请忽略此提示，根据你看到的实际特征进行识别。`;
                         }
                     } else if (animeData && animeData.type === "other-anime-character") {
                         if (userIntent === 'identify') {
-                            visionUserPrompt += `\n✅ 【辅助识别系统】匹配到：《${animeData.work}》的【${animeData.name}】。\n请基于此结果回答老师，除非你认为识别明显错误。`;
+                            visionUserPrompt += `\n\n🎯 ===== 【辅助识别系统报告】 =====\n✅ **已成功匹配角色**：【${animeData.name}】\n📍 **来源作品**：《${animeData.work}》\n⚠️ **重要指令**：请直接使用上述角色名回答老师的问题。\n==============================`;
                         } else {
                             visionUserPrompt += `\n辅助识别系统提示可能来自：《${animeData.work}》的【${animeData.name}】。\n⚠️ 请先用视觉核对特征是否匹配！如果不确定，可以描述你看到的角色特征（发型、服装等），而不是直接使用识别结果。`;
                         }
