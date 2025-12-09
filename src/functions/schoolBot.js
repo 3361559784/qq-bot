@@ -157,6 +157,19 @@ const POKE_COUNTER_THRESHOLD = Number(process.env["POKE_COUNTER_THRESHOLD"] || 5
 const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15秒内算"刚回复过"
 const USER_POKE_COOLDOWN_MS = Number(process.env["USER_POKE_COOLDOWN_MS"] || 2000); // 单用户戳一戳冷却(防刷屏)
 
+// 🎯 群组情绪系统配置 (按群计数 + 渐进式衰减)
+const POKE_GROUP_THRESHOLD = Number(process.env["POKE_GROUP_THRESHOLD"] || 5); // 群组被戳5次进入furious状态
+const GROUP_MOOD_DECAY_CONFIG = {
+    DECAY_INTERVAL_MS: 5 * 60 * 1000,  // 5分钟后降一级
+    LEVELS: ['neutral', 'annoyed', 'angry', 'furious'],  // 情绪等级 (从低到高)
+    THRESHOLDS: {  // 群组连续戳击次数 -> 情绪等级
+        3: 'annoyed',   // 3次 -> 烦躁
+        5: 'angry',     // 5次 -> 生气  
+        8: 'furious'    // 8次 -> 暴怒
+    }
+};
+const POKE_GROUP_COUNTING = process.env["POKE_GROUP_COUNTING"] !== 'false'; // feature flag
+
 // 🎯 Poke 模式标签配置
 const POKE_STYLE_CONFIG = {
     GENTLE_INTERVAL: 30000,      // 温柔模式：间隔 > 30s
@@ -3201,6 +3214,83 @@ async function updateLastBotReply(cosmosContainer, dbKey, sessionKey, context, m
 }
 
 // ==========================================
+// 群组情绪系统辅助函数
+// ==========================================
+/**
+ * 根据群组戳击次数获取对应的情绪等级
+ */
+function getGroupMoodByCount(groupPokeCount) {
+    const thresholds = GROUP_MOOD_DECAY_CONFIG.THRESHOLDS;
+    if (groupPokeCount >= 8) return thresholds[8];  // furious
+    if (groupPokeCount >= 5) return thresholds[5];  // angry
+    if (groupPokeCount >= 3) return thresholds[3];  // annoyed
+    return 'neutral';
+}
+
+/**
+ * 渐进式衰减群组情绪（5分钟降一级）
+ */
+function decayGroupMood(groupMood, now) {
+    if (!groupMood || groupMood.value === 'neutral') {
+        return { value: 'neutral', lastSet: now, setBy: 'system' };
+    }
+    
+    const timeSinceLastSet = now - groupMood.lastSet;
+    const decayLevels = Math.floor(timeSinceLastSet / GROUP_MOOD_DECAY_CONFIG.DECAY_INTERVAL_MS);
+    
+    if (decayLevels === 0) {
+        return groupMood; // 未到衰减时间
+    }
+    
+    const levels = GROUP_MOOD_DECAY_CONFIG.LEVELS;
+    const currentIndex = levels.indexOf(groupMood.value);
+    const newIndex = Math.max(0, currentIndex - decayLevels);
+    
+    return {
+        value: levels[newIndex],
+        lastSet: now,
+        setBy: 'decay'
+    };
+}
+
+/**
+ * 迁移旧格式pokeStats到新schema
+ */
+function migratePokeStatsIfNeeded(resDoc) {
+    if (!resDoc || !resDoc.pokeStats) return resDoc;
+    if (resDoc.pokeStats.group && resDoc.pokeStats.users) return resDoc;
+    
+    const oldKeys = Object.keys(resDoc.pokeStats).filter(k => k.includes(':'));
+    if (oldKeys.length === 0) return resDoc;
+    
+    const newPokeStats = {
+        group: { count: 0, lastTime: 0, intervals: [] },
+        users: {}
+    };
+    
+    for (const oldKey of oldKeys) {
+        const oldData = resDoc.pokeStats[oldKey];
+        const userId = oldKey.split(':')[1];
+        
+        newPokeStats.users[userId] = {
+            lastTime: oldData.lastTime || 0,
+            lastReplyTime: oldData.lastReplyTime || 0,
+            intervals: oldData.intervals || []
+        };
+        
+        if (oldData.count > newPokeStats.group.count) {
+            newPokeStats.group.count = oldData.count;
+            newPokeStats.group.lastTime = oldData.lastTime;
+            newPokeStats.group.intervals = oldData.intervals || [];
+        }
+    }
+    
+    resDoc.pokeStats = newPokeStats;
+    resDoc.migratedAt = new Date().toISOString();
+    return resDoc;
+}
+
+// ==========================================
 // DB 戳一戳统计更新 (带 ETag 并发控制 + 重试)
 // ==========================================
 async function updatePokeStats(cosmosContainer, dbKey, pokeKey, newStats = {}, context, maxRetries = 2) {
@@ -3357,7 +3447,7 @@ function getAffectionByStyle(pokeStyle, baseAffection = 5) {
 // ==========================================
 async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     context.log(`[Poke] ===== 进入 handlePokeLogic =====`);
-    context.log(`[Poke] userId=${userId}, groupId=${groupId || '私聊'}`);
+    context.log(`[Poke] userId=${userId}, groupId=${groupId || '私聊'}, POKE_GROUP_COUNTING=${POKE_GROUP_COUNTING}`);
     
     // 确定数据库 key（群聊优先，否则私聊）
     const pokeDbKey = groupId ? `group_${groupId}` : String(userId);
@@ -3376,70 +3466,187 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     let resDoc = null;
     let pokeStats = {};
     let lastBotReply = {};
+    let groupMood = null;
     try {
         if (cosmosContainer) {
             try {
                 const { resource } = await cosmosContainer.item(pokeDbKey, pokeDbKey).read();
                 resDoc = resource;
+                
+                // 🔄 执行lazy migration
+                resDoc = migratePokeStatsIfNeeded(resDoc);
             } catch (e) {
                 resDoc = null;
             }
             if (resDoc) {
                 pokeStats = resDoc.pokeStats || {};
                 lastBotReply = resDoc.lastBotReply || {};
+                groupMood = resDoc.groupMood || null;
             }
         }
     } catch (err) { context.log(`[Poke] DB读取失败: ${err}`); }
 
-    // 统计 key：会话+用户
-    const pokeKey = `${pokeDbKey}:${String(userId)}`;
     const now = Date.now();
-
-    pokeStats[pokeKey] = pokeStats[pokeKey] || { 
-        count: 0, 
-        lastTime: 0, 
-        intervals: [],           // 记录最近5次间隔用于节奏分析
-        pokeStyle: 'normal',     // gentle/fast/flirty/normal
-        lastCounterTime: 0,      // 上次反击时间
-        lastReplyTime: 0         // 上次给该用户回复的时间
-    };
     
-    // 🚨 Per-user cooldown 检查：防止单用户刷屏
-    const timeSinceLastPoke = now - (pokeStats[pokeKey].lastTime || 0);
-    if (timeSinceLastPoke < USER_POKE_COOLDOWN_MS && timeSinceLastPoke > 0) {
-        context.log(`[Poke] 用户 ${userId} 在冷却中 (${timeSinceLastPoke}ms < ${USER_POKE_COOLDOWN_MS}ms)，忽略`);
-        return {
-            status: 200,
-            jsonBody: { status: 'ok', message: 'user_cooldown' }
+    // 🎯 新架构：按群计数 + per-user cooldown
+    if (POKE_GROUP_COUNTING && groupId) {
+        // 初始化group和users结构
+        pokeStats.group = pokeStats.group || { count: 0, lastTime: 0, intervals: [] };
+        pokeStats.users = pokeStats.users || {};
+        pokeStats.users[userId] = pokeStats.users[userId] || { 
+            lastTime: 0, 
+            lastReplyTime: 0,
+            intervals: []
         };
-    }
-
-    // 统计连续戳：窗口内则累加，否则重置
-    if (timeSinceLastPoke < POKE_WINDOW_MS) {
-        pokeStats[pokeKey].count += 1;
-        // 记录间隔用于节奏分析（保留最近5次）
-        pokeStats[pokeKey].intervals = pokeStats[pokeKey].intervals || [];
-        pokeStats[pokeKey].intervals.push(timeSinceLastPoke);
-        if (pokeStats[pokeKey].intervals.length > 5) {
-            pokeStats[pokeKey].intervals.shift();
+        
+        // 🚨 Per-user cooldown 检查
+        const timeSinceLastPoke = now - (pokeStats.users[userId].lastTime || 0);
+        if (timeSinceLastPoke < USER_POKE_COOLDOWN_MS && timeSinceLastPoke > 0) {
+            context.log(`[Poke] 用户 ${userId} 在冷却中 (${timeSinceLastPoke}ms < ${USER_POKE_COOLDOWN_MS}ms)，忽略`);
+            return {
+                status: 200,
+                jsonBody: { status: 'ok', message: 'user_cooldown' }
+            };
         }
+        
+        // 更新per-user lastTime
+        pokeStats.users[userId].lastTime = now;
+        
+        // 更新group-level计数
+        const groupTimeSinceLast = now - (pokeStats.group.lastTime || 0);
+        if (groupTimeSinceLast < POKE_WINDOW_MS) {
+            pokeStats.group.count += 1;
+            pokeStats.group.intervals.push(groupTimeSinceLast);
+            if (pokeStats.group.intervals.length > 5) {
+                pokeStats.group.intervals.shift();
+            }
+        } else {
+            pokeStats.group.count = 1;
+            pokeStats.group.intervals = [];
+        }
+        pokeStats.group.lastTime = now;
+        
+        // 🎭 更新groupMood（衰减 + 新情绪设置）
+        if (groupMood) {
+            groupMood = decayGroupMood(groupMood, now);
+        } else {
+            groupMood = { value: 'neutral', lastSet: now, setBy: 'system' };
+        }
+        
+        const newMoodByCount = getGroupMoodByCount(pokeStats.group.count);
+        const moodLevels = GROUP_MOOD_DECAY_CONFIG.LEVELS;
+        const currentMoodIndex = moodLevels.indexOf(groupMood.value);
+        const newMoodIndex = moodLevels.indexOf(newMoodByCount);
+        
+        // 只有当新情绪更高时才升级
+        if (newMoodIndex > currentMoodIndex) {
+            groupMood = {
+                value: newMoodByCount,
+                lastSet: now,
+                setBy: 'system'
+            };
+            context.log(`[Poke-GroupMood] 群组情绪升级: ${newMoodByCount} (戳击${pokeStats.group.count}次)`);
+        } else {
+            context.log(`[Poke-GroupMood] 当前情绪: ${groupMood.value} (戳击${pokeStats.group.count}次, 上次设置${Math.floor((now-groupMood.lastSet)/1000)}秒前)`);
+        }
+        
+        const groupPokeCount = pokeStats.group.count;
+        const userLastReplyTime = pokeStats.users[userId].lastReplyTime || 0;
+        
+        // 根据groupMood选择回复
+        let replyMessage = null;
+        let shouldCounterPoke = false;
+        let counterPokeCount = 0;
+        
+        // 🎭 根据群组情绪等级选择回复
+        if (groupMood.value === 'furious') {
+            const furiousReplies = [
+                "(暴怒) 够了！(╬▔皿▔)╯ 整个群都在戳爱丽丝！你们是故意的吧！系统即将崩溃！",
+                "(光环爆闪红色) 警告！群组戳击次数超限！爱丽丝的忍耐值已归零！(▼皿▼#)",
+                "(举起拖把) 全体注意！再有人戳，爱丽丝就要发动群体反击技能了！邦邦咔邦×∞！",
+                "(系统过载) ERROR！群组恶意互动检测！爱丽丝要重启了...(冒烟)"
+            ];
+            replyMessage = furiousReplies[Math.floor(Math.random() * furiousReplies.length)];
+        } else if (groupMood.value === 'angry') {
+            const angryReplies = [
+                "(生气) 你们...够了！(｀へ´) 爱丽丝真的要生气了！不要以为人多就能欺负人！",
+                "(鼓起脸颊) 呜...群里的大家都在戳爱丽丝...(委屈) 爱丽丝又不是戳戳乐...",
+                "(捂住光环) 警告！群组戳击频率过高！爱丽丝的护盾值只剩30%了！",
+                "(躲到角落) 太过分了...(＞﹏＜) 爱丽丝要罢工了！"
+            ];
+            replyMessage = angryReplies[Math.floor(Math.random() * angryReplies.length)];
+        } else if (groupMood.value === 'annoyed') {
+            const annoyedReplies = [
+                "(烦躁) 哎呀...大家别一起戳啦...(揉太阳穴) 爱丽丝的处理器有点跟不上了...",
+                "(无奈) 群里的戳戳频率有点高呢...(´・ω・`) 让爱丽丝休息一下好不好？",
+                "(光环闪烁不稳) 系统提示：群组互动过于频繁...爱丽丝需要冷却时间...",
+                "(叹气) 唉...大家今天都很活跃呢...(摆手) 爱丽丝快要应付不过来了..."
+            ];
+            replyMessage = annoyedReplies[Math.floor(Math.random() * annoyedReplies.length)];
+        } else {
+            // neutral: 正常回复
+            const normalReplies = [
+                "(光环闪烁) 邦邦咔邦！检测到群组互动！大家今天都很有活力呢！(✨ω✨)",
+                "(歪头) 咦？有人在召唤爱丽丝吗？勇者随时待命！(｀・ω・´)ゞ",
+                "哔哔！收到群组信号！爱丽丝在线营业中！(o゜▽゜)o☆",
+                "(转圈) 嘿嘿~ 群里的大家都在呢！爱丽丝很开心哦！"
+            ];
+            replyMessage = normalReplies[Math.floor(Math.random() * normalReplies.length)];
+        }
+        
+        // per-user"刚回复过"检查
+        if (now - userLastReplyTime < JUST_REPLIED_MS) {
+            const recentReplies = [
+                "刚才不是回复过了吗？(歪头) 大家的记忆缓存有问题？",
+                "(无奈) 爱丽丝刚刚才说过话...群里消息太快了吗？",
+                "嗯？(困惑) 刚才才回应过...是在测试爱丽丝的反应速度吗？"
+            ];
+            replyMessage = recentReplies[Math.floor(Math.random() * recentReplies.length)];
+        } else {
+            pokeStats.users[userId].lastReplyTime = now;
+        }
+        
     } else {
-        pokeStats[pokeKey].count = 1;
-        pokeStats[pokeKey].intervals = [];
-    }
-    pokeStats[pokeKey].lastTime = now;
-
-    // 🎯 分析 Poke 模式标签
-    const pokeStyle = analyzePokeStyle(pokeStats[pokeKey], pokeStats[pokeKey].count);
-    pokeStats[pokeKey].pokeStyle = pokeStyle;
-    context.log(`[Poke模式] 用户 ${userId} 当前模式: ${pokeStyle} (连击${pokeStats[pokeKey].count}次)`);
-
-    // 选择回复:优先处理快速连击反击 > 五连戳(反击) > 三连戳(生气) > 普通回应
-    let replyMessage = null;
-    let shouldCounterPoke = false;
-    let counterPokeCount = 0; // 反击次数
-    const timeOfDay = getTimeOfDay(); // 获取当前时间段
-    const pokeCount = pokeStats[pokeKey].count; // 当前连击次数
+        // 旧逻辑(per-user)：为向后兼容保留，当POKE_GROUP_COUNTING=false或私聊时使用
+        const pokeKey = `${pokeDbKey}:${String(userId)}`;
+        pokeStats[pokeKey] = pokeStats[pokeKey] || { 
+            count: 0, 
+            lastTime: 0, 
+            intervals: [],
+            pokeStyle: 'normal',
+            lastCounterTime: 0,
+            lastReplyTime: 0
+        };
+        
+        const timeSinceLastPoke = now - (pokeStats[pokeKey].lastTime || 0);
+        if (timeSinceLastPoke < USER_POKE_COOLDOWN_MS && timeSinceLastPoke > 0) {
+            context.log(`[Poke] 用户 ${userId} 在冷却中`);
+            return { status: 200, jsonBody: { status: 'ok', message: 'user_cooldown' } };
+        }
+        
+        if (timeSinceLastPoke < POKE_WINDOW_MS) {
+            pokeStats[pokeKey].count += 1;
+            pokeStats[pokeKey].intervals = pokeStats[pokeKey].intervals || [];
+            pokeStats[pokeKey].intervals.push(timeSinceLastPoke);
+            if (pokeStats[pokeKey].intervals.length > 5) {
+                pokeStats[pokeKey].intervals.shift();
+            }
+        } else {
+            pokeStats[pokeKey].count = 1;
+            pokeStats[pokeKey].intervals = [];
+        }
+        pokeStats[pokeKey].lastTime = now;
+        
+        const pokeStyle = analyzePokeStyle(pokeStats[pokeKey], pokeStats[pokeKey].count);
+        pokeStats[pokeKey].pokeStyle = pokeStyle;
+        context.log(`[Poke模式] 用户 ${userId} 当前模式: ${pokeStyle} (连击${pokeStats[pokeKey].count}次)`);
+        
+        // 旧per-user逻辑的回复选择
+        let replyMessage = null;
+        let shouldCounterPoke = false;
+        let counterPokeCount = 0; // 反击次数
+        const timeOfDay = getTimeOfDay(); // 获取当前时间段
+        const pokeCount = pokeStats[pokeKey].count; // 当前连击次数
     
     // 🚀 快速连击反击：8次快速戳（间隔<1s）触发2-4次随机反击
     const rapidPokeCount = countRapidPokes(pokeStats[pokeKey].intervals);
@@ -3625,7 +3832,27 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
             // 更新该用户的最后回复时间
             pokeStats[pokeKey].lastReplyTime = now;
         }
-    }
+        }  // 结束旧per-user回复逻辑的大else块
+    }  // 结束POKE_GROUP_COUNTING的else块
+    
+    // 🔄 更新数据库：按新旧架构分别处理
+    if (POKE_GROUP_COUNTING && groupId) {
+        // 新架构：保存group stats + groupMood
+        if (cosmosContainer) {
+            try {
+                let saveDoc = resDoc || { id: pokeDbKey };
+                saveDoc.pokeStats = pokeStats;
+                saveDoc.groupMood = groupMood;
+                saveDoc.last_updated = new Date().toISOString();
+                await cosmosContainer.items.upsert(saveDoc);
+                context.log(`[DB] 群组数据已保存 (count=${pokeStats.group.count}, mood=${groupMood.value})`);
+            } catch (err) {
+                context.error(`[DB] 保存失败: ${err.message}`);
+            }
+        }
+    } else {
+        // 旧架构：保存per-user stats
+        const pokeKey = `${pokeDbKey}:${String(userId)}`;
 
     // 使用安全的 DB 更新函数（ETag + 重试）
     await updatePokeStats(cosmosContainer, pokeDbKey, pokeKey, { 
@@ -3636,6 +3863,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         pokeStyle: pokeStats[pokeKey].pokeStyle,
         lastCounterTime: pokeStats[pokeKey].lastCounterTime
     }, context);
+    }
     
     // 更新 lastBotReply
     const sessionKey = `${pokeDbKey}:bot`;
