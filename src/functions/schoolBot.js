@@ -1,8 +1,9 @@
 const { app } = require('@azure/functions');
 const { OpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
-const speechSdk = require('microsoft-cognitiveservices-speech-sdk');
-const edgeTTS = require('edge-tts');
+const { search: duckSearch } = require('duck-duck-scrape');
+// const speechSdk = require('microsoft-cognitiveservices-speech-sdk');
+// const edgeTTS = require('edge-tts');
 
 // 全局 UA 池：用于伪装常见浏览器，给天气/其他 HTTP 请求用
 const UA_POOL = [
@@ -114,6 +115,52 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
             return fetchBypass_legacy(url, options, context, retry - 1);
         }
         throw err;
+    }
+}
+
+// ==========================================
+// DuckDuckGo Web Search (百科模式)
+// ==========================================
+async function duckWebSearch(query, context, count = 5) {
+    try {
+        const res = await duckSearch(query, { safeSearch: 1 });
+        const items = res?.results || [];
+        return items.slice(0, count).map(item => ({
+            name: item.title || item.heading || "(未命名结果)",
+            snippet: item.description || item.snippet || item.body || "",
+            url: item.url || item.href || item.link || ""
+        })).filter(r => r.url);
+    } catch (err) {
+        context.log(`[百科] DuckDuckGo 搜索异常: ${err.message}`);
+        return [];
+    }
+}
+
+async function summarizeSearchResults(query, results, context) {
+    if (!token) return "百科服务未启用 (缺少 GITHUB_TOKEN)。";
+    const client = new OpenAI({
+        baseURL: "https://models.inference.ai.azure.com",
+        apiKey: token
+    });
+    const merged = results.map((r, idx) => `${idx + 1}. ${r.name}\n摘要: ${r.snippet}\n链接: ${r.url}`).join("\n\n");
+    const prompt = `你是中文百科助手。请用简洁中文总结查询结果，先给1-2句总览，再列出关键事实，最后给出“查看更多: <第1条链接>”的单行。
+查询: ${query}
+材料:
+${merged || '无'}`;
+    try {
+        const resp = await client.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0.4,
+            max_tokens: 380,
+            messages: [
+                { role: "system", content: "你是中文百科助手，简洁、客观，不胡编。" },
+                { role: "user", content: prompt }
+            ]
+        });
+        return resp.choices?.[0]?.message?.content?.trim() || "(百科生成失败)";
+    } catch (err) {
+        context.log(`[百科] 总结异常: ${err.message}`);
+        return "(百科生成失败，请稍后再试)";
     }
 }
 
@@ -1045,22 +1092,22 @@ const AUDIO_MAP = {
     "HP": "CH0200_Battle_Recovery_1.wav" // HPが回復しました
 };
 
-// 语音静态资源映射 (Tier 1 命中立即返回，零延迟零成本)
-const VOICE_STATIC_ASSETS = {
-    "早安": `${GITHUB_AUDIO_BASE}CH0200_LogIn_1.wav`,
-    "晚安": `${GITHUB_AUDIO_BASE}Aris_Battle_Damage_3.wav`,
-    "邦邦": `${GITHUB_AUDIO_BASE}CH0200_EventShop_Buy_1.wav`,
-    "出击": `${GITHUB_AUDIO_BASE}CH0200_LogIn_2.wav`
-};
+// // 语音静态资源映射 (Tier 1 命中立即返回，零延迟零成本)
+// const VOICE_STATIC_ASSETS = {
+//     "早安": `${GITHUB_AUDIO_BASE}CH0200_LogIn_1.wav`,
+//     "晚安": `${GITHUB_AUDIO_BASE}Aris_Battle_Damage_3.wav`,
+//     "邦邦": `${GITHUB_AUDIO_BASE}CH0200_EventShop_Buy_1.wav`,
+//     "出击": `${GITHUB_AUDIO_BASE}CH0200_LogIn_2.wav`
+// };
 
-// 语音合成配置（双引擎：Azure 官方 + Edge 免费）
-const VOICE_CONFIG = {
-    engine: (process.env["VOICE_ENGINE"] || "azure").toLowerCase(),
-    azureRegion: (process.env["VOICE_AZURE_REGION"] || process.env["SPEECH_REGION"] || "koreacentral").toLowerCase(),
-    azureKey: process.env["SPEECH_KEY"],
-    speaker: process.env["VOICE_SPEAKER"] || "zh-CN-XiaoxiaoNeural",
-    edgeSpeaker: process.env["VOICE_EDGE_SPEAKER"] || "zh-CN-XiaoxiaoNeural"
-};
+// // 语音合成配置（双引擎：Azure 官方 + Edge 免费）
+// const VOICE_CONFIG = {
+//     engine: (process.env["VOICE_ENGINE"] || "azure").toLowerCase(),
+//     azureRegion: (process.env["VOICE_AZURE_REGION"] || process.env["SPEECH_REGION"] || "koreacentral").toLowerCase(),
+//     azureKey: process.env["SPEECH_KEY"],
+//     speaker: process.env["VOICE_SPEAKER"] || "zh-CN-XiaoxiaoNeural",
+//     edgeSpeaker: process.env["VOICE_EDGE_SPEAKER"] || "zh-CN-XiaoxiaoNeural"
+// };
 
 /**
  * @param {string} text - 用户的输入文本或AI回复文本
@@ -1131,112 +1178,98 @@ function getAudioSource(text, context, language = "auto") {
 // 5.1 双引擎语音合成 (Azure 官方 + Edge 免费)
 // ==========================================
 
-// 使用 Azure Speech SDK 的 PullAudioOutputStream，直接返回 Base64，不落地磁盘
-async function synthesizeWithAzureVoice(text, context) {
-    if (!VOICE_CONFIG.azureKey) {
-        context.log("[TTS][Azure] SPEECH_KEY 未配置，跳过 Azure 引擎");
-        return null;
-    }
+// // 使用 Azure Speech SDK 的 PullAudioOutputStream，直接返回 Base64，不落地磁盘
+// async function synthesizeWithAzureVoice(text, context) {
+//     if (!VOICE_CONFIG.azureKey) {
+//         context.log("[TTS][Azure] SPEECH_KEY 未配置，跳过 Azure 引擎");
+//         return null;
+//     }
+//     const speechConfig = speechSdk.SpeechConfig.fromSubscription(VOICE_CONFIG.azureKey, VOICE_CONFIG.azureRegion);
+//     speechConfig.speechSynthesisVoiceName = VOICE_CONFIG.speaker;
+//     speechConfig.speechSynthesisOutputFormat = speechSdk.SpeechSynthesisOutputFormat.Audio24Khz160KBitRateMonoMp3;
+//     const pullStream = speechSdk.AudioOutputStream.createPullStream();
+//     const audioConfig = speechSdk.AudioConfig.fromStreamOutput(pullStream);
+//     const synthesizer = new speechSdk.SpeechSynthesizer(speechConfig, audioConfig);
+//     return await new Promise(resolve => {
+//         synthesizer.speakTextAsync(text, (result) => {
+//             try {
+//                 if (!result || result.reason !== speechSdk.ResultReason.SynthesizingAudioCompleted) {
+//                     context.log(`[TTS][Azure] 合成未完成，reason=${result?.reason}`);
+//                     resolve(null);
+//                     return;
+//                 }
+//                 const buffers = [];
+//                 let chunk = new ArrayBuffer(4096);
+//                 let bytesRead = pullStream.read(chunk);
+//                 while (bytesRead > 0) {
+//                     buffers.push(Buffer.from(chunk.slice(0, bytesRead)));
+//                     chunk = new ArrayBuffer(4096);
+//                     bytesRead = pullStream.read(chunk);
+//                 }
+//                 const merged = Buffer.concat(buffers);
+//                 if (merged.length === 0) {
+//                     context.log("[TTS][Azure] PullStream 为空");
+//                     resolve(null);
+//                     return;
+//                 }
+//                 const audioBase64 = merged.toString('base64');
+//                 resolve(`[CQ:record,file=base64://${audioBase64}]`);
+//             } catch (err) {
+//                 context.log(`[TTS][Azure] 读取流失败: ${err.message}`);
+//                 resolve(null);
+//             } finally {
+//                 synthesizer.close();
+//                 pullStream.close();
+//             }
+//         }, (err) => {
+//             context.log(`[TTS][Azure] 合成异常: ${err}`);
+//             synthesizer.close();
+//             pullStream.close();
+//             resolve(null);
+//         });
+//     });
+// }
 
-    const speechConfig = speechSdk.SpeechConfig.fromSubscription(VOICE_CONFIG.azureKey, VOICE_CONFIG.azureRegion);
-    speechConfig.speechSynthesisVoiceName = VOICE_CONFIG.speaker;
-    speechConfig.speechSynthesisOutputFormat = speechSdk.SpeechSynthesisOutputFormat.Audio24Khz160KBitRateMonoMp3;
+// // Edge 免费 TTS 引擎，作为降本/容灾兜底
+// async function synthesizeWithEdgeVoice(text, context) {
+//     try {
+//         const stream = edgeTTS.stream(text, { voice: VOICE_CONFIG.edgeSpeaker });
+//         const chunks = [];
+//         for await (const data of stream) {
+//             if (data?.type === 'audio') {
+//                 chunks.push(data.data);
+//             }
+//         }
+//         if (chunks.length === 0) {
+//             context.log("[TTS][Edge] 未读取到音频数据");
+//             return null;
+//         }
+//         const audioBase64 = Buffer.concat(chunks).toString('base64');
+//         return `[CQ:record,file=base64://${audioBase64}]`;
+//     } catch (err) {
+//         context.log(`[TTS][Edge] 合成失败: ${err.message}`);
+//         return null;
+//     }
+// }
 
-    const pullStream = speechSdk.AudioOutputStream.createPullStream();
-    const audioConfig = speechSdk.AudioConfig.fromStreamOutput(pullStream);
-    const synthesizer = new speechSdk.SpeechSynthesizer(speechConfig, audioConfig);
-
-    return await new Promise(resolve => {
-        synthesizer.speakTextAsync(text, (result) => {
-            try {
-                if (!result || result.reason !== speechSdk.ResultReason.SynthesizingAudioCompleted) {
-                    context.log(`[TTS][Azure] 合成未完成，reason=${result?.reason}`);
-                    resolve(null);
-                    return;
-                }
-
-                const buffers = [];
-                let chunk = new ArrayBuffer(4096);
-                let bytesRead = pullStream.read(chunk);
-
-                while (bytesRead > 0) {
-                    buffers.push(Buffer.from(chunk.slice(0, bytesRead)));
-                    chunk = new ArrayBuffer(4096);
-                    bytesRead = pullStream.read(chunk);
-                }
-
-                const merged = Buffer.concat(buffers);
-                if (merged.length === 0) {
-                    context.log("[TTS][Azure] PullStream 为空");
-                    resolve(null);
-                    return;
-                }
-
-                const audioBase64 = merged.toString('base64');
-                resolve(`[CQ:record,file=base64://${audioBase64}]`);
-            } catch (err) {
-                context.log(`[TTS][Azure] 读取流失败: ${err.message}`);
-                resolve(null);
-            } finally {
-                synthesizer.close();
-                pullStream.close();
-            }
-        }, (err) => {
-            context.log(`[TTS][Azure] 合成异常: ${err}`);
-            synthesizer.close();
-            pullStream.close();
-            resolve(null);
-        });
-    });
-}
-
-// Edge 免费 TTS 引擎，作为降本/容灾兜底
-async function synthesizeWithEdgeVoice(text, context) {
-    try {
-        const stream = edgeTTS.stream(text, { voice: VOICE_CONFIG.edgeSpeaker });
-        const chunks = [];
-
-        for await (const data of stream) {
-            if (data?.type === 'audio') {
-                chunks.push(data.data);
-            }
-        }
-
-        if (chunks.length === 0) {
-            context.log("[TTS][Edge] 未读取到音频数据");
-            return null;
-        }
-
-        const audioBase64 = Buffer.concat(chunks).toString('base64');
-        return `[CQ:record,file=base64://${audioBase64}]`;
-    } catch (err) {
-        context.log(`[TTS][Edge] 合成失败: ${err.message}`);
-        return null;
-    }
-}
-
-// 混合路由：先查静态资源，再走 Azure，最后 Edge 兜底
-async function getVoiceMessage(text, context) {
-    if (!text || !text.trim()) return null;
-    const trimmed = text.trim();
-
-    if (VOICE_STATIC_ASSETS[trimmed]) {
-        context.log(`[TTS] 命中静态资源: ${trimmed}`);
-        return `[CQ:record,file=${VOICE_STATIC_ASSETS[trimmed]},cache=0]`;
-    }
-
-    const engine = VOICE_CONFIG.engine;
-    if (engine === 'azure' || engine === 'auto') {
-        const azureVoice = await synthesizeWithAzureVoice(trimmed, context);
-        if (azureVoice) return azureVoice;
-        context.log("[TTS] Azure 路由失败，尝试 Edge 免费引擎");
-    }
-
-    const edgeVoice = await synthesizeWithEdgeVoice(trimmed, context);
-    if (edgeVoice) return edgeVoice;
-
-    return null; // 兜底失败，调用方降级为文本
-}
+// // 混合路由：先查静态资源，再走 Azure，最后 Edge 兜底
+// async function getVoiceMessage(text, context) {
+//     if (!text || !text.trim()) return null;
+//     const trimmed = text.trim();
+//     if (VOICE_STATIC_ASSETS[trimmed]) {
+//         context.log(`[TTS] 命中静态资源: ${trimmed}`);
+//         return `[CQ:record,file=${VOICE_STATIC_ASSETS[trimmed]},cache=0]`;
+//     }
+//     const engine = VOICE_CONFIG.engine;
+//     if (engine === 'azure' || engine === 'auto') {
+//         const azureVoice = await synthesizeWithAzureVoice(trimmed, context);
+//         if (azureVoice) return azureVoice;
+//         context.log("[TTS] Azure 路由失败，尝试 Edge 免费引擎");
+//     }
+//     const edgeVoice = await synthesizeWithEdgeVoice(trimmed, context);
+//     if (edgeVoice) return edgeVoice;
+//     return null; // 兜底失败，调用方降级为文本
+// }
 
 // ==========================================
 // 6. GPT-SoVITS API 配置与调用 (Tier 2) - 最终修正版
@@ -4606,21 +4639,38 @@ app.http('schoolBot', {
                     };
                 }
 
-                // === 指令：say <text> -> 语音输出 (双引擎 TTS)
-                const sayMatch = msg.match(/^say\s+(.+)/i);
-                if (sayMatch && sayMatch[1]) {
-                    const sayText = sayMatch[1].trim();
-                    const voiceCQ = await getVoiceMessage(sayText, context);
-                    const replyPayload = voiceCQ || sayText; // 失败则降级为文本
-
-                    // 更新 lastBotReply，避免连续触发冷却误判
+                // === 指令：百科 <关键词>（DuckDuckGo 搜索）
+                const wikiMatch = msg.match(/^(百科|baike)[:：\s]+(.+)/i);
+                if (wikiMatch && wikiMatch[2]) {
+                    const query = wikiMatch[2].trim();
+                    const results = await duckWebSearch(query, context, 5);
+                    if (!results || results.length === 0) {
+                        return {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                            body: JSON.stringify({ reply: "(DuckDuckGo 没找到相关结果，换个关键词试试吧)" })
+                        };
+                    }
+                    const summary = await summarizeSearchResults(query, results, context);
                     const sessionKey = `${dbKey}:${senderId}`;
                     await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
-
                     return {
                         status: 200,
                         headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                        body: JSON.stringify({ reply: replyPayload, auto_escape: false })
+                        body: JSON.stringify({ reply: summary, auto_escape: false })
+                    };
+                }
+
+                // === 指令：say <text> (语音已关闭，退化为纯文本)
+                const sayMatch = msg.match(/^say\s+(.+)/i);
+                if (sayMatch && sayMatch[1]) {
+                    const sayText = sayMatch[1].trim();
+                    const sessionKey = `${dbKey}:${senderId}`;
+                    await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+                    return {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                        body: JSON.stringify({ reply: `【语音已关闭】${sayText}`, auto_escape: false })
                     };
                 }
 

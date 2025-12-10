@@ -9,10 +9,10 @@
   "dependencies": {
     "@azure/cosmos": "^4.8.0",
     "@azure/functions": "^4.0.0",
-    "edge-tts": "^6.1.0",
-    "microsoft-cognitiveservices-speech-sdk": "^1.37.0",
+    "duck-duck-scrape": "^2.2.7",
+    "edge-tts": "^1.0.1",
+    "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
     "openai": "^6.9.1"
   },
-  "devDependencies": {},
   "main": "src/index.js"
 }
