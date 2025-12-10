@@ -2,6 +2,8 @@ const { app } = require('@azure/functions');
 const { OpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
 const { search: duckSearch, SafeSearchType } = require('duck-duck-scrape');
+const XLSX = require('xlsx');
+const ical = require('node-ical');
 // const speechSdk = require('microsoft-cognitiveservices-speech-sdk');
 // const edgeTTS = require('edge-tts');
 
@@ -119,6 +121,296 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 }
 
 // ==========================================
+// 日程/课表解析工具 (优先官方导出，其次 OCR 截图)
+// ==========================================
+
+const SCHEDULE_KEYWORDS = [
+    '课表', '课程表', '课程安排', '日程', '日历', 'schedule', 'calendar', 'ics', 'excel', 'xlsx', 'xls'
+];
+
+// 从 NapCat 事件和原始文本中提取日程文件链接（仅限 .ics/.xlsx/.xls）
+function extractScheduleFileLinks(body, rawMsg = '') {
+    const results = [];
+    const pushCandidate = (url, name) => {
+        if (!url) return;
+        const lower = url.toLowerCase();
+        if (!/(\.ics|\.xlsx|\.xls)(\?|$)/.test(lower)) return;
+        if (results.some(r => r.url === url)) return;
+        results.push({ url, name: name || url.split('/').pop() || '文件' });
+    };
+
+    // 1) CQ:file 形式
+    const fileMatches = [...rawMsg.matchAll(/\[CQ:file[^\]]*url=([^,\]]+)/g)];
+    for (const m of fileMatches) pushCandidate(m[1]);
+
+    // 2) 文本中的直链
+    const urlMatches = [...rawMsg.matchAll(/https?:\/\/[^\s\]]+/g)];
+    for (const m of urlMatches) pushCandidate(m[0]);
+
+    // 3) NapCat message 段
+    if (body && Array.isArray(body.message)) {
+        for (const seg of body.message) {
+            if (seg && seg.type === 'file' && seg.data) {
+                pushCandidate(seg.data.url || seg.data.file || seg.data.path, seg.data.name);
+            }
+        }
+    }
+
+    return results;
+}
+
+// 下载文件为 Buffer
+async function downloadFileBuffer(url, context) {
+    try {
+        const res = await fetchBypass(url, {}, 2);
+        if (!res || !res.ok) {
+            context.log(`[Schedule] 下载失败: ${url} status=${res?.status}`);
+            return null;
+        }
+        const arr = await res.arrayBuffer();
+        return Buffer.from(arr);
+    } catch (err) {
+        context.log(`[Schedule] 下载异常: ${err.message}`);
+        return null;
+    }
+}
+
+// 解析 ICS 文件
+function parseIcsEvents(buffer, context) {
+    try {
+        const parsed = ical.sync.parseICS(buffer.toString('utf8'));
+        const events = [];
+        for (const key of Object.keys(parsed)) {
+            const item = parsed[key];
+            if (item && item.type === 'VEVENT' && item.summary && item.start) {
+                events.push({
+                    title: item.summary,
+                    start: new Date(item.start),
+                    end: item.end ? new Date(item.end) : null,
+                    location: item.location || '',
+                    source: 'ics'
+                });
+            }
+        }
+        return events;
+    } catch (err) {
+        context.log(`[Schedule] ICS 解析失败: ${err.message}`);
+        return [];
+    }
+}
+
+// Excel 日期解析
+function parseExcelDate(val) {
+    if (!val && val !== 0) return null;
+    if (val instanceof Date && !isNaN(val)) return val;
+    if (typeof val === 'number') {
+        const parsed = XLSX.SSF.parse_date_code(val);
+        if (parsed) {
+            return new Date(Date.UTC(parsed.y || 1970, (parsed.m || 1) - 1, parsed.d || 1, parsed.H || 0, parsed.M || 0, parsed.S || 0));
+        }
+    }
+    if (typeof val === 'string') {
+        const normalized = val.replace(/年|\.|-/g, '/').replace(/月/g, '/').replace(/日/g, '');
+        const dt = new Date(normalized);
+        if (!isNaN(dt)) return dt;
+    }
+    return null;
+}
+
+// 解析 Excel 课表
+function parseExcelEvents(buffer, context) {
+    try {
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        if (!rows || rows.length === 0) return [];
+
+        const headers = Object.keys(rows[0] || {}).map(h => h.toString());
+        const pick = (cands) => headers.find(h => cands.some(k => h.toLowerCase().includes(k)));
+
+        const titleCol = pick(['课程', '课程名', '课程名称', '标题', 'summary', 'subject', '事件', '事项', 'task']);
+        const startCol = pick(['开始', '开始时间', '上课', 'start', '起始', '时间']);
+        const endCol = pick(['结束', '结束时间', '下课', 'end', '终止']);
+        const dateCol = pick(['日期', 'date', 'day']);
+        const locCol = pick(['地点', '教室', '位置', 'room', 'location']);
+
+        const events = [];
+        rows.forEach((row, idx) => {
+            const title = (titleCol && row[titleCol]) ? String(row[titleCol]).trim() : `事件${idx + 1}`;
+            const startVal = startCol ? row[startCol] : (dateCol ? row[dateCol] : null);
+            const endVal = endCol ? row[endCol] : null;
+            const start = parseExcelDate(startVal);
+            const end = parseExcelDate(endVal);
+            if (start && !isNaN(start)) {
+                events.push({
+                    title,
+                    start,
+                    end: end && !isNaN(end) ? end : null,
+                    location: locCol && row[locCol] ? String(row[locCol]).trim() : '',
+                    source: 'excel'
+                });
+            }
+        });
+
+        return events;
+    } catch (err) {
+        context.log(`[Schedule] Excel 解析失败: ${err.message}`);
+        return [];
+    }
+}
+
+function formatScheduleSummary(events, limit = 5) {
+    if (!events || events.length === 0) return '';
+    const sorted = [...events].sort((a, b) => (a.start?.getTime() || 0) - (b.start?.getTime() || 0));
+    const now = Date.now();
+    const upcoming = sorted.filter(e => e.start && e.start.getTime() >= now - 12 * 60 * 60 * 1000).slice(0, limit);
+    const fmt = (d) => d ? new Date(d).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }) : '';
+    return upcoming.map(e => `- ${fmt(e.start)}${e.end ? ` ~ ${fmt(e.end)}` : ''} ${e.title}${e.location ? ` @ ${e.location}` : ''}`).join("\n");
+}
+
+async function saveScheduleToCosmos(cosmosContainer, dbKey, events, context) {
+    if (!cosmosContainer) return;
+    const docId = `schedule_${dbKey}`;
+    try {
+        await cosmosContainer.items.upsert({
+            id: docId,
+            events: events.slice(0, 100).map(e => ({
+                title: e.title,
+                start: e.start ? e.start.toISOString() : null,
+                end: e.end ? e.end.toISOString() : null,
+                location: e.location || '',
+                source: e.source || 'unknown'
+            })),
+            lastUpdated: new Date().toISOString()
+        });
+        context.log(`[Schedule] 已保存 ${events.length} 条日程到 Cosmos (${docId})`);
+    } catch (err) {
+        context.log(`[Schedule] 保存失败: ${err.message}`);
+    }
+}
+
+function extractOcrText(cvSummary) {
+    if (!cvSummary) return '';
+    const m = cvSummary.match(/图中文字:\s*"([^"]+)"/);
+    if (m && m[1]) return m[1];
+    return cvSummary;
+}
+
+async function parseScheduleFromOcrText(ocrText, context, token) {
+    if (!ocrText || !token) return { events: [], summary: ocrText || '' };
+    const client = new OpenAI({ baseURL: "https://models.inference.ai.azure.com", apiKey: token });
+    const prompt = `你是一名日程整理助手。根据下面的 OCR 文本，提取可用的日程/课程记录，最多 5 条。请返回 JSON 字符串，格式：{"events":[{"title":"","start":"ISO8601","end":"ISO8601 可为空","location":"可为空"}]}。如果无法解析，返回空数组。保持中文原文。\n\n原文：\n${ocrText}`;
+    try {
+        const resp = await client.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0.2,
+            max_tokens: 400,
+            messages: [
+                { role: 'system', content: '严格输出 JSON，不要解释。' },
+                { role: 'user', content: prompt }
+            ]
+        });
+        const text = resp.choices[0]?.message?.content?.trim() || '';
+        const jsonStart = text.indexOf('{');
+        const jsonEnd = text.lastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+            const events = Array.isArray(parsed.events) ? parsed.events : [];
+            const normalized = events
+                .filter(e => e.title && e.start)
+                .map(e => ({
+                    title: e.title,
+                    start: new Date(e.start),
+                    end: e.end ? new Date(e.end) : null,
+                    location: e.location || '',
+                    source: 'ocr'
+                }))
+                .filter(e => !isNaN(e.start));
+            return { events: normalized, summary: text };
+        }
+    } catch (err) {
+        context.log(`[Schedule] OCR解析失败: ${err.message}`);
+    }
+    return { events: [], summary: ocrText };
+}
+
+async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token }) {
+    const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
+    const orderedFiles = (fileLinks || []).slice().sort((a, b) => {
+        const ext = (s) => (s.url || '').toLowerCase().split('.').pop();
+        const weight = (e) => e === 'ics' ? 0 : e === 'xlsx' ? 1 : e === 'xls' ? 2 : 3;
+        return weight(ext(a)) - weight(ext(b));
+    });
+
+    // 优先解析官方导出 (ICS/Excel)
+    for (const f of orderedFiles) {
+        const buf = await downloadFileBuffer(f.url, context);
+        if (!buf) continue;
+        let events = [];
+        const lower = f.url.toLowerCase();
+        if (lower.endsWith('.ics')) {
+            events = parseIcsEvents(buf, context);
+        } else {
+            events = parseExcelEvents(buf, context);
+        }
+
+        if (events.length > 0) {
+            const summary = formatScheduleSummary(events);
+            await saveScheduleToCosmos(cosmosContainer, dbKey, events, context);
+            const sessionKey = `${dbKey}:${senderId}`;
+            await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: `已解析官方导出文件(${f.name || f.url})，选取最近安排如下:\n${summary || '(没有即将到来的事件)'}\n如需更多安排请直接发送关键词"课表"。`,
+                    auto_escape: false
+                })
+            };
+        }
+    }
+
+    // 备用方案：OCR 截图解析
+    if (imageUrls && imageUrls.length > 0 && (hasKeyword || orderedFiles.length === 0)) {
+        const cvSummary = await checkComputerVision(imageUrls[0], context);
+        const ocrText = extractOcrText(cvSummary);
+        const { events, summary } = await parseScheduleFromOcrText(ocrText, context, token);
+        const formatted = formatScheduleSummary(events);
+        if (events.length > 0) {
+            await saveScheduleToCosmos(cosmosContainer, dbKey, events, context);
+        }
+        const sessionKey = `${dbKey}:${senderId}`;
+        await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+        return {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({
+                reply: events.length > 0
+                    ? `未找到官方导出文件，已通过 OCR 解析截图，最近安排如下:\n${formatted}`
+                    : `未找到官方导出文件，OCR 提取到的文字如下，建议直接提供 Excel/ICS 以提升准确度:\n${summary}`,
+                auto_escape: false
+            })
+        };
+    }
+
+    // 收到文件但未能解析，提示用户提供官方导出或清晰截图
+    if (orderedFiles.length > 0) {
+        return {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({
+                reply: '已收到文件但无法识别，请确认是官方导出的 Excel/ICS，或提供更清晰的课表截图以便 OCR 解析。',
+                auto_escape: false
+            })
+        };
+    }
+
+    return null;
+}
+
+// NOTE: Exports moved to bottom after initialization to avoid "Cannot access 'cosmosContainer' before initialization" TDZ ReferenceError
+
+// ==========================================
 // DuckDuckGo Web Search (百科模式)
 // ==========================================
 async function duckWebSearch(query, context, count = 5, safeSearch = SafeSearchType.MODERATE) {
@@ -208,6 +500,11 @@ if (cosmosString) {
         console.error("CosmosDB Init Error:", e);
     }
 }
+
+// 导出给其他 HTTP 路由调用（例如 ocrCourse） — 现在放在初始化后，避免 TDZ 引发错误
+module.exports.handleScheduleRequest = handleScheduleRequest;
+module.exports.cosmosContainer = cosmosContainer;
+module.exports.token = token;
 
 // ==========================================
 // 2. 核心常量与字典
@@ -3277,13 +3574,51 @@ function clampConfidence(v) {
 
 async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, context) {
     if (!INTENT_ROUTER_ENABLED || !token) return null;
+    
+    // ⚡ 快速拒绝非动作性输入 (表情包/greeting/无意义符号)
+    const trimmed = (userMessage || '').trim();
+    if (trimmed.length === 0) {
+        return { intent: 'chat', tool: 'chat', confidence: 0.05, reason: 'empty input' };
+    }
+    
+    // 检测纯表情包 (Unicode emoji)
+    if (trimmed.length < 5 && /^[\p{Emoji}\s]+$/u.test(trimmed)) {
+        return { intent: 'chat', tool: 'chat', confidence: 0.1, reason: 'emoji only', query: trimmed };
+    }
+    
+    // 检测单纯问候语
+    const greetings = /^(hi|hello|hey|你好|您好|早|晚安|哈喽|嗨)\s*[!?。!?~]*$/i;
+    if (greetings.test(trimmed)) {
+        return { intent: 'chat', tool: 'chat', confidence: 0.15, reason: 'greeting', query: trimmed };
+    }
+    
     try {
         const client = new OpenAI({
             baseURL: "https://models.inference.ai.azure.com",
             apiKey: token
         });
 
-        const systemPrompt = `You are an intent router for a dual-model QQ bot. Output JSON only. Fields: intent, tool (draw|vision|wiki|chat|help), query, draw_prompt, is_self, nsfw, confidence (0-1), reason. Rules: infer if the user wants drawing even without explicit keyword; if images are present, decide if the task is vision_identify/translate/analyze; detect if the image likely shows Tendou Aris (silver hair, red eyes, anime maid/cyborg). When unsure, set confidence <=0.3 and default tool to chat.`;
+        const systemPrompt = `You are an intent router for a dual-model QQ bot. Output JSON only. 
+
+Fields: intent, tool (draw|vision|wiki|chat|help), query, draw_prompt, is_self, nsfw, confidence (0-1), reason.
+
+CRITICAL RULES - 负面样本检测:
+- If input is ONLY emoji/stickers (😀, 👍, 😂), intent MUST be 'chat' with confidence < 0.2
+- If input is pure greeting (hi, hello, 你好), intent MUST be 'chat' with confidence < 0.3
+- If input is meaningless symbols (..., ???, !!!), intent MUST be 'chat' with confidence < 0.2
+- If user text is < 3 characters with no images, confidence MUST be < 0.4
+
+Positive intent detection:
+- Infer drawing intent even without explicit keywords (e.g., "来张图" → draw)
+- If images present, decide: vision_identify/translate/analyze
+- Detect Tendou Aris: silver hair, red eyes, anime maid/cyborg style
+- When unsure, set confidence ≤ 0.3 and default to chat
+
+Examples:
+Input: "😀" → {intent: 'chat', confidence: 0.1, reason: 'emoji only'}
+Input: "hello" → {intent: 'chat', confidence: 0.2, reason: 'greeting'}
+Input: "画个猫娘" → {intent: 'draw', tool: 'draw', confidence: 0.9}
+Input: "..." → {intent: 'chat', confidence: 0.15, reason: 'meaningless symbol'}`;
 
         const summaryText = `User text: ${userMessage || '(empty)'}\nImages attached: ${imageUrls.length > 0 ? 'yes' : 'no'}\nUser: ${extras.userId || 'unknown'} ${extras.nickname || ''}`;
 
@@ -4543,6 +4878,7 @@ app.http('schoolBot', {
             let senderId = "unknown";
             let userNickname = "Sensei"; 
             let dbKey = "unknown";
+            let scheduleFileLinks = [];
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
@@ -4669,6 +5005,7 @@ app.http('schoolBot', {
                 }
 
                 const rawMsg = body.raw_message || "";
+                scheduleFileLinks = extractScheduleFileLinks(body, rawMsg);
                 
                 if (body.user_id) senderId = String(body.user_id);
                 dbKey = senderId; // 默认为个人ID
@@ -5044,6 +5381,37 @@ app.http('schoolBot', {
         while ((match = imgRegex.exec(msg)) !== null) {
             let cleanUrl = match[1].replace(/&amp;/g, "&");
             imageUrls.push(cleanUrl);
+        }
+
+        // 优先处理课表/日程导入：官方导出 > OCR 截图
+        const msgLower = (msg || "").toLowerCase();
+        const scheduleIntent = (scheduleFileLinks && scheduleFileLinks.length > 0) || SCHEDULE_KEYWORDS.some(k => msgLower.includes(k));
+        if (scheduleIntent) {
+            const scheduleResp = await handleScheduleRequest({
+                fileLinks: scheduleFileLinks,
+                imageUrls,
+                msg,
+                senderId,
+                dbKey,
+                cosmosContainer,
+                context,
+                token
+            });
+            if (scheduleResp) return scheduleResp;
+            if ((!scheduleFileLinks || scheduleFileLinks.length === 0) && imageUrls.length === 0) {
+                if (cosmosContainer) {
+                    const sessionKey = `${dbKey}:${senderId}`;
+                    await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+                }
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({
+                        reply: '请直接发送官方导出的课表文件 (Excel / ICS)，无法提供文件时请附上课表截图，我会用 OCR 解析。',
+                        auto_escape: false
+                    })
+                };
+            }
         }
 
         // 感知层意图路由 (Model A)
