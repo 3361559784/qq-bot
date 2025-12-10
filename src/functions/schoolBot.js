@@ -125,8 +125,20 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 // ==========================================
 
 const SCHEDULE_KEYWORDS = [
-    '课表', '课程表', '课程安排', '日程', '日历', 'schedule', 'calendar', 'ics', 'excel', 'xlsx', 'xls'
+    '课表', '课程表', '课程安排', '日程', '日历', 'schedule', 'calendar', 'ics', 'excel', 'xlsx', 'xls',
+    '超星', '学习通', 'chaoxing' // 新增学习通相关关键词
 ];
+
+// 🔥 新增:提取学习通课表 URL
+function extractChaoxingScheduleUrl(rawMsg = '') {
+    if (!rawMsg) return null;
+    const urls = [...rawMsg.matchAll(/https?:\/\/[^\s\]]+/g)].map(m => m[0]);
+    const chaoxingUrl = urls.find(url => 
+        url.includes('chaoxing.com') && 
+        (url.includes('schedule') || url.includes('kb') || url.includes('mycourse'))
+    );
+    return chaoxingUrl;
+}
 
 // 从 NapCat 事件和原始文本中提取日程文件链接（仅限 .ics/.xlsx/.xls）
 function extractScheduleFileLinks(body, rawMsg = '') {
@@ -299,33 +311,86 @@ function extractOcrText(cvSummary) {
 async function parseScheduleFromOcrText(ocrText, context, token) {
     if (!ocrText || !token) return { events: [], summary: ocrText || '' };
     const client = new OpenAI({ baseURL: "https://models.inference.ai.azure.com", apiKey: token });
-    const prompt = `你是一名日程整理助手。根据下面的 OCR 文本，提取可用的日程/课程记录，最多 5 条。请返回 JSON 字符串，格式：{"events":[{"title":"","start":"ISO8601","end":"ISO8601 可为空","location":"可为空"}]}。如果无法解析，返回空数组。保持中文原文。\n\n原文：\n${ocrText}`;
+    
+    // 🔥 增强版提示词 - 专门针对学习通课表截图格式
+    const prompt = `你是一名专业的大学课表识别助手。下面是从学习通App课表截图中提取的OCR文本。
+
+**课表格式特征:**
+- 课表通常按"周一~周日"排列,每天有多个时间段
+- 每门课包含: 课程名称、时间(如"08:00-09:40")、教室位置、可能有教师名
+- 时间段可能以"第X节"表示,或直接显示时间范围
+- 可能包含周次信息(如"第10周")
+
+**识别要求:**
+1. 提取所有可识别的课程信息
+2. 如果没有明确日期,请根据"周X"推断为本周对应日期
+3. 时间格式严格使用ISO8601(如"2025-12-11T08:00:00+08:00")
+4. 最多返回20条课程记录(完整一周课表)
+5. 保留原始中文课程名和地点
+
+**输出格式(纯JSON,不要任何解释):**
+{"events":[{"title":"课程名","start":"ISO8601格式开始时间","end":"ISO8601格式结束时间","location":"教室位置","description":"备注信息(如第几节/教师名)"}]}
+
+如果完全无法解析,返回: {"events":[]}
+
+OCR原文:
+${ocrText}`;
+
     try {
         const resp = await client.chat.completions.create({
-            model: "gpt-4o-mini",
-            temperature: 0.2,
-            max_tokens: 400,
+            model: "gpt-4o",  // 🔥 升级到 GPT-4o 以提升识别精度
+            temperature: 0.1,  // 降低温度以提高准确性
+            max_tokens: 2000,  // 增加token限制以支持完整课表
             messages: [
-                { role: 'system', content: '严格输出 JSON，不要解释。' },
+                { role: 'system', content: '你是课表识别专家,严格输出JSON格式,不添加任何markdown或解释文字。' },
                 { role: 'user', content: prompt }
             ]
         });
         const text = resp.choices[0]?.message?.content?.trim() || '';
-        const jsonStart = text.indexOf('{');
-        const jsonEnd = text.lastIndexOf('}');
+        
+        // 🔥 增强JSON提取 - 处理markdown代码块包裹的情况
+        let jsonText = text;
+        if (text.includes('```json')) {
+            const match = text.match(/```json\s*([\s\S]*?)\s*```/);
+            if (match) jsonText = match[1];
+        } else if (text.includes('```')) {
+            const match = text.match(/```\s*([\s\S]*?)\s*```/);
+            if (match) jsonText = match[1];
+        }
+        
+        const jsonStart = jsonText.indexOf('{');
+        const jsonEnd = jsonText.lastIndexOf('}');
         if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            const parsed = JSON.parse(text.slice(jsonStart, jsonEnd + 1));
+            const parsed = JSON.parse(jsonText.slice(jsonStart, jsonEnd + 1));
             const events = Array.isArray(parsed.events) ? parsed.events : [];
+            
+            // 🔥 增强数据验证和规范化
             const normalized = events
                 .filter(e => e.title && e.start)
-                .map(e => ({
-                    title: e.title,
-                    start: new Date(e.start),
-                    end: e.end ? new Date(e.end) : null,
-                    location: e.location || '',
-                    source: 'ocr'
-                }))
-                .filter(e => !isNaN(e.start));
+                .map(e => {
+                    try {
+                        const startDate = new Date(e.start);
+                        const endDate = e.end ? new Date(e.end) : null;
+                        
+                        // 验证日期有效性
+                        if (isNaN(startDate)) return null;
+                        if (endDate && isNaN(endDate)) return null;
+                        
+                        return {
+                            title: e.title.trim(),
+                            start: startDate,
+                            end: endDate,
+                            location: (e.location || '').trim(),
+                            description: (e.description || '').trim(),
+                            source: 'ocr-enhanced'
+                        };
+                    } catch {
+                        return null;
+                    }
+                })
+                .filter(e => e !== null);
+            
+            context.log(`[Schedule] OCR成功解析 ${normalized.length} 条课程`);
             return { events: normalized, summary: text };
         }
     } catch (err) {
@@ -334,15 +399,106 @@ async function parseScheduleFromOcrText(ocrText, context, token) {
     return { events: [], summary: ocrText };
 }
 
+// 🔥 新增:调用远程爬虫微服务获取结构化课表数据
+async function fetchScheduleFromRemoteScraper(url, context, cookies = null) {
+    const SCRAPER_ENDPOINT = process.env["SCRAPER_ENDPOINT"] || "https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io";
+    
+    context.log(`[RemoteScraper] 调用远程爬虫: ${url}`);
+    
+    try {
+        const response = await fetchBypass(`${SCRAPER_ENDPOINT}/scrape`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, cookies })
+        }, 2);
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+            context.log(`[RemoteScraper] 爬取失败: ${result.error}`);
+            return null;
+        }
+        
+        context.log(`[RemoteScraper] 成功获取 ${result.data.courses.length} 门课程`);
+        
+        // 转换为统一的事件格式 (兼容现有 Cosmos 存储)
+        const events = result.data.courses.map(course => ({
+            summary: course.courseName,
+            start: { 
+                dateTime: `${course.date} ${course.timeStart}`,
+                date: course.date,
+                time: course.timeStart
+            },
+            end: { 
+                dateTime: `${course.date} ${course.timeEnd}`,
+                date: course.date,
+                time: course.timeEnd
+            },
+            location: course.location,
+            description: `${course.day} 第${course.period}节`,
+            extendedProps: {
+                day: course.day,
+                period: course.period,
+                duration: course.duration,
+                teacher: course.teacher,
+                source: 'chaoxing-remote-scraper'
+            }
+        }));
+        
+        return {
+            events,
+            summary: result.data.summary,
+            screenshot: result.screenshot,
+            metadata: result.metadata
+        };
+        
+    } catch (err) {
+        context.log(`[RemoteScraper] 调用异常: ${err.message}`);
+        return null;
+    }
+}
+
 async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token }) {
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
+    
+    // 🔥 优先级1:学习通课表 URL (远程爬虫)
+    const chaoxingUrl = extractChaoxingScheduleUrl(msg);
+    if (chaoxingUrl) {
+        context.log(`[Schedule] 检测到学习通课表链接: ${chaoxingUrl}`);
+        const scraperResult = await fetchScheduleFromRemoteScraper(chaoxingUrl, context);
+        
+        if (scraperResult && scraperResult.events.length > 0) {
+            // 存储到 Cosmos DB
+            await saveScheduleToCosmos(cosmosContainer, dbKey, scraperResult.events, context);
+            const summary = formatScheduleSummary(scraperResult.events, 8);
+            
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: `✅ 已成功解析学习通课表！\n\n${scraperResult.metadata.courseCount} 门课程已保存到数据库\n\n📚 最近课程安排:\n${summary}\n\n💡 数据已同步,可随时查询"本周课表"或"明天有什么课"`,
+                    auto_escape: false
+                })
+            };
+        } else {
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: '❌ 无法解析该学习通课表链接,请确保:\n1. 链接有效且未过期\n2. 已登录学习通账号\n3. 课表页面可正常访问',
+                    auto_escape: false
+                })
+            };
+        }
+    }
+    
     const orderedFiles = (fileLinks || []).slice().sort((a, b) => {
         const ext = (s) => (s.url || '').toLowerCase().split('.').pop();
         const weight = (e) => e === 'ics' ? 0 : e === 'xlsx' ? 1 : e === 'xls' ? 2 : 3;
         return weight(ext(a)) - weight(ext(b));
     });
 
-    // 优先解析官方导出 (ICS/Excel)
+    // 优先级2:解析官方导出 (ICS/Excel)
     for (const f of orderedFiles) {
         const buf = await downloadFileBuffer(f.url, context);
         if (!buf) continue;
@@ -5383,14 +5539,15 @@ app.http('schoolBot', {
             imageUrls.push(cleanUrl);
         }
 
-        // 优先处理课表/日程导入：官方导出 > OCR 截图
+        // 优先处理课表/日程导入：官方导出 > OCR 截图 > 学习通URL
         const msgLower = (msg || "").toLowerCase();
+        const rawMsg = body?.raw_message || msg || "";
         const scheduleIntent = (scheduleFileLinks && scheduleFileLinks.length > 0) || SCHEDULE_KEYWORDS.some(k => msgLower.includes(k));
         if (scheduleIntent) {
             const scheduleResp = await handleScheduleRequest({
                 fileLinks: scheduleFileLinks,
                 imageUrls,
-                msg,
+                msg: rawMsg,  // 传递完整原始消息以便提取学习通URL
                 senderId,
                 dbKey,
                 cosmosContainer,
