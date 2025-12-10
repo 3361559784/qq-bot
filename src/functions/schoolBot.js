@@ -121,9 +121,11 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 // ==========================================
 // DuckDuckGo Web Search (百科模式)
 // ==========================================
-async function duckWebSearch(query, context, count = 5) {
+async function duckWebSearch(query, context, count = 5, safeSearch = 'moderate') {
     try {
-        const res = await duckSearch(query, { safeSearch: 1 });
+        // DuckDuckGo safeSearch 必须是字符串: 'off' | 'moderate' | 'strict'
+        const safeLevel = ['off', 'moderate', 'strict'].includes(safeSearch) ? safeSearch : 'moderate';
+        const res = await duckSearch(query, { safeSearch: safeLevel });
         const items = res?.results || [];
         return items.slice(0, count).map(item => ({
             name: item.title || item.heading || "(未命名结果)",
