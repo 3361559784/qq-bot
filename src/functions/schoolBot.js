@@ -264,6 +264,26 @@ const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:6009
 const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
 const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，用于防止自触发循环
 
+// 意图路由配置（Perception→Action 双模型）
+const INTENT_ROUTER_ENABLED = process.env["ARIS_INTENT_ROUTER"] !== "false";
+const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4o-mini";
+const INTENT_CONFIDENCE_THRESHOLD = Number(process.env["ARIS_INTENT_CONFIDENCE"] || 0.35);
+
+// 模型池 (4+4) - 白嫖优先
+const PERCEPTION_MODELS = [
+    { name: "gpt-4o", temp: 0.1 },
+    { name: "Llama-3.2-90B-Vision-Instruct", temp: 0.1 },
+    { name: "gpt-4o-mini", temp: 0.1 },
+    { name: "Llama-3.2-11B-Vision-Instruct", temp: 0.1 }
+];
+
+const RESPONSE_MODELS = [
+    { name: "Mistral-large-2407", temp: 0.9 },
+    { name: "Llama-3.3-70B-Instruct", temp: 1.0 },
+    { name: "gpt-4o", temp: 1.0 },
+    { name: "Cohere-command-r-plus", temp: 1.0 }
+];
+
 // 防刷屏配置
 const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
 
@@ -3230,6 +3250,93 @@ function syncCharacterNamesToDB() {
 syncCharacterNamesToDB();
 
 // ==========================================
+// 辅助函数: 感知层意图路由 (Model A)
+// ==========================================
+function normalizeIntentTool(raw) {
+    const val = (raw || '').toLowerCase();
+    if (val.includes('draw') || val.includes('paint') || val.includes('image_gen')) {
+        return { intent: 'draw', tool: 'draw' };
+    }
+    if (val.includes('vision') || val.includes('image') || val.includes('identify') || val.includes('photo')) {
+        return { intent: 'vision', tool: 'vision' };
+    }
+    if (val.includes('wiki') || val.includes('search') || val.includes('baike')) {
+        return { intent: 'wiki', tool: 'wiki' };
+    }
+    if (val.includes('help') || val.includes('command')) {
+        return { intent: 'help', tool: 'help' };
+    }
+    return { intent: val || 'chat', tool: 'chat' };
+}
+
+function clampConfidence(v) {
+    const num = Number(v);
+    if (Number.isNaN(num)) return 0;
+    return Math.min(1, Math.max(0, num));
+}
+
+async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, context) {
+    if (!INTENT_ROUTER_ENABLED || !token) return null;
+    try {
+        const client = new OpenAI({
+            baseURL: "https://models.inference.ai.azure.com",
+            apiKey: token
+        });
+
+        const systemPrompt = `You are an intent router for a dual-model QQ bot. Output JSON only. Fields: intent, tool (draw|vision|wiki|chat|help), query, draw_prompt, is_self, nsfw, confidence (0-1), reason. Rules: infer if the user wants drawing even without explicit keyword; if images are present, decide if the task is vision_identify/translate/analyze; detect if the image likely shows Tendou Aris (silver hair, red eyes, anime maid/cyborg). When unsure, set confidence <=0.3 and default tool to chat.`;
+
+        const summaryText = `User text: ${userMessage || '(empty)'}\nImages attached: ${imageUrls.length > 0 ? 'yes' : 'no'}\nUser: ${extras.userId || 'unknown'} ${extras.nickname || ''}`;
+
+        const messages = [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: summaryText }
+        ];
+
+        for (let i = 0; i < PERCEPTION_MODELS.length; i++) {
+            const modelCfg = PERCEPTION_MODELS[i];
+            try {
+                const response = await client.chat.completions.create({
+                    model: modelCfg.name,
+                    temperature: modelCfg.temp,
+                    max_tokens: 300,
+                    response_format: { type: "json_object" },
+                    messages
+                });
+                const raw = response?.choices?.[0]?.message?.content || "";
+                let parsed = null;
+                try {
+                    parsed = JSON.parse(raw);
+                } catch (e) {
+                    context.log(`[IntentRouter] JSON parse fail (${modelCfg.name}): ${e.message} | raw=${raw.substring(0, 200)}`);
+                    continue;
+                }
+
+                const normalized = normalizeIntentTool(parsed.tool || parsed.intent);
+                return {
+                    intent: normalized.intent,
+                    tool: normalized.tool,
+                    raw_intent: parsed.intent || parsed.tool || '',
+                    query: parsed.query || parsed.topic || '',
+                    drawPrompt: parsed.draw_prompt || parsed.prompt || parsed.query || '',
+                    isSelf: !!parsed.is_self,
+                    nsfw: !!parsed.nsfw,
+                    confidence: clampConfidence(parsed.confidence),
+                    reason: parsed.reason || parsed.notes || '',
+                    modelUsed: modelCfg.name
+                };
+            } catch (err) {
+                context.log(`[IntentRouter] ${modelCfg.name} fail: ${err?.message || err}`);
+                if (i === PERCEPTION_MODELS.length - 1) throw err;
+            }
+        }
+        return null;
+    } catch (err) {
+        context.log(`[IntentRouter] error: ${err.message}`);
+        return null;
+    }
+}
+
+// ==========================================
 // 辅助函数: 智能识别用户意图（翻译/分析/识图）
 // ==========================================
 function detectImageIntent(userMessage) {
@@ -4939,6 +5046,42 @@ app.http('schoolBot', {
             imageUrls.push(cleanUrl);
         }
 
+        // 感知层意图路由 (Model A)
+        let intentResult = null;
+        if (INTENT_ROUTER_ENABLED) {
+            intentResult = await analyzeIntentRouter(msg, imageUrls, { userId: senderId, nickname: userNickname }, context);
+            if (intentResult) {
+                context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} self=${intentResult.isSelf}`);
+            }
+        }
+
+        const intentHintText = intentResult
+            ? `(系统意图报告: tool=${intentResult.tool}; intent=${intentResult.intent}; conf=${intentResult.confidence}${intentResult.query ? `; query=${intentResult.query}` : ''})`
+            : '';
+
+        // 无指令的百科意图自动触发
+        if (!wikiMatch && intentResult && intentResult.tool === 'wiki' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
+            const query = (intentResult.query || msg || '').trim();
+            if (query) {
+                const results = await duckWebSearch(query, context, 5);
+                if (!results || results.length === 0) {
+                    return {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                        body: JSON.stringify({ reply: "(DuckDuckGo 没找到相关结果，换个关键词试试吧)", auto_escape: false })
+                    };
+                }
+                const summary = await summarizeSearchResults(query, results, context);
+                const sessionKey = `${dbKey}:${senderId}`;
+                await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ reply: summary, auto_escape: false })
+                };
+            }
+        }
+
         // ==========================================
         // 4. 绘图指令检测 (Hugging Face Animagine XL 3.1)
         // ==========================================
@@ -4947,9 +5090,15 @@ app.http('schoolBot', {
 
         // 触发词检测 (扩展版 - 包含图生图关键词)
         // 包含"画"、"绘图"、"生成图片"、"图生图"、"照着"、"按照此图"等任意一个，就触发绘图
-        if (/(画|绘|生成|作出.*图片|图生图|照着|重绘|修图|改图|按照.*图)/.test(msg)) {
+        const drawRegexTriggered = /(画|绘|生成|作出.*图片|图生图|照着|重绘|修图|改图|按照.*图)/.test(msg);
+        const forceDraw = intentResult && intentResult.tool === 'draw' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD;
+        const drawTriggered = forceDraw || drawRegexTriggered;
+        const intentDrawPrompt = (intentResult?.drawPrompt || intentResult?.query || '').trim();
+
+        if (drawTriggered) {
             // 清理干扰词，保留核心绘图描述
-            const drawKeyword = msg.replace(/帮我|画画|画图|画一下|画一个|画张|画|绘|生成|作出|图片|图生图|照着|重绘|修图|改图|按照|此图/g, "").trim();
+            let drawKeyword = forceDraw ? intentDrawPrompt : msg.replace(/帮我|画画|画图|画一下|画一个|画张|画|绘|生成|作出|图片|图生图|照着|重绘|修图|改图|按照|此图/g, "").trim();
+            if (!drawKeyword && intentDrawPrompt) drawKeyword = intentDrawPrompt;
             
             // --- Context Memory for Drawing (上下文记忆回溯) ---
             let finalDrawKeyword = drawKeyword;
@@ -5009,7 +5158,16 @@ app.http('schoolBot', {
             textToSend = `${userLabel} ${textToSend}`;
 
             // 智能意图识别：根据用户消息判断识图模式
-            const userIntent = detectImageIntent(cleanText);
+            let userIntent = detectImageIntent(cleanText);
+            if (intentResult && intentResult.tool === 'vision' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
+                if (/translate/i.test(intentResult.intent)) {
+                    userIntent = 'translate';
+                } else if (/analy/i.test(intentResult.intent)) {
+                    userIntent = 'analyze';
+                } else if (/identify|who|self/i.test(intentResult.intent)) {
+                    userIntent = 'identify';
+                }
+            }
             context.log(`[识图] 用户意图: ${userIntent}`);
 
             // 1. 根据意图选择性启动识别引擎 + 动态阈值调整
@@ -5155,6 +5313,9 @@ app.http('schoolBot', {
             // 如果 Llama 失败了，准备 fallback 给 GPT-4o
             if (!cuteImageReply) {
                 // 1. 添加文字描述 (包含了 AnimeTrace/CustomVision 的识别结果)
+                if (intentHintText) {
+                    finalContentForAI.push({ type: "text", text: intentHintText });
+                }
                 finalContentForAI.push({ type: "text", text: textToSend });
                 
                 // 2. 关键修正：注释掉图片推送！防止 Azure 审查拦截
@@ -5171,7 +5332,8 @@ app.http('schoolBot', {
             if (weatherInfo) textContent += weatherInfo;
             
             // 【核心修复】这里也要加！确保纯文字聊天也能认出 Sensei
-            finalContentForAI = `${userLabel} ${textContent}`;
+            const baseText = `${userLabel} ${textContent}`;
+            finalContentForAI = intentHintText ? `${intentHintText}\n${baseText}` : baseText;
         }
 
         // ==========================================
@@ -5402,38 +5564,13 @@ app.http('schoolBot', {
 const NAPCAT_API_URL = "http://4.230.25.38:3000"; // ← 改成你的 NapCat 地址
 const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // ← 改成你想发送的群号列表
             // 多脑策略: 从最聪明到最稳定
-            const MODEL_CHAIN = [
-                { 
-                    name: "Llama-3.3-70B-Instruct", 
-                    temp: 0.8, 
-                    desc: "70B 巨模 (超强角色扮演,无审查)",
-                    tier: "high"
-                },
-                { 
-                    name: "gpt-4o", 
-                    temp: 1.0, 
-                    desc: "GPT-4o (聪明且活泼)",
-                    tier: "low"
-                },
-                { 
-                    name: "gpt-4o-mini", 
-                    temp: 1.1, 
-                    desc: "GPT-4o-mini (速度快,额度高)",
-                    tier: "low"
-                },
-                { 
-                    name: "Phi-4", 
-                    temp: 0.9, 
-                    desc: "Phi-4 (微软小钢炮)",
-                    tier: "low"
-                },
-            ];
+            const MODEL_CHAIN = RESPONSE_MODELS;
 
             // 依次尝试每个模型
             for (let i = 0; i < MODEL_CHAIN.length; i++) {
                 const model = MODEL_CHAIN[i];
                 try {
-                    context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name} (${model.desc})`);
+                    context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name}`);
                     
                     const response = await client.chat.completions.create({
                         messages: finalMessages,
