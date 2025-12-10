@@ -122,21 +122,34 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 // DuckDuckGo Web Search (百科模式)
 // ==========================================
 async function duckWebSearch(query, context, count = 5, safeSearch = SafeSearchType.MODERATE) {
-    try {
-        // DuckDuckGo safeSearch 需使用 SafeSearchType 枚举：STRICT(0) / MODERATE(-1) / OFF(-2)
-        const safeLevel = (typeof safeSearch === 'string' && SafeSearchType[safeSearch]) ||
-            (Object.values(SafeSearchType).includes(safeSearch) ? safeSearch : SafeSearchType.MODERATE);
-        const res = await duckSearch(query, { safeSearch: safeLevel });
-        const items = res?.results || [];
-        return items.slice(0, count).map(item => ({
-            name: item.title || item.heading || "(未命名结果)",
-            snippet: item.description || item.snippet || item.body || "",
-            url: item.url || item.href || item.link || ""
-        })).filter(r => r.url);
-    } catch (err) {
-        context.log(`[百科] DuckDuckGo 搜索异常: ${err.message}`);
-        return [];
+    // DuckDuckGo 会对高频或异常请求报错，这里增加轻量重试 + 伪装 UA
+    const safeLevel = (typeof safeSearch === 'string' && SafeSearchType[safeSearch]) ||
+        (Object.values(SafeSearchType).includes(safeSearch) ? safeSearch : SafeSearchType.MODERATE);
+    const needleOpts = {
+        headers: {
+            'user-agent': UA_POOL[Math.floor(Math.random() * UA_POOL.length)]
+        },
+        // DuckDuckGo 偶尔需要重用 keep-alive，可按需添加：
+        // open_timeout: 8000,
+        // response_timeout: 8000,
+    };
+    const maxRetry = 2;
+    for (let attempt = 0; attempt <= maxRetry; attempt++) {
+        try {
+            const res = await duckSearch(query, { safeSearch: safeLevel }, needleOpts);
+            const items = res?.results || [];
+            return items.slice(0, count).map(item => ({
+                name: item.title || item.heading || "(未命名结果)",
+                snippet: item.description || item.snippet || item.body || "",
+                url: item.url || item.href || item.link || ""
+            })).filter(r => r.url);
+        } catch (err) {
+            context.log(`[百科] DuckDuckGo 搜索异常: ${err.message} (attempt ${attempt + 1}/${maxRetry + 1})`);
+            if (attempt < maxRetry) await sleep(600 + Math.random() * 600);
+            else return [];
+        }
     }
+    return [];
 }
 
 async function summarizeSearchResults(query, results, context) {
