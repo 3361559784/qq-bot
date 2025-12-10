@@ -151,7 +151,7 @@ const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
 
 // 戳一戳升级版配置（支持环境变量动态配置）
-const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 480000); // 8分钟内连续戳计数窗口（适应QQ限流）
+const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 600000); // 10分钟内连续戳计数窗口（更宽容的群计数）
 const POKE_ANGRY_THRESHOLD = Number(process.env["POKE_ANGRY_THRESHOLD"] || 3); // 连续戳3次触发生气
 const POKE_COUNTER_THRESHOLD = Number(process.env["POKE_COUNTER_THRESHOLD"] || 5); // 连续戳5次触发反击
 const JUST_REPLIED_MS = Number(process.env["JUST_REPLIED_MS"] || 15000); // 15秒内算"刚回复过"
@@ -3232,7 +3232,7 @@ function getGroupMoodByCount(groupPokeCount) {
 }
 
 /**
- * 渐进式衰减群组情绪（5分钟降一级）
+ * 渐进式衰减群组情绪（8分钟降一级）
  */
 function decayGroupMood(groupMood, now) {
     if (!groupMood || groupMood.value === 'neutral') {
@@ -3457,6 +3457,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     let replyMessage = null;
     let shouldCounterPoke = false;
     let counterPokeCount = 0;
+    let pokeStyle = 'normal'; // 默认用于好感度计算与样式调整
     
     // 确定数据库 key（群聊优先，否则私聊）
     const pokeDbKey = groupId ? `group_${groupId}` : String(userId);
@@ -3616,10 +3617,15 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "嗯？(困惑) 刚才才回应过...是在测试爱丽丝的反应速度吗？"
             ];
             replyMessage = recentReplies[Math.floor(Math.random() * recentReplies.length)];
+            // 仍然刷新用户的最后回复时间，避免反复命中同一句
+            pokeStats.users[userId].lastReplyTime = now;
         } else {
             // replyMessage已经在上面根据groupMood设置好了，这里只更新lastReplyTime
             pokeStats.users[userId].lastReplyTime = now;
         }
+
+        // 将群情绪映射为pokeStyle，供后续好感度使用（高频=fast）
+        pokeStyle = (groupMood.value === 'neutral') ? 'normal' : 'fast';
         
     } else {
         // 旧逻辑(per-user)：为向后兼容保留，当POKE_GROUP_COUNTING=false或私聊时使用
@@ -3652,9 +3658,10 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         }
         pokeStats[pokeKey].lastTime = now;
         
-        const pokeStyle = analyzePokeStyle(pokeStats[pokeKey], pokeStats[pokeKey].count);
-        pokeStats[pokeKey].pokeStyle = pokeStyle;
-        context.log(`[Poke模式] 用户 ${userId} 当前模式: ${pokeStyle} (连击${pokeStats[pokeKey].count}次)`);
+        const detectedPokeStyle = analyzePokeStyle(pokeStats[pokeKey], pokeStats[pokeKey].count);
+        pokeStats[pokeKey].pokeStyle = detectedPokeStyle;
+        pokeStyle = detectedPokeStyle;
+        context.log(`[Poke模式] 用户 ${userId} 当前模式: ${detectedPokeStyle} (连击${pokeStats[pokeKey].count}次)`);
         
         // 旧per-user逻辑的回复选择
         let replyMessage = null;
@@ -3831,7 +3838,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         }
         
         // 🎨 根据 pokeStyle 调整回复内容
-        pokeReplies = adjustRepliesByStyle(pokeReplies, pokeStyle);
+        pokeReplies = adjustRepliesByStyle(pokeReplies, detectedPokeStyle);
         
         // ✅ 使用per-user的回复时间检查（避免多人互相干扰）
         const lastUserReplyTime = pokeStats[pokeKey].lastReplyTime || 0;
@@ -4977,7 +4984,11 @@ app.http('schoolBot', {
             }
         }
         
-        let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}`;
+        const groupHistoryFocus = dbKey.startsWith('group_')
+            ? "\n【群聊回溯指南】重点关注标记为'当前用户'的发言，其它群聊消息只作背景参考，不要跑题。"
+            : "";
+
+        let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}`;
         
         // 调用 AI 封装函数
         const client = new OpenAI({
@@ -4997,7 +5008,23 @@ app.http('schoolBot', {
             } = opts;
 
             // 压缩历史，避免过长上下文导致啰嗦或截断
-            const trimmedHistory = useHistory ? history.slice(-8) : [];
+            let trimmedHistory = [];
+            if (useHistory) {
+                const recent = history.slice(-8);
+                if (dbKey.startsWith('group_')) {
+                    trimmedHistory = recent.map(entry => {
+                        if (entry.role === 'user' && entry.content.includes(`[ID:${senderId}`)) {
+                            return { ...entry, content: `【当前用户】${entry.content}` };
+                        }
+                        if (entry.role === 'user') {
+                            return { ...entry, content: `【群聊参考】${entry.content}` };
+                        }
+                        return entry;
+                    });
+                } else {
+                    trimmedHistory = recent;
+                }
+            }
 
             const finalMessages = [
                 { role: "system", content: systemPrompt },
