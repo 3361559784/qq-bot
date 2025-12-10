@@ -122,21 +122,33 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 // DuckDuckGo Web Search (百科模式)
 // ==========================================
 async function duckWebSearch(query, context, count = 5, safeSearch = SafeSearchType.MODERATE) {
-    // DuckDuckGo 会对高频或异常请求报错，这里增加轻量重试 + 伪装 UA
+    // DuckDuckGo 反爬较严格：使用官方枚举 + 全量 UA/SEC 头 + 轻量重试
     const safeLevel = (typeof safeSearch === 'string' && SafeSearchType[safeSearch]) ||
         (Object.values(SafeSearchType).includes(safeSearch) ? safeSearch : SafeSearchType.MODERATE);
-    const needleOpts = {
-        headers: {
-            'user-agent': UA_POOL[Math.floor(Math.random() * UA_POOL.length)]
-        },
-        // DuckDuckGo 偶尔需要重用 keep-alive，可按需添加：
-        // open_timeout: 8000,
-        // response_timeout: 8000,
+    const ddgHeaders = {
+        'user-agent': UA_POOL[Math.floor(Math.random() * UA_POOL.length)],
+        'sec-ch-ua': '"Not=A?Brand";v="8", "Chromium";v="129"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'none',
+        'sec-fetch-user': '?1',
+        'sec-gpc': '1',
+        'upgrade-insecure-requests': '1'
+    };
+    const needleOpts = { headers: ddgHeaders, open_timeout: 8000, response_timeout: 8000 };
+    const searchOptions = {
+        safeSearch: safeLevel,
+        locale: 'en-us',
+        region: 'wt-wt',
+        marketRegion: 'en-US',
+        time: 'a'
     };
     const maxRetry = 2;
     for (let attempt = 0; attempt <= maxRetry; attempt++) {
         try {
-            const res = await duckSearch(query, { safeSearch: safeLevel }, needleOpts);
+            const res = await duckSearch(query, searchOptions, needleOpts);
             const items = res?.results || [];
             return items.slice(0, count).map(item => ({
                 name: item.title || item.heading || "(未命名结果)",
@@ -145,7 +157,7 @@ async function duckWebSearch(query, context, count = 5, safeSearch = SafeSearchT
             })).filter(r => r.url);
         } catch (err) {
             context.log(`[百科] DuckDuckGo 搜索异常: ${err.message} (attempt ${attempt + 1}/${maxRetry + 1})`);
-            if (attempt < maxRetry) await sleep(600 + Math.random() * 600);
+            if (attempt < maxRetry) await sleep(800 + Math.random() * 800);
             else return [];
         }
     }
