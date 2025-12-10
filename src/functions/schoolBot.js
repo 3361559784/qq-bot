@@ -1,7 +1,7 @@
 const { app } = require('@azure/functions');
 const { OpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
-const { search: duckSearch } = require('duck-duck-scrape');
+const { search: duckSearch, SafeSearchType } = require('duck-duck-scrape');
 // const speechSdk = require('microsoft-cognitiveservices-speech-sdk');
 // const edgeTTS = require('edge-tts');
 
@@ -121,10 +121,12 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 // ==========================================
 // DuckDuckGo Web Search (百科模式)
 // ==========================================
-async function duckWebSearch(query, context, count = 5, safeSearch = true) {
+async function duckWebSearch(query, context, count = 5, safeSearch = SafeSearchType.MODERATE) {
     try {
-        // DuckDuckGo safeSearch 只支持 true/false，true=开启安全搜索
-        const res = await duckSearch(query, { safeSearch });
+        // DuckDuckGo safeSearch 需使用 SafeSearchType 枚举：STRICT(0) / MODERATE(-1) / OFF(-2)
+        const safeLevel = (typeof safeSearch === 'string' && SafeSearchType[safeSearch]) ||
+            (Object.values(SafeSearchType).includes(safeSearch) ? safeSearch : SafeSearchType.MODERATE);
+        const res = await duckSearch(query, { safeSearch: safeLevel });
         const items = res?.results || [];
         return items.slice(0, count).map(item => ({
             name: item.title || item.heading || "(未命名结果)",
