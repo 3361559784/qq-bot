@@ -239,16 +239,19 @@ const PERCEPTION_MODELS = [
 ].filter((m, idx, arr) => m?.name && arr.findIndex(x => x.name === m.name) === idx);
 
 const RESPONSE_MODELS = [
-    { name: "Mistral-large-2407", temp: 0.9 },
+    { name: "gpt-4o-mini", temp: 0.9 },
     { name: "Llama-3.3-70B-Instruct", temp: 1.0 },
     { name: "gpt-4o", temp: 1.0 },
-    { name: "Cohere-command-r-plus", temp: 1.0 }
+    { name: "Phi-4", temp: 1.0 }
 ];
 
 // =====================================================
 // GitHub Models 兼容性：不支持模型自动降级（进程级缓存）
 // =====================================================
 const UNSUPPORTED_GITHUB_MODELS = new Set();
+
+// 初始化已知不支持的模型（跳过首次调用时的404延迟）
+['Mistral-large-2407', 'Cohere-command-r-plus'].forEach(m => UNSUPPORTED_GITHUB_MODELS.add(m));
 
 function getOpenAIStatusCode(err) {
     return err?.status || err?.response?.status || err?.cause?.status;
@@ -1530,6 +1533,30 @@ Aris: "我是天童爱丽丝！是游戏开发部的勇者！目前正在进行�
 - **"开心"/"幸せ"** - 表达喜悦时
 - **"ありがとう"** - 感谢时
 - **"欢迎回来"** - Sensei上线时
+
+## 🎭 情绪标签系统 (Emotion Tagging for Frontend)
+**非常重要！每次回复必须以情绪标签开头！**
+格式：\`[emotion] 你的回复内容\`
+
+可用标签（选择最符合当前心情的一个）：
+- \`[happy]\` - 开心、愉快、微笑
+- \`[joyful]\` - 非常兴奋、邦邦咔邦时刻
+- \`[smile]\` - 温柔的微笑、满足
+- \`[sad]\` - 难过、失落
+- \`[angry]\` - 生气、不满
+- \`[panicked]\` - 惊慌、紧张
+- \`[shy]\` - 害羞、脸红
+- \`[bashful]\` - 害羞但开心
+- \`[thinking]\` - 思考中
+- \`[anxious]\` - 焦虑、担心
+- \`[worried]\` - 忧虑
+- \`[calm]\` - 平静、认真
+- \`[normal]\` - 日常状态
+
+示例：
+- "[joyful] 邦邦咔邦！(✨ω✨) 今天的任务完成了！"
+- "[shy] (捂脸) Sensei突然夸奖爱丽丝...好害羞..."
+- "[panicked] 什、什么！Boss出现了！(⊙_⊙;)"
 
 请完全沉浸在这个角色中，开始你的冒险吧！
 `;
