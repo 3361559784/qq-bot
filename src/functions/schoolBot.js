@@ -121,6 +121,9 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 const token = process.env["GITHUB_TOKEN"];
 const cosmosString = process.env["COSMOS_DB_STRING"];
 
+// 本地联调兜底：ARIS_MOCK_CHAT=true 时，不要求外部 Token
+const MOCK_CHAT_ENABLED = String(process.env["ARIS_MOCK_CHAT"] || "").toLowerCase() === "true";
+
 let cosmosContainer = null;
 if (cosmosString) {
     try {
@@ -3694,6 +3697,8 @@ app.http('schoolBot', {
     authLevel: 'anonymous',
     handler: async (request, context) => {
         try {
+            // 启动/联调诊断：只打印开关状态，不打印任何密钥
+            context.log(`[ENV] ARIS_MOCK_CHAT=${process.env["ARIS_MOCK_CHAT"]} MOCK_CHAT_ENABLED=${MOCK_CHAT_ENABLED} token_present=${!!token}`);
             let msg = request.query.get('msg'); 
             let senderId = "unknown";
             let userNickname = "Sensei"; 
@@ -4079,7 +4084,7 @@ ${scheduleInfo}
                 jsonBody: { status: 'ok', message: 'no_message_content' }
             };
         }
-        if (!token) {
+        if (!token && !MOCK_CHAT_ENABLED) {
             return {
                 status: 500,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -4818,16 +4823,21 @@ ${scheduleInfo}
         let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}`;
         
         // 调用 AI 封装函数
-        const client = new OpenAI({
-            baseURL: "https://models.inference.ai.azure.com",
-            apiKey: token
-        });
+        const client = token
+            ? new OpenAI({
+                baseURL: "https://models.inference.ai.azure.com",
+                apiKey: token
+            })
+            : null;
 
         // 多脑 AI 调用函数 (智能降级系统)
         // GitHub Models 可用模型 (2025-01):
         // - Low tier: gpt-4o-mini, gpt-4o, Phi-4, Mistral系列, Llama-3.3-70B等 (15 req/min)
         // - High tier: o1-preview, o1-mini 等推理模型 (10 req/min, 限流更严)
         async function callAI(messages, systemPrompt, opts = {}) {
+            if (!client) {
+                throw new Error('Token missing');
+            }
             const {
                 useHistory = true,
                 temperature = 1.1,
@@ -4923,6 +4933,19 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             
             const userMessage = { role: "user", content: finalContentForAI };
             let response;
+
+            if (MOCK_CHAT_ENABLED) {
+                const preview = String(msg || "").trim().slice(0, 60);
+                response = {
+                    choices: [
+                        {
+                            message: {
+                                content: `邦邦咔邦！(≧∇≦)/ 本地联调成功！爱丽丝收到你的消息了：${preview}${preview.length >= 60 ? '...' : ''}`
+                            }
+                        }
+                    ]
+                };
+            } else {
             
             try {
                 response = await callAI([userMessage], currentSystemPrompt, { 
@@ -4944,6 +4967,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                     throw err;
                 }
             }
+            }
 
             let aiReply = response.choices[0].message.content;
             if (aiReply.includes("<end>")) aiReply = aiReply.replace(/<end>/g, "").trim();
@@ -4959,11 +4983,13 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
             }
 
-            // ⏱️ 强制压缩长度，避免长篇被截断
-            aiReply = enforceShortReply(aiReply, 120, 2);
+            // ⏱️ 强制压缩长度：使用 REPLY_CONFIG，避免“日志很长但前端只显示第一句”的困惑
+            aiReply = enforceShortReply(aiReply, REPLY_CONFIG.MAX_CHARS, REPLY_CONFIG.MAX_SENTENCES);
             
             // 🎭 检测并替换生硬的拒绝为拟人化回复
             aiReply = replaceRobotRefusal(aiReply, affectionLevel);
+
+            context.log(`[AI回复最终] ${aiReply}`);
             
             // 为用户提供简短指令提示（已隐藏，内部处理）
             // aiReply = appendQuickHints(aiReply);
