@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = Infinity;
 
 // 情绪标签正则：[happy], [sad], [panicked] 等
 const EMOTION_TAG_REGEX = /^\[(\w+)\]\s*/;
@@ -47,8 +47,12 @@ export async function sendMessage(message, sessionId, options = {}) {
     return { reply: "缺少 sessionId", emotion: null };
   }
 
+  // 不再设置超时，不主动中断请求
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutId = null;
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs !== Infinity) {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  }
 
   try {
     const response = await fetch("/api/chat", {
@@ -81,11 +85,11 @@ export async function sendMessage(message, sessionId, options = {}) {
   } catch (err) {
     const isAbort = err && typeof err === "object" && err.name === "AbortError";
     return { 
-      reply: isAbort ? "请求超时(15s)，请稍后重试" : "网络异常，请稍后重试",
+      reply: isAbort ? "请求超时(20s)，请稍后重试" : "网络异常，请稍后重试",
       emotion: "worried"
     };
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
@@ -101,8 +105,12 @@ export async function sendPoke(sessionId, options = {}) {
     return { reply: null, emotion: null };
   }
 
+  // 不再设置超时，不主动中断请求
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timeoutId = null;
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0 && timeoutMs !== Infinity) {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  }
 
   try {
     const response = await fetch("/api/chat", {
@@ -142,6 +150,6 @@ export async function sendPoke(sessionId, options = {}) {
   } catch {
     return { reply: null, emotion: null };
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }

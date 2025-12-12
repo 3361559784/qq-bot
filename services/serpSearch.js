@@ -92,7 +92,17 @@ async function serpSearch(query, options = {}) {
  * @param {string} query - 原始查询关键词
  * @returns {string} 格式化后的文本
  */
-function formatSerpResults(results, query) {
+/**
+ * 格式化 SerpAPI 搜索结果为可读文本
+ * @param {Array} results - 搜索结果数组
+ * @param {string} query - 原始查询关键词
+ * @param {Object} options - 可选参数
+ * @param {boolean} options.showLinks - 是否显示链接 (默认 false)
+ * @returns {string} 格式化后的文本
+ */
+function formatSerpResults(results, query, options = {}) {
+  const { showLinks = false } = options;
+  
   if (!results || results.length === 0) {
     return `❌ 没找到关于 "${query}" 的相关结果\n建议: 换个说法或关键词试试`;
   }
@@ -102,7 +112,10 @@ function formatSerpResults(results, query) {
   results.forEach((result, index) => {
     message += `${index + 1}. 【${result.title}】\n`;
     message += `   ${result.snippet}\n`;
-    message += `   🔗 ${result.url}\n\n`;
+    if (showLinks && result.url) {
+      message += `   🔗 ${result.url}\n`;
+    }
+    message += '\n';
   });
 
   return message.trim();
