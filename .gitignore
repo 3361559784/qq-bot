@@ -13,6 +13,12 @@ node_modules/
 # 屏蔽环境变量 (保护隐私，防止 Token 泄露！)
 .env
 local.settings.json
+# Local env files (should not be committed)
+.env.local
+
+# ignore build outputs and cache for campus-ai-web
+/campus-ai-web/.next/
+/campus-ai-web/node_modules/
 
 # 屏蔽日志
 npm-debug.log*
