@@ -142,13 +142,76 @@ function parseExcelEvents(buffer, context) {
   }
 }
 
+function coerceToDate(value) {
+  if (!value && value !== 0) return null;
+
+  if (value instanceof Date) {
+    return isNaN(value) ? null : value;
+  }
+
+  // 支持 Chaoxing API/爬虫的结构化时间: { dateTime, date, time }
+  if (typeof value === 'object') {
+    const dateTime = value.dateTime || value.datetime || value.startDateTime || value.endDateTime;
+    if (typeof dateTime === 'string' && dateTime.trim()) {
+      return coerceToDate(dateTime);
+    }
+    const date = value.date;
+    const time = value.time;
+    if (typeof date === 'string' && date.trim() && typeof time === 'string' && time.trim()) {
+      return coerceToDate(`${date} ${time}`);
+    }
+    return null;
+  }
+
+  // 时间戳: 兼容 seconds / milliseconds
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const dt = new Date(ms);
+    return isNaN(dt) ? null : dt;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // 兼容 "YYYY-MM-DD HH:mm" / "YYYY-MM-DD" 等，避免某些环境解析失败
+    const normalized = trimmed
+      .replace(/年|\.|-/g, '/')
+      .replace(/月/g, '/')
+      .replace(/日/g, '')
+      .replace('T', ' ');
+
+    const dt = new Date(normalized);
+    return isNaN(dt) ? null : dt;
+  }
+
+  return null;
+}
+
+function toISOStringSafe(value) {
+  const dt = coerceToDate(value);
+  return dt ? dt.toISOString() : null;
+}
+
+function getTimeSafe(value) {
+  const dt = coerceToDate(value);
+  return dt ? dt.getTime() : 0;
+}
+
 function formatScheduleSummary(events, limit = 5) {
   if (!events || events.length === 0) return '';
-  const sorted = [...events].sort((a, b) => (a.start?.getTime() || 0) - (b.start?.getTime() || 0));
+  const sorted = [...events].sort((a, b) => getTimeSafe(a?.start) - getTimeSafe(b?.start));
   const now = Date.now();
-  const upcoming = sorted.filter(e => e.start && e.start.getTime() >= now - 12 * 60 * 60 * 1000).slice(0, limit);
-  const fmt = (d) => d ? new Date(d).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }) : '';
-  return upcoming.map(e => `- ${fmt(e.start)}${e.end ? ` ~ ${fmt(e.end)}` : ''} ${e.title}${e.location ? ` @ ${e.location}` : ''}`).join('\n');
+  const upcoming = sorted
+    .filter(e => getTimeSafe(e?.start) >= now - 12 * 60 * 60 * 1000)
+    .slice(0, limit);
+  const fmt = (d) => {
+    const dt = coerceToDate(d);
+    return dt ? dt.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }) : '';
+  };
+  return upcoming
+    .map(e => `- ${fmt(e.start)}${e.end ? ` ~ ${fmt(e.end)}` : ''} ${e.title || e.summary}${e.location ? ` @ ${e.location}` : ''}`)
+    .join('\n');
 }
 
 async function saveScheduleToCosmos(cosmosContainer, dbKey, events, context) {
@@ -158,9 +221,9 @@ async function saveScheduleToCosmos(cosmosContainer, dbKey, events, context) {
     await cosmosContainer.items.upsert({
       id: docId,
       events: events.slice(0, 100).map(e => ({
-        title: e.title,
-        start: e.start ? e.start.toISOString() : null,
-        end: e.end ? e.end.toISOString() : null,
+        title: e.title || e.summary,
+        start: toISOStringSafe(e.start),
+        end: toISOStringSafe(e.end),
         location: e.location || '',
         source: e.source || 'unknown'
       })),
@@ -660,5 +723,6 @@ module.exports = {
   SCHEDULE_KEYWORDS,
   extractChaoxingScheduleUrl,
   extractScheduleFileLinks,
-  createScheduleHandler
+  createScheduleHandler,
+  formatScheduleSummary
 };
