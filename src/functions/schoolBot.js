@@ -3700,6 +3700,7 @@ app.http('schoolBot', {
             let dbKey = "unknown";
             let scheduleFileLinks = [];
             let body = null;
+            let wikiMatch = null;
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
@@ -3933,7 +3934,7 @@ app.http('schoolBot', {
                 }
 
                 // === 指令:百科 <关键词>(混合搜索: 本地 → SerpAPI → LLM)
-                const wikiMatch = msg.match(/^(百科|baike)[:：\s]+(.+)/i);
+                wikiMatch = msg.match(/^(百科|baike)[:：\s]+(.+)/i);
                 if (wikiMatch && wikiMatch[2]) {
                     const query = wikiMatch[2].trim();
                     const searchResult = await hybridSearch(query, context, { userId: senderId, maxResults: 5 });
