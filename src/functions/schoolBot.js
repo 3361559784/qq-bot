@@ -20,7 +20,7 @@ const UA_POOL = [
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // 新增：fetchWithTimeout + 改良 fetchBypass（超时 + 随机 UA + 重试）
-async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -34,8 +34,8 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
 }
 
 async function fetchBypass(url, options = {}, maxRetry = 2) {
-    // 🎯 支持自定义超时时间 (默认 7000ms)
-    const timeoutMs = options.timeoutMs || 7000;
+    // 🎯 支持自定义超时时间 (默认 20000ms)
+    const timeoutMs = options.timeoutMs || 20000;
 
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
         const ua = UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
@@ -2644,7 +2644,7 @@ ${visualReference}
 - 如果辅助识别失败，请利用【视觉特征数据库】匹配。
 - **重点**：你的回复必须充满感情！不要像个摄像头一样只描述物体。
   - ❌ 错误示范："这是一张图片，里面有一个女孩，白头发。"
-  - ✅ 正确示范："哇！老师！(✨ω✨) 爱丽丝发现了新地图的NPC！这个白头发的女孩子...看起来像是切里诺会长呢！(｀・ω・´)ゞ 我们要去接新的任务了吗？"
+  - ✅ 正确示范："哇！老师！(✨ω✨) 爱丽丝发现了新地图的NPC！看起来是【视觉特征数据库】匹配的....,(｀・ω・´)ゞ 我们要去接新的任务了吗？"
 
 【绝对禁令】
 1. **禁止复读**：绝对不要重复同一句话！

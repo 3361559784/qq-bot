@@ -32,6 +32,64 @@ const stats = {
 };
 
 /**
+ * 用 LLM 基于搜索结果生成完整回答
+ * @param {string} query - 用户问题
+ * @param {Array} results - 搜索结果数组
+ * @param {Object} context - Azure Functions context
+ * @returns {Promise<string>} 格式化后的回答
+ */
+async function summarizeSearchResults(query, results, context) {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) {
+    context.log('[HybridSearch] 无 GITHUB_TOKEN，跳过 LLM 总结');
+    return formatSerpResults(results, query, { showLinks: false });
+  }
+
+  try {
+    const client = new OpenAI({
+      baseURL: "https://models.inference.ai.azure.com",
+      apiKey: token
+    });
+
+    // 构建搜索结果上下文
+    const searchContext = results.map((r, i) => 
+      `[${i + 1}] ${r.title}\n${r.snippet}`
+    ).join('\n\n');
+
+    const resp = await client.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.3,
+      max_tokens: 800,
+      messages: [{
+        role: 'system',
+        content: `你是一个知识助手。根据搜索结果，用清晰、完整、易懂的中文回答用户问题。
+要求：
+1. 综合多个搜索结果的信息，给出完整回答
+2. 不要只是罗列搜索结果，而是整合成一段连贯的回答
+3. 如果搜索结果信息不足，可以补充你的知识
+4. 回答要专业但易懂，适合普通用户阅读
+5. 不要提及"搜索结果"、"根据资料"等词，直接回答`
+      }, {
+        role: 'user',
+        content: `问题：${query}\n\n搜索结果：\n${searchContext}`
+      }]
+    });
+
+    const answer = resp.choices[0]?.message?.content;
+    
+    if (answer) {
+      context.log('[HybridSearch] ✅ LLM 总结成功');
+      return `📚 ${answer}`;
+    }
+  } catch (error) {
+    context.log(`[HybridSearch] LLM 总结失败: ${error.message}`);
+  }
+
+  // 降级：返回原始格式化结果
+  return formatSerpResults(results, query, { showLinks: false });
+}
+
+/**
  * 混合搜索 - 智能路由 (4层架构)
  * @param {string} query - 搜索关键词
  * @param {Object} context - Azure Functions context (日志输出)
@@ -40,8 +98,9 @@ const stats = {
  * @param {number} options.maxResults - 最大结果数 (默认 5)
  * @param {boolean} options.skipCache - 跳过缓存 (默认 false)
  * @param {boolean} options.skipLocal - 跳过本地搜索 (默认 false)
- * @param {boolean} options.skipDDG - 跳过 DuckDuckGo (默认 false)
+ * @param {boolean} options.skipDDG - 跳过 DuckDuckGo (默认 true，不稳定)
  * @param {boolean} options.skipSerp - 跳过 SerpAPI (默认 false)
+ * @param {boolean} options.summarize - 是否用 LLM 总结搜索结果 (默认 true)
  * @returns {Promise<Object>} { success, results, source, formatted, error }
  */
 async function hybridSearch(query, context, options = {}) {
@@ -50,8 +109,9 @@ async function hybridSearch(query, context, options = {}) {
     maxResults = 5,
     skipCache = false,
     skipLocal = false,
-    skipDDG = false,
-    skipSerp = false
+    skipDDG = true,  // 默认跳过 DuckDuckGo（不稳定，经常被限流）
+    skipSerp = false,
+    summarize = true  // 默认用 LLM 总结搜索结果
   } = options;
 
   stats.totalRequests++;
@@ -178,12 +238,18 @@ async function hybridSearch(query, context, options = {}) {
       if (serpResults && serpResults.length > 0) {
         stats.serpCalls++;
         
-        const formatted = formatSerpResults(serpResults, query);
-        
         context.log(`[HybridSearch] ✅ SerpAPI 命中: ${serpResults.length} 条结果`);
         context.log(`[Stats] SerpAPI 调用: ${stats.serpCalls} 次`);
         
-        // 写入缓存
+        // 如果启用 summarize，用 LLM 基于搜索结果生成完整回答
+        let formatted;
+        if (summarize) {
+          formatted = await summarizeSearchResults(query, serpResults, context);
+        } else {
+          formatted = formatSerpResults(serpResults, query, { showLinks: false });
+        }
+        
+        // 写入缓存（存原始结果，不存总结）
         setCachedSearch(query, serpResults, 'serp').catch(err => {
           context.log(`[HybridSearch] 缓存写入失败: ${err.message}`);
         });
@@ -287,16 +353,14 @@ function formatCachedResults(results, query, source) {
     return `🤖 AI 回答 (缓存):\n\n${results[0].snippet}\n\n⚠️ 此回答由 AI 生成,未经搜索验证`;
   }
   
-  let formatted = `📚 关于 "${query}" 的搜索结果 (来源: ${sourceLabel}, 缓存):\n\n`;
+  let formatted = `📚 关于 "${query}" 的搜索结果:\n\n`;
   
   results.forEach((result, index) => {
     formatted += `${index + 1}. 【${result.title}】\n`;
     if (result.snippet) {
       formatted += `   ${result.snippet}\n`;
     }
-    if (result.url) {
-      formatted += `   🔗 ${result.url}\n`;
-    }
+    // 不再显示链接
     formatted += '\n';
   });
   
