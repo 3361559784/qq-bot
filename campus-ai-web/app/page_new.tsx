@@ -42,6 +42,180 @@ function ChatMessage({ role, content }: { role: string, content: string }) {
   );
 }
 
+function ChatInput({
+  variant,
+  input,
+  setInput,
+  setCurrentMode,
+  currentMode,
+  isModeMenuOpen,
+  setIsModeMenuOpen,
+  isAttachmentMenuOpen,
+  setIsAttachmentMenuOpen,
+  toggleModeMenu,
+  toggleAttachmentMenu,
+  handleSend,
+  handleKeyDown,
+  inputAreaRef,
+}: {
+  variant: "center" | "bottom";
+  input: string;
+  setInput: React.Dispatch<React.SetStateAction<string>>;
+  setCurrentMode: React.Dispatch<React.SetStateAction<string>>;
+  currentMode: string;
+  isModeMenuOpen: boolean;
+  setIsModeMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  isAttachmentMenuOpen: boolean;
+  setIsAttachmentMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  toggleModeMenu: () => void;
+  toggleAttachmentMenu: () => void;
+  handleSend: () => void;
+  handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  inputAreaRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const isCenter = variant === "center";
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const CurrentModeIcon = MODES.find((m) => m.name === currentMode)?.icon || MessageCircle;
+  const currentModeLabel = MODES.find((m) => m.name === currentMode)?.label || "日常闲聊";
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [input]);
+
+  return (
+    <div className={isCenter ? "w-full" : "w-full bg-white dark:bg-gray-950 pb-6 pt-2 px-4"}>
+      <div className={isCenter ? "w-full" : "max-w-3xl mx-auto"}>
+        <div
+          className={`relative rounded-[2rem] transition-all duration-200 border backdrop-blur-xl shadow-lg ${
+            input.trim() ? "rounded-[1.5rem]" : ""
+          } bg-white/70 dark:bg-gray-900/50 border-gray-200/70 dark:border-gray-700/60`}
+        >
+          <div className="flex items-end px-4 py-3 min-h-[56px]" ref={inputAreaRef}>
+            <textarea
+              ref={textareaRef}
+              className="flex-1 bg-transparent border-none focus:ring-0 p-0 text-base leading-6 resize-none max-h-32 text-gray-800 dark:text-gray-100 placeholder-gray-500 py-1 scrollbar-hide focus:outline-none"
+              placeholder={`问问 ${currentModeLabel} 的爱丽丝...`}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={1}
+              style={{ height: 'auto', minHeight: '24px' }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = 'auto';
+                target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
+              }}
+            />
+
+            <div className="flex items-center gap-2 ml-2 pb-0.5">
+              {!input.trim() && (
+                <>
+                  <div className="relative">
+                    <button
+                      className="flex items-center gap-1 px-3 py-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
+                      onClick={toggleModeMenu}
+                    >
+                      <CurrentModeIcon size={16} />
+                      <span className="text-sm font-medium">{currentMode}</span>
+                      <ChevronDown
+                        size={14}
+                        className={`transition-transform duration-200 ${isModeMenuOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+
+                    {isModeMenuOpen && (
+                      <div className="absolute bottom-full right-0 mb-3 w-56 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">切换模式</div>
+                        {MODES.map((mode) => (
+                          <button
+                            key={mode.name}
+                            className={`w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors ${
+                              currentMode === mode.name
+                                ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600'
+                                : 'text-gray-700 dark:text-gray-200'
+                            }`}
+                            onClick={() => {
+                              setCurrentMode(mode.name);
+                              setIsModeMenuOpen(false);
+                              setIsAttachmentMenuOpen(false);
+                            }}
+                          >
+                            <div
+                              className={`p-1.5 rounded-lg ${
+                                currentMode === mode.name
+                                  ? 'bg-blue-100/70 dark:bg-blue-800/60'
+                                  : 'bg-gray-100/70 dark:bg-gray-700/60'
+                              }`}
+                            >
+                              <mode.icon size={16} />
+                            </div>
+                            <div className="flex flex-col items-start">
+                              <span className="font-medium">{mode.name}</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{mode.label}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <button
+                      className="p-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-600 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
+                      onClick={toggleAttachmentMenu}
+                    >
+                      <Plus size={20} className={`transition-transform duration-300 ${isAttachmentMenuOpen ? 'rotate-45' : ''}`} />
+                    </button>
+
+                    {isAttachmentMenuOpen && (
+                      <div className="absolute bottom-full right-0 mb-3 w-48 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
+                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">上传</div>
+                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
+                          <ImageIcon size={16} />
+                          <span>图片</span>
+                        </button>
+                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
+                          <Table size={16} />
+                          <span>表格</span>
+                        </button>
+                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
+                          <FileText size={16} />
+                          <span>文件</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {input.trim() && (
+                <button
+                  className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md"
+                  onClick={handleSend}
+                >
+                  <Send size={18} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {!isCenter && (
+          <div className="text-center mt-3">
+            <p className="text-[11px] text-gray-400">
+              Tendon Arisu may display inaccurate info, including about people, so double-check its responses.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [currentMode, setCurrentMode] = useState("Ask");
   const [messages, setMessages] = useState<Array<{role: string, content: string}>>([]);
@@ -59,8 +233,6 @@ export default function Home() {
   ]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const modeMenuRef = useRef<HTMLDivElement | null>(null);
-  const attachMenuRef = useRef<HTMLDivElement | null>(null);
   const inputAreaRef = useRef<HTMLDivElement | null>(null);
 
   const getSessionId = () => {
@@ -109,127 +281,6 @@ export default function Home() {
       // ignore
     }
   }, [theme]);
-
-  const CurrentModeIcon = MODES.find(m => m.name === currentMode)?.icon || MessageCircle;
-  const currentModeLabel = MODES.find(m => m.name === currentMode)?.label || "日常闲聊";
-
-  const ChatInput = ({ variant }: { variant: "center" | "bottom" }) => {
-    const isCenter = variant === "center";
-
-    return (
-      <div className={isCenter ? "w-full" : "w-full bg-white dark:bg-gray-950 pb-6 pt-2 px-4"}>
-        <div className={isCenter ? "w-full" : "max-w-3xl mx-auto"}>
-          <div
-            className={`relative rounded-[2rem] transition-all duration-200 border backdrop-blur-xl shadow-lg ${
-              input.trim() ? "rounded-[1.5rem]" : ""
-            } bg-white/70 dark:bg-gray-900/50 border-gray-200/70 dark:border-gray-700/60`}
-          >
-            <div className="flex items-end px-4 py-3 min-h-[56px]" ref={inputAreaRef}>
-              <textarea
-                className="flex-1 bg-transparent border-none focus:ring-0 p-0 text-base leading-6 resize-none max-h-32 text-gray-800 dark:text-gray-100 placeholder-gray-500 py-1 scrollbar-hide focus:outline-none"
-                placeholder={`问问 ${currentModeLabel} 的爱丽丝...`}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                rows={1}
-                style={{ height: 'auto', minHeight: '24px' }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
-                }}
-              />
-
-              <div className="flex items-center gap-2 ml-2 pb-0.5">
-                {!input.trim() && (
-                  <>
-                    <div className="relative" ref={modeMenuRef}>
-                      <button
-                        className="flex items-center gap-1 px-3 py-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
-                        onClick={toggleModeMenu}
-                      >
-                        <CurrentModeIcon size={16} />
-                        <span className="text-sm font-medium">{currentMode}</span>
-                        <ChevronDown size={14} className={`transition-transform duration-200 ${isModeMenuOpen ? 'rotate-180' : ''}`} />
-                      </button>
-
-                      {isModeMenuOpen && (
-                        <div className="absolute bottom-full right-0 mb-3 w-56 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
-                          <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">切换模式</div>
-                          {MODES.map((mode) => (
-                            <button
-                              key={mode.name}
-                              className={`w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors ${currentMode === mode.name ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600' : 'text-gray-700 dark:text-gray-200'}`}
-                              onClick={() => {
-                                setCurrentMode(mode.name);
-                                setIsModeMenuOpen(false);
-                              }}
-                            >
-                              <div className={`p-1.5 rounded-lg ${currentMode === mode.name ? 'bg-blue-100/70 dark:bg-blue-800/60' : 'bg-gray-100/70 dark:bg-gray-700/60'}`}>
-                                <mode.icon size={16} />
-                              </div>
-                              <div className="flex flex-col items-start">
-                                <span className="font-medium">{mode.name}</span>
-                                <span className="text-xs text-gray-500 dark:text-gray-400">{mode.label}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="relative" ref={attachMenuRef}>
-                      <button
-                        className="p-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-600 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
-                        onClick={toggleAttachmentMenu}
-                      >
-                        <Plus size={20} className={`transition-transform duration-300 ${isAttachmentMenuOpen ? 'rotate-45' : ''}`} />
-                      </button>
-
-                      {isAttachmentMenuOpen && (
-                        <div className="absolute bottom-full right-0 mb-3 w-48 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
-                          <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">上传</div>
-                          <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
-                            <ImageIcon size={16} />
-                            <span>图片</span>
-                          </button>
-                          <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
-                            <Table size={16} />
-                            <span>表格</span>
-                          </button>
-                          <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
-                            <FileText size={16} />
-                            <span>文件</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {input.trim() && (
-                  <button
-                    className="p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md"
-                    onClick={handleSend}
-                  >
-                    <Send size={18} />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {!isCenter && (
-            <div className="text-center mt-3">
-              <p className="text-[11px] text-gray-400">
-                Tendon Arisu may display inaccurate info, including about people, so double-check its responses.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
@@ -374,7 +425,22 @@ export default function Home() {
               </h2>
 
               <div className="w-full mt-2">
-                <ChatInput variant="center" />
+                <ChatInput
+                  variant="center"
+                  input={input}
+                  setInput={setInput}
+                  setCurrentMode={setCurrentMode}
+                  currentMode={currentMode}
+                  isModeMenuOpen={isModeMenuOpen}
+                  setIsModeMenuOpen={setIsModeMenuOpen}
+                  isAttachmentMenuOpen={isAttachmentMenuOpen}
+                  setIsAttachmentMenuOpen={setIsAttachmentMenuOpen}
+                  toggleModeMenu={toggleModeMenu}
+                  toggleAttachmentMenu={toggleAttachmentMenu}
+                  handleSend={handleSend}
+                  handleKeyDown={handleKeyDown}
+                  inputAreaRef={inputAreaRef}
+                />
               </div>
             </div>
           ) : (
@@ -401,7 +467,24 @@ export default function Home() {
           )}
         </div>
 
-        {messages.length > 0 && <ChatInput variant="bottom" />}
+        {messages.length > 0 && (
+          <ChatInput
+            variant="bottom"
+            input={input}
+            setInput={setInput}
+            setCurrentMode={setCurrentMode}
+            currentMode={currentMode}
+            isModeMenuOpen={isModeMenuOpen}
+            setIsModeMenuOpen={setIsModeMenuOpen}
+            isAttachmentMenuOpen={isAttachmentMenuOpen}
+            setIsAttachmentMenuOpen={setIsAttachmentMenuOpen}
+            toggleModeMenu={toggleModeMenu}
+            toggleAttachmentMenu={toggleAttachmentMenu}
+            handleSend={handleSend}
+            handleKeyDown={handleKeyDown}
+            inputAreaRef={inputAreaRef}
+          />
+        )}
       </div>
 
       {/* 右侧面板 */}
