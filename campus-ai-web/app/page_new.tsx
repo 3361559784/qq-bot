@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Calendar, MessageCircle, BookOpen, Search, Settings, Send, ChevronDown, Plus, Image as ImageIcon, FileText, Table, Menu, PanelRightClose, Sun, Moon } from "lucide-react";
-import AliceAvatar from "../components/AliceAvatar";
-import { sendMessage } from "../services/chat";
+import AliceAvatar, { type AliceEmotion } from "../components/AliceAvatar";
+import { sendMessage, sendPoke } from "../services/chat";
 import Sidebar from "../components/Sidebar";
 import RightPanel from "../components/RightPanel";
 
@@ -221,6 +221,17 @@ export default function Home() {
   const [messages, setMessages] = useState<Array<{role: string, content: string}>>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isAvatarExpanded, setIsAvatarExpanded] = useState(true);
+  const [ringAnim, setRingAnim] = useState<"none" | "fill" | "empty">("none");
+  const [ringDashOffset, setRingDashOffset] = useState(157);
+  const avatarWrapRef = useRef<HTMLDivElement | null>(null);
+  const toggleBtnRef = useRef<HTMLButtonElement | null>(null);
+  const trailTimeoutRef = useRef<number | null>(null);
+  const [trail, setTrail] = useState<{ d: string; mode: "none" | "toButton" | "toAvatar"; key: number }>({
+    d: "",
+    mode: "none",
+    key: 0,
+  });
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
@@ -231,6 +242,10 @@ export default function Home() {
     { id: "2", title: "明天天气" },
     { id: "3", title: "高数课在哪" },
   ]);
+  
+  // 好感度系统
+  const [affection, setAffection] = useState(50); // 初始好感度 50
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const inputAreaRef = useRef<HTMLDivElement | null>(null);
@@ -241,6 +256,20 @@ export default function Home() {
     }
     return sessionIdRef.current;
   };
+  
+  // 好感度等级计算
+  const getAffectionLevel = useCallback((value: number) => {
+    if (value >= 80) return { level: "亲密", color: "text-pink-500", icon: "💕" };
+    if (value >= 60) return { level: "友好", color: "text-blue-500", icon: "💙" };
+    if (value >= 40) return { level: "普通", color: "text-gray-500", icon: "🤍" };
+    if (value >= 20) return { level: "疏远", color: "text-yellow-500", icon: "💛" };
+    return { level: "厌恶", color: "text-red-500", icon: "💔" };
+  }, []);
+  
+  // 好感度变化处理
+  const handleAffectionChange = useCallback((delta: number) => {
+    setAffection(prev => Math.max(0, Math.min(100, prev + delta)));
+  }, []);
 
   // 自动滚动
   useEffect(() => {
@@ -295,11 +324,13 @@ export default function Home() {
     }));
 
     try {
-      const { reply } = await sendMessage(userMessage, getSessionId());
+      const { reply, emotion } = await sendMessage(userMessage, getSessionId());
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
       
+      // 使用后端返回的情绪，如果没有则根据内容推断
+      const finalEmotion = emotion || inferEmotionFromContent(reply);
       window.dispatchEvent(new CustomEvent("alice:emotion", {
-        detail: { emotion: "happy", showBubble: true }
+        detail: { emotion: finalEmotion, showBubble: true }
       }));
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -312,6 +343,38 @@ export default function Home() {
       setIsLoading(false);
     }
   };
+
+  // 从回复内容推断情绪
+  const inferEmotionFromContent = (content: string): AliceEmotion => {
+    const lower = content.toLowerCase();
+    if (/[😊🎉✨💕]|开心|高兴|太棒|邦邦咔邦/.test(lower)) return "joyful";
+    if (/[😢😭💔]|抱歉|对不起|难过|伤心/.test(lower)) return "sad";
+    if (/[😳🙈💦]|害羞|不好意思/.test(lower)) return "shy";
+    if (/[😠💢]|生气|讨厌/.test(lower)) return "angry";
+    if (/[😰😨]|紧张|担心|焦虑/.test(lower)) return "anxious";
+    if (/[🤔💭]|让我想想|思考/.test(lower)) return "thinking";
+    if (/[😊😄]|好的|没问题|当然/.test(lower)) return "happy";
+    return "normal";
+  };
+
+  // 戳一戳处理 - 与后端联动（现在由 AliceAvatar 组件内部处理）
+  const handlePoke = useCallback(async (pokeCount: number, mood: string) => {
+    // 如果是生气状态，扣好感度已经在组件内处理
+    // 这里只负责与后端联动获取回复
+    try {
+      const { reply, emotion } = await sendPoke(getSessionId());
+      if (reply) {
+        setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+        
+        // 根据心情增减好感度
+        if (mood === "happy") {
+          handleAffectionChange(1); // 开心时增加好感
+        }
+      }
+    } catch (error) {
+      console.error('Poke failed:', error);
+    }
+  }, [handleAffectionChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // 兼容中文输入法：回车用于上屏时不触发发送
@@ -347,8 +410,81 @@ export default function Home() {
     console.log("Selected chat:", id);
   };
 
+  const toggleAvatar = () => {
+    // 先算一次轨迹（基于当前布局），再触发状态切换
+    const avatarRect = avatarWrapRef.current?.getBoundingClientRect() || null;
+    const btnRect = toggleBtnRef.current?.getBoundingClientRect() || null;
+    if (avatarRect && btnRect) {
+      const center = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      const from = isAvatarExpanded ? center(avatarRect) : center(btnRect);
+      const to = isAvatarExpanded ? center(btnRect) : center(avatarRect);
+      const cx = (from.x + to.x) / 2;
+      const cy = Math.min(from.y, to.y) - 160;
+      const d = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+
+      setTrail((prev) => ({
+        d,
+        mode: isAvatarExpanded ? "toButton" : "toAvatar",
+        key: prev.key + 1,
+      }));
+
+      if (trailTimeoutRef.current) window.clearTimeout(trailTimeoutRef.current);
+      trailTimeoutRef.current = window.setTimeout(() => {
+        setTrail((prev) => ({ ...prev, mode: "none" }));
+      }, 520);
+    }
+
+    setIsAvatarExpanded((prev) => {
+      const next = !prev;
+
+      if (next) {
+        // 展开：先让圆环从“满”回收为空
+        setRingDashOffset(0);
+        setRingAnim("empty");
+      } else {
+        // 坍缩：先让圆环从“空”描边到“满”
+        setRingDashOffset(157);
+        setRingAnim("fill");
+      }
+
+      return next;
+    });
+  };
+
   return (
     <div className="flex h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans overflow-hidden">
+
+      {/* 头像→按钮 过渡轨迹线层 */}
+      {trail.mode !== "none" && trail.d && (
+        <svg
+          key={trail.key}
+          className="fixed inset-0 z-40 pointer-events-none"
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${typeof window !== "undefined" ? window.innerWidth : 1000} ${typeof window !== "undefined" ? window.innerHeight : 1000}`}
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="trail-blue-white-gradient" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor="#60A5FA" />
+              <stop offset="0.5" stopColor="#BFDBFE" />
+              <stop offset="1" stopColor="#FFFFFF" />
+            </linearGradient>
+          </defs>
+          <path
+            d={trail.d}
+            pathLength={1}
+            stroke="url(#trail-blue-white-gradient)"
+            strokeWidth={4}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={1}
+            strokeDashoffset={trail.mode === "toButton" ? 1 : 0}
+            className={trail.mode === "toButton" ? "animate-trail-draw" : "animate-trail-erase"}
+          />
+        </svg>
+      )}
       
       {/* 左侧边栏 */}
       <Sidebar
@@ -496,8 +632,89 @@ export default function Home() {
 
       {/* 爱丽丝 Avatar (固定在右下角) */}
       <div className="fixed right-8 bottom-28 z-50 pointer-events-none">
-        <div className="pointer-events-auto">
-           <AliceAvatar />
+        <div className="flex flex-col items-end gap-3 pointer-events-auto">
+          {/* 3D 容器：坍缩时淡出+缩小 */}
+          <div
+            ref={avatarWrapRef}
+            className={`w-56 h-56 transition-all duration-500 ease-in-out transform origin-bottom-right ${
+              isAvatarExpanded
+                ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
+                : "opacity-0 scale-50 translate-y-20 pointer-events-none"
+            }`}
+          >
+            <div className="w-full h-full flex items-center justify-center">
+              <AliceAvatar 
+                onPoke={handlePoke} 
+                onAffectionChange={handleAffectionChange}
+                affection={affection}
+              />
+            </div>
+          </div>
+
+          {/* 量子坍缩按钮 */}
+          <button
+            ref={toggleBtnRef}
+            type="button"
+            onClick={toggleAvatar}
+            aria-label={isAvatarExpanded ? "坍缩爱丽丝" : "展开爱丽丝"}
+            className="relative w-14 h-14 rounded-full bg-white/70 dark:bg-gray-900/60 border border-gray-200/70 dark:border-gray-700/60 backdrop-blur-xl shadow-lg hover:bg-white/85 dark:hover:bg-gray-800/70 transition-colors"
+          >
+            <svg
+              className="absolute inset-0"
+              width="56"
+              height="56"
+              viewBox="0 0 56 56"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <defs>
+                <linearGradient id="blue-white-gradient" x1="0" y1="0" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#60A5FA" />
+                  <stop offset="0.5" stopColor="#BFDBFE" />
+                  <stop offset="1" stopColor="#FFFFFF" />
+                </linearGradient>
+              </defs>
+              <circle
+                cx="28"
+                cy="28"
+                r="25"
+                stroke="url(#blue-white-gradient)"
+                strokeWidth="4"
+                strokeLinecap="round"
+                fill="transparent"
+                strokeDasharray="157"
+                strokeDashoffset={ringDashOffset}
+                className={
+                  ringAnim === "fill"
+                    ? "animate-ring-fill"
+                    : ringAnim === "empty"
+                      ? "animate-ring-empty"
+                      : ""
+                }
+                style={{
+                  opacity: !isAvatarExpanded || ringAnim !== "none" ? 1 : 0,
+                }}
+                onAnimationEnd={() => {
+                  if (ringAnim === "fill") {
+                    setRingDashOffset(0);
+                    setRingAnim("none");
+                  }
+                  if (ringAnim === "empty") {
+                    setRingDashOffset(157);
+                    setRingAnim("none");
+                  }
+                }}
+              />
+            </svg>
+
+            <div
+              className={`absolute inset-0 flex items-center justify-center transition-all duration-500 ease-in-out ${
+                isAvatarExpanded ? "opacity-100 rotate-0" : "opacity-100 rotate-180"
+              }`}
+            >
+              <ChevronDown size={18} className="text-gray-700 dark:text-gray-200" />
+            </div>
+          </button>
         </div>
       </div>
 

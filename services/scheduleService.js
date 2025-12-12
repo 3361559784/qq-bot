@@ -5,8 +5,138 @@ const { getChaoxingScheduleFromUrl, fetchAllWeeksLessons } = require('./chaoxing
 
 const SCHEDULE_KEYWORDS = [
   '课表', '课程表', '课程安排', '日程', '日历', 'schedule', 'calendar', 'ics', 'excel', 'xlsx', 'xls',
-  '超星', '学习通', 'chaoxing'
+  '超星', '学习通', 'chaoxing',
+  // 课表查询口语（避免只识别“课表”导致“明天有课吗”走普通聊天）
+  '明天有课吗', '今天有课吗', '明天有课', '今天有课',
+  '本周课表', '这周课表', '下周课表'
 ];
+
+function getShanghaiNowUtcShifted() {
+  // 将 UTC ms + 8h 作为“上海本地时间”的伪 UTC Date，以便用 getUTC* 取到上海日期字段
+  return new Date(Date.now() + 8 * 60 * 60 * 1000);
+}
+
+function getShanghaiWeekdayNumber(dateUtcShifted) {
+  // 1=周一 ... 7=周日
+  const d = dateUtcShifted.getUTCDay();
+  return d === 0 ? 7 : d;
+}
+
+function detectScheduleQueryType(msg = '') {
+  const lower = String(msg || '').toLowerCase();
+  if (!lower) return null;
+  if (lower.includes('明天') && lower.includes('课')) return 'tomorrow';
+  if (lower.includes('今天') && lower.includes('课')) return 'today';
+  if (lower.includes('下周') && lower.includes('课表')) return 'next_week';
+  if ((lower.includes('本周') || lower.includes('这周')) && lower.includes('课表')) return 'this_week';
+  if (lower.includes('课表')) return 'this_week';
+  return null;
+}
+
+async function readScheduleProfileFromCosmos(cosmosContainer, userId, context) {
+  if (!cosmosContainer || !userId) return null;
+
+  const profileId = `schedule_${userId}`;
+  const readAttempts = [
+    // 常见：PK=/partitionKey，值=userId
+    { id: profileId, pk: userId },
+    // 兼容：PK=/id
+    { id: profileId, pk: profileId }
+  ];
+
+  for (const a of readAttempts) {
+    try {
+      const { resource } = await cosmosContainer.item(a.id, a.pk).read();
+      if (resource) return resource;
+    } catch (err) {
+      const status = err?.code || err?.statusCode || err?.status;
+      if (status === 404) continue;
+      context?.log?.(`[ScheduleProfile] 读取异常(id=${a.id}, pk=${a.pk}): ${err.message}`);
+    }
+  }
+
+  // 兜底：跨分区查询（适配不同容器 PK 配置）
+  try {
+    const query = {
+      query: "SELECT TOP 1 * FROM c WHERE c.type = 'schedule_profile' AND (c.userId = @uid OR c.partitionKey = @uid OR c.id = @id)",
+      parameters: [
+        { name: '@uid', value: userId },
+        { name: '@id', value: profileId }
+      ]
+    };
+    const { resources } = await cosmosContainer.items.query(query).fetchAll();
+    return resources?.[0] || null;
+  } catch (err) {
+    context?.log?.(`[ScheduleProfile] 查询兜底失败: ${err.message}`);
+    return null;
+  }
+}
+
+function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
+  const weekly = Array.isArray(profile?.weekly_schedule) ? profile.weekly_schedule : [];
+  const nowSh = getShanghaiNowUtcShifted();
+  const base = new Date(nowSh.getTime() + (when === 'tomorrow' ? 24 : 0) * 60 * 60 * 1000);
+  const weekday = getShanghaiWeekdayNumber(base);
+
+  const todayLabel = when === 'tomorrow' ? '明天' : '今天';
+  const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+  const dayLabel = dayNames[weekday] || `周${weekday}`;
+
+  const courses = weekly
+    .filter(c => Number(c?.day) === weekday)
+    .slice()
+    .sort((a, b) => (Number(a?.start) || 0) - (Number(b?.start) || 0));
+
+  if (!courses.length) {
+    return `✅ ${todayLabel}(${dayLabel})看起来没有课。`;
+  }
+
+  const lines = courses.map(c => {
+    const p = Number(c?.start) || 0;
+    const name = c?.name || '课程';
+    const t = (c?.timeStart && c?.timeEnd) ? ` (${c.timeStart}-${c.timeEnd})` : '';
+    const loc = c?.location ? ` @ ${c.location}` : '';
+    return `- 第${p}节 ${name}${t}${loc}`;
+  });
+
+  return `📚 ${todayLabel}(${dayLabel})有 ${courses.length} 门课:\n${lines.join('\n')}`;
+}
+
+function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
+  const weekly = Array.isArray(profile?.weekly_schedule) ? profile.weekly_schedule : [];
+  if (!weekly.length) return '⚠️ 课表数据为空。';
+
+  const title = which === 'next_week' ? '下周课表(按周内规律展示)' : '本周课表(按周内规律展示)';
+  const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+
+  const byDay = new Map();
+  for (const c of weekly) {
+    const day = Number(c?.day) || 0;
+    if (day < 1 || day > 7) continue;
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(c);
+  }
+
+  const parts = [];
+  for (let d = 1; d <= 7; d++) {
+    const list = (byDay.get(d) || []).slice().sort((a, b) => (Number(a?.start) || 0) - (Number(b?.start) || 0));
+    if (!list.length) continue;
+    parts.push(`${dayNames[d]}:`);
+    for (const c of list) {
+      const p = Number(c?.start) || 0;
+      const name = c?.name || '课程';
+      const t = (c?.timeStart && c?.timeEnd) ? ` (${c.timeStart}-${c.timeEnd})` : '';
+      const loc = c?.location ? ` @ ${c.location}` : '';
+      parts.push(`- 第${p}节 ${name}${t}${loc}`);
+    }
+  }
+
+  const metaLine = profile?.schedule_config?.last_updated
+    ? `\n\n更新时间: ${String(profile.schedule_config.last_updated).slice(0, 19).replace('T', ' ')}`
+    : '';
+
+  return `🗓️ ${title}\n${parts.join('\n')}${metaLine}`;
+}
 
 function extractChaoxingScheduleUrl(rawMsg = '') {
   if (!rawMsg) return null;
@@ -573,6 +703,36 @@ async function saveUserScheduleProfile(cosmosContainer, userId, scheduleData, so
 function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBotReply }) {
   return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token }) {
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
+    const queryType = detectScheduleQueryType(msg);
+
+    // 课表查询（不带文件/图片/学习通链接）：从 Cosmos 读取已保存的 schedule_profile 并回答
+    if ((hasKeyword || queryType) && !extractChaoxingScheduleUrl(msg) && (!fileLinks || fileLinks.length === 0) && (!imageUrls || imageUrls.length === 0)) {
+      const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
+      if (!profile) {
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({
+            reply: '⚠️ 我还没有你的课表数据。\n请先发送学习通课表链接，或上传官方导出的 Excel/ICS，或发送课表截图让我 OCR 解析。',
+            auto_escape: false
+          })
+        };
+      }
+
+      let replyText = '';
+      if (queryType === 'tomorrow') replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
+      else if (queryType === 'today') replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+      else if (queryType === 'next_week') replyText = formatWeekScheduleAnswerFromProfile(profile, 'next_week');
+      else replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+
+      const sessionKey = `${dbKey}:${senderId}`;
+      await updateLastBotReply?.(cosmosContainer, dbKey, sessionKey, context);
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ reply: replyText, auto_escape: false })
+      };
+    }
 
     const chaoxingUrl = extractChaoxingScheduleUrl(msg);
     if (chaoxingUrl) {
