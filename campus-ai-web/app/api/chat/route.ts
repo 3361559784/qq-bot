@@ -1,4 +1,6 @@
-export const runtime = 'edge';
+// NOTE: Use Node.js runtime to allow local development calls to http://127.0.0.1:7071
+// (Edge runtime can be restrictive for localhost/network access in dev.)
+export const runtime = 'nodejs';
 
 export async function POST(req: Request) {
   try {
@@ -13,8 +15,12 @@ export async function POST(req: Request) {
 
     const safeSessionId = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : 'web_unknown';
     
-    const azureFunctionUrl = process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
-      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot';
+    const isDev = process.env.NODE_ENV !== 'production';
+    const azureFunctionUrl =
+      process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
+      (isDev
+        ? 'http://127.0.0.1:7071/api/schoolBot'
+        : 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot');
     
     const response = await fetch(azureFunctionUrl, {
       method: 'POST',
