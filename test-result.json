@@ -1,0 +1,561 @@
+{
+  "success": true,
+  "schedule": [
+    {
+      "courseName": "大学英语（一）",
+      "instructor": "汪玲",
+      "location": "E02-207",
+      "dayOfWeek": 2,
+      "startTime": "16:45",
+      "endTime": "18:30",
+      "weeks": "15",
+      "wholeDay": "2025-12-09",
+      "day": "12-09",
+      "courseNo": "430711001",
+      "classNo": "3E41F96B030BB242E065000000000001",
+      "className": "(2025-2026-1)-430711001-06",
+      "teacherNo": "2023039",
+      "beginNumber": 8,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "大学英语（一）",
+      "instructor": "汪玲",
+      "location": "E02-207",
+      "dayOfWeek": 2,
+      "startTime": "15:55",
+      "endTime": "16:45",
+      "weeks": "15",
+      "wholeDay": "2025-12-09",
+      "day": "12-09",
+      "courseNo": "430711001",
+      "classNo": "3E41F96B030BB242E065000000000001",
+      "className": "(2025-2026-1)-430711001-06",
+      "teacherNo": "2023039",
+      "beginNumber": 7,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "大学英语（一）",
+      "instructor": "汪玲",
+      "location": "E02-207",
+      "dayOfWeek": 1,
+      "startTime": "08:55",
+      "endTime": "10:25",
+      "weeks": "15",
+      "wholeDay": "2025-12-08",
+      "day": "12-08",
+      "courseNo": "430711001",
+      "classNo": "3E41F96B030BB242E065000000000001",
+      "className": "(2025-2026-1)-430711001-06",
+      "teacherNo": "2023039",
+      "beginNumber": 2,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "大学英语（一）",
+      "instructor": "汪玲",
+      "location": "E02-207",
+      "dayOfWeek": 1,
+      "startTime": "08:00",
+      "endTime": "08:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-08",
+      "day": "12-08",
+      "courseNo": "430711001",
+      "classNo": "3E41F96B030BB242E065000000000001",
+      "className": "(2025-2026-1)-430711001-06",
+      "teacherNo": "2023039",
+      "beginNumber": 1,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "高等数学（一）",
+      "instructor": "张舒",
+      "location": "E03-A514",
+      "dayOfWeek": 3,
+      "startTime": "11:15",
+      "endTime": "14:00",
+      "weeks": "15",
+      "wholeDay": "2025-12-10",
+      "day": "12-10",
+      "courseNo": "430111002",
+      "classNo": "3DF437D1219D90B3E065000000000001",
+      "className": "(2025-2026-1)-430111002-15",
+      "teacherNo": "2018067",
+      "beginNumber": 4,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "高等数学（一）",
+      "instructor": "陆捷",
+      "location": "E03-A514",
+      "dayOfWeek": 3,
+      "startTime": "10:25",
+      "endTime": "11:15",
+      "weeks": "15",
+      "wholeDay": "2025-12-10",
+      "day": "12-10",
+      "courseNo": "430111002",
+      "classNo": "3DF437D1219D90B3E065000000000001",
+      "className": "(2025-2026-1)-430111002-15",
+      "teacherNo": "2018066",
+      "beginNumber": 3,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "高等数学（一）",
+      "instructor": "陆捷",
+      "location": "E03-A108",
+      "dayOfWeek": 4,
+      "startTime": "08:00",
+      "endTime": "08:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-11",
+      "day": "12-11",
+      "courseNo": "430111002",
+      "classNo": "3DF437D1219D90B3E065000000000001",
+      "className": "(2025-2026-1)-430111002-15",
+      "teacherNo": "2018066",
+      "beginNumber": 1,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "高等数学（一）",
+      "instructor": "陆捷",
+      "location": "E03-A308",
+      "dayOfWeek": 5,
+      "startTime": "08:55",
+      "endTime": "10:25",
+      "weeks": "15",
+      "wholeDay": "2025-12-12",
+      "day": "12-12",
+      "courseNo": "430111002",
+      "classNo": "3DF437D1219D90B3E065000000000001",
+      "className": "(2025-2026-1)-430111002-15",
+      "teacherNo": "2018066",
+      "beginNumber": 2,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "高等数学（一）",
+      "instructor": "陆捷",
+      "location": "E03-A308",
+      "dayOfWeek": 5,
+      "startTime": "08:00",
+      "endTime": "08:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-12",
+      "day": "12-12",
+      "courseNo": "430111002",
+      "classNo": "3DF437D1219D90B3E065000000000001",
+      "className": "(2025-2026-1)-430111002-15",
+      "teacherNo": "2018066",
+      "beginNumber": 1,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "思想道德与法治",
+      "instructor": "严碧云",
+      "location": "E03-A412",
+      "dayOfWeek": 2,
+      "startTime": "14:50",
+      "endTime": "15:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-09",
+      "day": "12-09",
+      "courseNo": "430911001",
+      "classNo": "3E7C62CCF8C589FEE065000000000001",
+      "className": "(2025-2026-1)-430911001-30",
+      "teacherNo": "2010042",
+      "beginNumber": 6,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "思想道德与法治",
+      "instructor": "严碧云",
+      "location": "E03-A412",
+      "dayOfWeek": 2,
+      "startTime": "14:00",
+      "endTime": "14:50",
+      "weeks": "15",
+      "wholeDay": "2025-12-09",
+      "day": "12-09",
+      "courseNo": "430911001",
+      "classNo": "3E7C62CCF8C589FEE065000000000001",
+      "className": "(2025-2026-1)-430911001-30",
+      "teacherNo": "2010042",
+      "beginNumber": 5,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "思想道德与法治",
+      "instructor": "严碧云",
+      "location": "E03-A308",
+      "dayOfWeek": 1,
+      "startTime": "14:00",
+      "endTime": "14:50",
+      "weeks": "15",
+      "wholeDay": "2025-12-08",
+      "day": "12-08",
+      "courseNo": "430911001",
+      "classNo": "3E7C62CCF8C589FEE065000000000001",
+      "className": "(2025-2026-1)-430911001-30",
+      "teacherNo": "2010042",
+      "beginNumber": 5,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "思想道德与法治",
+      "instructor": "严碧云",
+      "location": "E03-A308",
+      "dayOfWeek": 1,
+      "startTime": "14:50",
+      "endTime": "15:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-08",
+      "day": "12-08",
+      "courseNo": "430911001",
+      "classNo": "3E7C62CCF8C589FEE065000000000001",
+      "className": "(2025-2026-1)-430911001-30",
+      "teacherNo": "2010042",
+      "beginNumber": 6,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "大学体育（一）—乒乓球Ⅰ",
+      "instructor": "罗诚",
+      "location": "T01-201",
+      "dayOfWeek": 5,
+      "startTime": "16:45",
+      "endTime": "18:30",
+      "weeks": "15",
+      "wholeDay": "2025-12-12",
+      "day": "12-12",
+      "courseNo": "1107",
+      "classNo": "3E5D924869E21790E065000000000001",
+      "className": "(2025-2026-1)-1107-10",
+      "teacherNo": "2005044",
+      "beginNumber": 8,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "大学体育（一）—乒乓球Ⅰ",
+      "instructor": "罗诚",
+      "location": "T01-201",
+      "dayOfWeek": 5,
+      "startTime": "15:55",
+      "endTime": "16:45",
+      "weeks": "15",
+      "wholeDay": "2025-12-12",
+      "day": "12-12",
+      "courseNo": "1107",
+      "classNo": "3E5D924869E21790E065000000000001",
+      "className": "(2025-2026-1)-1107-10",
+      "teacherNo": "2005044",
+      "beginNumber": 7,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "机械工程制图（一）",
+      "instructor": "宋长贵",
+      "location": "E03-A409",
+      "dayOfWeek": 4,
+      "startTime": "14:50",
+      "endTime": "15:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-11",
+      "day": "12-11",
+      "courseNo": "430233002",
+      "classNo": "3E04B6DA44D3D383E065000000000001",
+      "className": "(2025-2026-1)-430233002-05",
+      "teacherNo": "2023013",
+      "beginNumber": 6,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "机械工程制图（一）",
+      "instructor": "宋长贵",
+      "location": "E03-A409",
+      "dayOfWeek": 4,
+      "startTime": "14:00",
+      "endTime": "14:50",
+      "weeks": "15",
+      "wholeDay": "2025-12-11",
+      "day": "12-11",
+      "courseNo": "430233002",
+      "classNo": "3E04B6DA44D3D383E065000000000001",
+      "className": "(2025-2026-1)-430233002-05",
+      "teacherNo": "2023013",
+      "beginNumber": 5,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "机械工程制图（一）",
+      "instructor": "宋长贵",
+      "location": "E03-A409",
+      "dayOfWeek": 3,
+      "startTime": "08:55",
+      "endTime": "10:25",
+      "weeks": "15",
+      "wholeDay": "2025-12-10",
+      "day": "12-10",
+      "courseNo": "430233002",
+      "classNo": "3E04B6DA44D3D383E065000000000001",
+      "className": "(2025-2026-1)-430233002-05",
+      "teacherNo": "2023013",
+      "beginNumber": 2,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "机械工程制图（一）",
+      "instructor": "宋长贵",
+      "location": "E03-A409",
+      "dayOfWeek": 3,
+      "startTime": "08:00",
+      "endTime": "08:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-10",
+      "day": "12-10",
+      "courseNo": "430233002",
+      "classNo": "3E04B6DA44D3D383E065000000000001",
+      "className": "(2025-2026-1)-430233002-05",
+      "teacherNo": "2023013",
+      "beginNumber": 1,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "计算机应用基础项目式实践",
+      "instructor": "许骏",
+      "location": "S4-202",
+      "dayOfWeek": 4,
+      "startTime": "11:15",
+      "endTime": "14:00",
+      "weeks": "15",
+      "wholeDay": "2025-12-11",
+      "day": "12-11",
+      "courseNo": "430122003",
+      "classNo": "3E404153B38DAB80E065000000000001",
+      "className": "(2025-2026-1)-430122003-15",
+      "teacherNo": "2016072",
+      "beginNumber": 4,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "计算机应用基础项目式实践",
+      "instructor": "许骏",
+      "location": "S4-202",
+      "dayOfWeek": 4,
+      "startTime": "10:25",
+      "endTime": "11:15",
+      "weeks": "15",
+      "wholeDay": "2025-12-11",
+      "day": "12-11",
+      "courseNo": "430122003",
+      "classNo": "3E404153B38DAB80E065000000000001",
+      "className": "(2025-2026-1)-430122003-15",
+      "teacherNo": "2016072",
+      "beginNumber": 3,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "计算机应用基础项目式实践",
+      "instructor": "许骏",
+      "location": "S4-202",
+      "dayOfWeek": 2,
+      "startTime": "08:55",
+      "endTime": "10:25",
+      "weeks": "15",
+      "wholeDay": "2025-12-09",
+      "day": "12-09",
+      "courseNo": "430122003",
+      "classNo": "3E404153B38DAB80E065000000000001",
+      "className": "(2025-2026-1)-430122003-15",
+      "teacherNo": "2016072",
+      "beginNumber": 2,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "计算机应用基础项目式实践",
+      "instructor": "许骏",
+      "location": "S4-202",
+      "dayOfWeek": 2,
+      "startTime": "08:00",
+      "endTime": "08:55",
+      "weeks": "15",
+      "wholeDay": "2025-12-09",
+      "day": "12-09",
+      "courseNo": "430122003",
+      "classNo": "3E404153B38DAB80E065000000000001",
+      "className": "(2025-2026-1)-430122003-15",
+      "teacherNo": "2016072",
+      "beginNumber": 1,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "计算机应用基础项目式实践",
+      "instructor": "许骏",
+      "location": "S4-202",
+      "dayOfWeek": 1,
+      "startTime": "11:15",
+      "endTime": "14:00",
+      "weeks": "15",
+      "wholeDay": "2025-12-08",
+      "day": "12-08",
+      "courseNo": "430122003",
+      "classNo": "3E404153B38DAB80E065000000000001",
+      "className": "(2025-2026-1)-430122003-15",
+      "teacherNo": "2016072",
+      "beginNumber": 4,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    },
+    {
+      "courseName": "计算机应用基础项目式实践",
+      "instructor": "许骏",
+      "location": "S4-202",
+      "dayOfWeek": 1,
+      "startTime": "10:25",
+      "endTime": "11:15",
+      "weeks": "15",
+      "wholeDay": "2025-12-08",
+      "day": "12-08",
+      "courseNo": "430122003",
+      "classNo": "3E404153B38DAB80E065000000000001",
+      "className": "(2025-2026-1)-430122003-15",
+      "teacherNo": "2016072",
+      "beginNumber": 3,
+      "length": 1,
+      "extend": {
+        "campus": "武昌工学院"
+      }
+    }
+  ],
+  "curriculum": {
+    "fid": 2586,
+    "displayTime": "1",
+    "realCurrentWeek": 15,
+    "courseTypeName": null,
+    "earlyMorningTime": "",
+    "firstWeekDateReal": 1756656000000,
+    "uuid": "9a44e583-2c48-443c-bc72-d32a2f1ba101",
+    "sectionTime": 45,
+    "puid": 418837872,
+    "earlyMorningSection": 1,
+    "lessonLength": 319,
+    "lessonTimeSet": 1,
+    "curriculumCount": 0,
+    "morningTime": "08:00",
+    "schoolYear": "2025",
+    "currentWeek": 15,
+    "id": 197400125,
+    "isHasEduLesson": 1,
+    "afternoonTime": "14:00",
+    "existMaxLength": 10,
+    "morningSection": 4,
+    "getLessonFromCache": 1,
+    "maxWeek": 25,
+    "updateTime": 1765398704826,
+    "sort": 0,
+    "extend": null,
+    "firstWeekDate": 1756656000000,
+    "insertTime": 1759924610886,
+    "breakTime": 10,
+    "eveningSection": 4,
+    "afternoonSection": 4,
+    "eveningTime": "18:30",
+    "semester": 1,
+    "maxLength": 12,
+    "lessonTimeConfigArray": [
+      "",
+      "08:00-08:45",
+      "08:55-09:40",
+      "10:25-11:10",
+      "11:15-12:00",
+      "14:00-14:45",
+      "14:50-15:35",
+      "15:55-16:40",
+      "16:45-17:30",
+      "18:30-19:15",
+      "19:20-20:05",
+      "20:10-20:55",
+      ""
+    ]
+  },
+  "metadata": {
+    "visitor": 2,
+    "sysTime": 1765423696836,
+    "totalLessons": 25
+  }
+}

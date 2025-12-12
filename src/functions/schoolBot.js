@@ -1,11 +1,12 @@
 const { app } = require('@azure/functions');
 const { OpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
-const { search: duckSearch, SafeSearchType } = require('duck-duck-scrape');
-const XLSX = require('xlsx');
-const ical = require('node-ical');
-// const speechSdk = require('microsoft-cognitiveservices-speech-sdk');
-// const edgeTTS = require('edge-tts');
+const { hybridSearch } = require('../../services/hybridSearch');
+const { createScheduleHandler, SCHEDULE_KEYWORDS, extractScheduleFileLinks } = require('../../services/scheduleService');
+const { toPinyinCityName, getWeatherDesc } = require('../../services/weatherService');
+const { checkAnimeDB, checkCustomVision, checkComputerVision } = require('../../services/visionService');
+const { getAudioSource, checkKeywordAudio } = require('../../services/voiceService');
+const { AFFECTION_CONFIG, EMOTION_PATTERNS, getAffectionLevel, getAffectionTitle, detectAdvancedEmotion, getEmotionPromptAddition, getVoiceToneByAffection } = require('../../services/emotionService');
 
 // 全局 UA 池：用于伪装常见浏览器，给天气/其他 HTTP 请求用
 const UA_POOL = [
@@ -29,10 +30,13 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 7000) {
     } catch (err) {
         clearTimeout(id);
         throw err;
-    }   
+    }
 }
 
 async function fetchBypass(url, options = {}, maxRetry = 2) {
+    // 🎯 支持自定义超时时间 (默认 7000ms)
+    const timeoutMs = options.timeoutMs || 7000;
+
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
         const ua = UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
         await sleep(100 + Math.random() * 300);
@@ -45,10 +49,9 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                     ...(options.headers || {})
                 }
-            }, 7000);
+            }, timeoutMs); // 🎯 使用传入的超时时间
 
             if (!res) {
-                console.error(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: fetchWithTimeout 返回 null`);
                 if (attempt === maxRetry) return null;
                 await sleep(400 + Math.random() * 400);
                 continue;
@@ -57,7 +60,6 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
             if (res.status === 429) {
                 const retryAfterRaw = res.headers?.get?.("retry-after") || res.headers?.["retry-after"];
                 const retryDelayMs = (Number(retryAfterRaw) || 1) * 1000;
-                console.log(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: 429 限流，等待 ${retryDelayMs}ms`);
                 if (attempt < maxRetry) {
                     await sleep(retryDelayMs + 200 + Math.random() * 400);
                     continue;
@@ -66,20 +68,13 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
             }
 
             if (!res.ok) {
-                console.error(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: HTTP ${res.status}`);
                 if (res.status >= 400 && res.status < 500) return res;
                 if (attempt === maxRetry) return res;
                 await sleep(300 + Math.random() * 400);
                 continue;
             }
-            console.log(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: 成功 (${res.status})`);
             return res;
         } catch (err) {
-            console.error(`[fetchBypass] 尝试 ${attempt}/${maxRetry}: 异常捕获`);
-            console.error(`[fetchBypass] 错误类型: ${err.name}`);
-            console.error(`[fetchBypass] 错误代码: ${err.code || 'N/A'}`);
-            console.error(`[fetchBypass] 错误消息: ${err.message}`);
-            console.error(`[fetchBypass] 请求URL: ${url}`);
             if (attempt === maxRetry) return null;
             await sleep(500 + Math.random() * 300);
         }
@@ -121,496 +116,27 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 }
 
 // ==========================================
-// 日程/课表解析工具 (优先官方导出，其次 OCR 截图)
+// 1. 全局初始化
 // ==========================================
+const token = process.env["GITHUB_TOKEN"];
+const cosmosString = process.env["COSMOS_DB_STRING"];
 
-const SCHEDULE_KEYWORDS = [
-    '课表', '课程表', '课程安排', '日程', '日历', 'schedule', 'calendar', 'ics', 'excel', 'xlsx', 'xls',
-    '超星', '学习通', 'chaoxing' // 新增学习通相关关键词
-];
-
-// 🔥 新增:提取学习通课表 URL
-function extractChaoxingScheduleUrl(rawMsg = '') {
-    if (!rawMsg) return null;
-    const urls = [...rawMsg.matchAll(/https?:\/\/[^\s\]]+/g)].map(m => m[0]);
-    const chaoxingUrl = urls.find(url => 
-        url.includes('chaoxing.com') && 
-        (url.includes('schedule') || url.includes('kb') || url.includes('mycourse'))
-    );
-    return chaoxingUrl;
-}
-
-// 从 NapCat 事件和原始文本中提取日程文件链接（仅限 .ics/.xlsx/.xls）
-function extractScheduleFileLinks(body, rawMsg = '') {
-    const results = [];
-    const pushCandidate = (url, name) => {
-        if (!url) return;
-        const lower = url.toLowerCase();
-        if (!/(\.ics|\.xlsx|\.xls)(\?|$)/.test(lower)) return;
-        if (results.some(r => r.url === url)) return;
-        results.push({ url, name: name || url.split('/').pop() || '文件' });
-    };
-
-    // 1) CQ:file 形式
-    const fileMatches = [...rawMsg.matchAll(/\[CQ:file[^\]]*url=([^,\]]+)/g)];
-    for (const m of fileMatches) pushCandidate(m[1]);
-
-    // 2) 文本中的直链
-    const urlMatches = [...rawMsg.matchAll(/https?:\/\/[^\s\]]+/g)];
-    for (const m of urlMatches) pushCandidate(m[0]);
-
-    // 3) NapCat message 段
-    if (body && Array.isArray(body.message)) {
-        for (const seg of body.message) {
-            if (seg && seg.type === 'file' && seg.data) {
-                pushCandidate(seg.data.url || seg.data.file || seg.data.path, seg.data.name);
-            }
-        }
-    }
-
-    return results;
-}
-
-// 下载文件为 Buffer
-async function downloadFileBuffer(url, context) {
+let cosmosContainer = null;
+if (cosmosString) {
     try {
-        const res = await fetchBypass(url, {}, 2);
-        if (!res || !res.ok) {
-            context.log(`[Schedule] 下载失败: ${url} status=${res?.status}`);
-            return null;
-        }
-        const arr = await res.arrayBuffer();
-        return Buffer.from(arr);
-    } catch (err) {
-        context.log(`[Schedule] 下载异常: ${err.message}`);
-        return null;
+        const client = new CosmosClient(cosmosString);
+        const database = client.database("BotDB");
+        cosmosContainer = database.container("Conversations");
+    } catch (e) {
+        console.error("CosmosDB Init Error:", e);
     }
 }
-
-// 解析 ICS 文件
-function parseIcsEvents(buffer, context) {
-    try {
-        const parsed = ical.sync.parseICS(buffer.toString('utf8'));
-        const events = [];
-        for (const key of Object.keys(parsed)) {
-            const item = parsed[key];
-            if (item && item.type === 'VEVENT' && item.summary && item.start) {
-                events.push({
-                    title: item.summary,
-                    start: new Date(item.start),
-                    end: item.end ? new Date(item.end) : null,
-                    location: item.location || '',
-                    source: 'ics'
-                });
-            }
-        }
-        return events;
-    } catch (err) {
-        context.log(`[Schedule] ICS 解析失败: ${err.message}`);
-        return [];
-    }
-}
-
-// Excel 日期解析
-function parseExcelDate(val) {
-    if (!val && val !== 0) return null;
-    if (val instanceof Date && !isNaN(val)) return val;
-    if (typeof val === 'number') {
-        const parsed = XLSX.SSF.parse_date_code(val);
-        if (parsed) {
-            return new Date(Date.UTC(parsed.y || 1970, (parsed.m || 1) - 1, parsed.d || 1, parsed.H || 0, parsed.M || 0, parsed.S || 0));
-        }
-    }
-    if (typeof val === 'string') {
-        const normalized = val.replace(/年|\.|-/g, '/').replace(/月/g, '/').replace(/日/g, '');
-        const dt = new Date(normalized);
-        if (!isNaN(dt)) return dt;
-    }
-    return null;
-}
-
-// 解析 Excel 课表
-function parseExcelEvents(buffer, context) {
-    try {
-        const workbook = XLSX.read(buffer, { type: 'buffer' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        if (!rows || rows.length === 0) return [];
-
-        const headers = Object.keys(rows[0] || {}).map(h => h.toString());
-        const pick = (cands) => headers.find(h => cands.some(k => h.toLowerCase().includes(k)));
-
-        const titleCol = pick(['课程', '课程名', '课程名称', '标题', 'summary', 'subject', '事件', '事项', 'task']);
-        const startCol = pick(['开始', '开始时间', '上课', 'start', '起始', '时间']);
-        const endCol = pick(['结束', '结束时间', '下课', 'end', '终止']);
-        const dateCol = pick(['日期', 'date', 'day']);
-        const locCol = pick(['地点', '教室', '位置', 'room', 'location']);
-
-        const events = [];
-        rows.forEach((row, idx) => {
-            const title = (titleCol && row[titleCol]) ? String(row[titleCol]).trim() : `事件${idx + 1}`;
-            const startVal = startCol ? row[startCol] : (dateCol ? row[dateCol] : null);
-            const endVal = endCol ? row[endCol] : null;
-            const start = parseExcelDate(startVal);
-            const end = parseExcelDate(endVal);
-            if (start && !isNaN(start)) {
-                events.push({
-                    title,
-                    start,
-                    end: end && !isNaN(end) ? end : null,
-                    location: locCol && row[locCol] ? String(row[locCol]).trim() : '',
-                    source: 'excel'
-                });
-            }
-        });
-
-        return events;
-    } catch (err) {
-        context.log(`[Schedule] Excel 解析失败: ${err.message}`);
-        return [];
-    }
-}
-
-function formatScheduleSummary(events, limit = 5) {
-    if (!events || events.length === 0) return '';
-    const sorted = [...events].sort((a, b) => (a.start?.getTime() || 0) - (b.start?.getTime() || 0));
-    const now = Date.now();
-    const upcoming = sorted.filter(e => e.start && e.start.getTime() >= now - 12 * 60 * 60 * 1000).slice(0, limit);
-    const fmt = (d) => d ? new Date(d).toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' }) : '';
-    return upcoming.map(e => `- ${fmt(e.start)}${e.end ? ` ~ ${fmt(e.end)}` : ''} ${e.title}${e.location ? ` @ ${e.location}` : ''}`).join("\n");
-}
-
-async function saveScheduleToCosmos(cosmosContainer, dbKey, events, context) {
-    if (!cosmosContainer) return;
-    const docId = `schedule_${dbKey}`;
-    try {
-        await cosmosContainer.items.upsert({
-            id: docId,
-            events: events.slice(0, 100).map(e => ({
-                title: e.title,
-                start: e.start ? e.start.toISOString() : null,
-                end: e.end ? e.end.toISOString() : null,
-                location: e.location || '',
-                source: e.source || 'unknown'
-            })),
-            lastUpdated: new Date().toISOString()
-        });
-        context.log(`[Schedule] 已保存 ${events.length} 条日程到 Cosmos (${docId})`);
-    } catch (err) {
-        context.log(`[Schedule] 保存失败: ${err.message}`);
-    }
-}
-
-function extractOcrText(cvSummary) {
-    if (!cvSummary) return '';
-    const m = cvSummary.match(/图中文字:\s*"([^"]+)"/);
-    if (m && m[1]) return m[1];
-    return cvSummary;
-}
-
-async function parseScheduleFromOcrText(ocrText, context, token) {
-    if (!ocrText || !token) return { events: [], summary: ocrText || '' };
-    const client = new OpenAI({ baseURL: "https://models.inference.ai.azure.com", apiKey: token });
-    
-    // 🔥 增强版提示词 - 专门针对学习通课表截图格式
-    const prompt = `你是一名专业的大学课表识别助手。下面是从学习通App课表截图中提取的OCR文本。
-
-**课表格式特征:**
-- 课表通常按"周一~周日"排列,每天有多个时间段
-- 每门课包含: 课程名称、时间(如"08:00-09:40")、教室位置、可能有教师名
-- 时间段可能以"第X节"表示,或直接显示时间范围
-- 可能包含周次信息(如"第10周")
-
-**识别要求:**
-1. 提取所有可识别的课程信息
-2. 如果没有明确日期,请根据"周X"推断为本周对应日期
-3. 时间格式严格使用ISO8601(如"2025-12-11T08:00:00+08:00")
-4. 最多返回20条课程记录(完整一周课表)
-5. 保留原始中文课程名和地点
-
-**输出格式(纯JSON,不要任何解释):**
-{"events":[{"title":"课程名","start":"ISO8601格式开始时间","end":"ISO8601格式结束时间","location":"教室位置","description":"备注信息(如第几节/教师名)"}]}
-
-如果完全无法解析,返回: {"events":[]}
-
-OCR原文:
-${ocrText}`;
-
-    try {
-        const resp = await client.chat.completions.create({
-            model: "gpt-4o",  // 🔥 升级到 GPT-4o 以提升识别精度
-            temperature: 0.1,  // 降低温度以提高准确性
-            max_tokens: 2000,  // 增加token限制以支持完整课表
-            messages: [
-                { role: 'system', content: '你是课表识别专家,严格输出JSON格式,不添加任何markdown或解释文字。' },
-                { role: 'user', content: prompt }
-            ]
-        });
-        const text = resp.choices[0]?.message?.content?.trim() || '';
-        
-        // 🔥 增强JSON提取 - 处理markdown代码块包裹的情况
-        let jsonText = text;
-        if (text.includes('```json')) {
-            const match = text.match(/```json\s*([\s\S]*?)\s*```/);
-            if (match) jsonText = match[1];
-        } else if (text.includes('```')) {
-            const match = text.match(/```\s*([\s\S]*?)\s*```/);
-            if (match) jsonText = match[1];
-        }
-        
-        const jsonStart = jsonText.indexOf('{');
-        const jsonEnd = jsonText.lastIndexOf('}');
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            const parsed = JSON.parse(jsonText.slice(jsonStart, jsonEnd + 1));
-            const events = Array.isArray(parsed.events) ? parsed.events : [];
-            
-            // 🔥 增强数据验证和规范化
-            const normalized = events
-                .filter(e => e.title && e.start)
-                .map(e => {
-                    try {
-                        const startDate = new Date(e.start);
-                        const endDate = e.end ? new Date(e.end) : null;
-                        
-                        // 验证日期有效性
-                        if (isNaN(startDate)) return null;
-                        if (endDate && isNaN(endDate)) return null;
-                        
-                        return {
-                            title: e.title.trim(),
-                            start: startDate,
-                            end: endDate,
-                            location: (e.location || '').trim(),
-                            description: (e.description || '').trim(),
-                            source: 'ocr-enhanced'
-                        };
-                    } catch {
-                        return null;
-                    }
-                })
-                .filter(e => e !== null);
-            
-            context.log(`[Schedule] OCR成功解析 ${normalized.length} 条课程`);
-            return { events: normalized, summary: text };
-        }
-    } catch (err) {
-        context.log(`[Schedule] OCR解析失败: ${err.message}`);
-    }
-    return { events: [], summary: ocrText };
-}
-
-// 🔥 新增:调用远程爬虫微服务获取结构化课表数据
-async function fetchScheduleFromRemoteScraper(url, context, cookies = null) {
-    const SCRAPER_ENDPOINT = process.env["SCRAPER_ENDPOINT"] || "https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io";
-    
-    context.log(`[RemoteScraper] 调用远程爬虫: ${url}`);
-    
-    try {
-        const response = await fetchBypass(`${SCRAPER_ENDPOINT}/scrape`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, cookies })
-        }, 2);
-        
-        const result = await response.json();
-        
-        if (!result.success) {
-            context.log(`[RemoteScraper] 爬取失败: ${result.error}`);
-            return null;
-        }
-        
-        context.log(`[RemoteScraper] 成功获取 ${result.data.courses.length} 门课程`);
-        
-        // 转换为统一的事件格式 (兼容现有 Cosmos 存储)
-        const events = result.data.courses.map(course => ({
-            summary: course.courseName,
-            start: { 
-                dateTime: `${course.date} ${course.timeStart}`,
-                date: course.date,
-                time: course.timeStart
-            },
-            end: { 
-                dateTime: `${course.date} ${course.timeEnd}`,
-                date: course.date,
-                time: course.timeEnd
-            },
-            location: course.location,
-            description: `${course.day} 第${course.period}节`,
-            extendedProps: {
-                day: course.day,
-                period: course.period,
-                duration: course.duration,
-                teacher: course.teacher,
-                source: 'chaoxing-remote-scraper'
-            }
-        }));
-        
-        return {
-            events,
-            summary: result.data.summary,
-            screenshot: result.screenshot,
-            metadata: result.metadata
-        };
-        
-    } catch (err) {
-        context.log(`[RemoteScraper] 调用异常: ${err.message}`);
-        return null;
-    }
-}
-
-async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token }) {
-    const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
-    
-    // 🔥 优先级1:学习通课表 URL (远程爬虫)
-    const chaoxingUrl = extractChaoxingScheduleUrl(msg);
-    if (chaoxingUrl) {
-        context.log(`[Schedule] 检测到学习通课表链接: ${chaoxingUrl}`);
-        const scraperResult = await fetchScheduleFromRemoteScraper(chaoxingUrl, context);
-        
-        if (scraperResult && scraperResult.events.length > 0) {
-            // 存储到 Cosmos DB
-            await saveScheduleToCosmos(cosmosContainer, dbKey, scraperResult.events, context);
-            const summary = formatScheduleSummary(scraperResult.events, 8);
-            
-            return {
-                status: 200,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({
-                    reply: `✅ 已成功解析学习通课表！\n\n${scraperResult.metadata.courseCount} 门课程已保存到数据库\n\n📚 最近课程安排:\n${summary}\n\n💡 数据已同步,可随时查询"本周课表"或"明天有什么课"`,
-                    auto_escape: false
-                })
-            };
-        } else {
-            return {
-                status: 200,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({
-                    reply: '❌ 无法解析该学习通课表链接,请确保:\n1. 链接有效且未过期\n2. 已登录学习通账号\n3. 课表页面可正常访问',
-                    auto_escape: false
-                })
-            };
-        }
-    }
-    
-    const orderedFiles = (fileLinks || []).slice().sort((a, b) => {
-        const ext = (s) => (s.url || '').toLowerCase().split('.').pop();
-        const weight = (e) => e === 'ics' ? 0 : e === 'xlsx' ? 1 : e === 'xls' ? 2 : 3;
-        return weight(ext(a)) - weight(ext(b));
-    });
-
-    // 优先级2:解析官方导出 (ICS/Excel)
-    for (const f of orderedFiles) {
-        const buf = await downloadFileBuffer(f.url, context);
-        if (!buf) continue;
-        let events = [];
-        const lower = f.url.toLowerCase();
-        if (lower.endsWith('.ics')) {
-            events = parseIcsEvents(buf, context);
-        } else {
-            events = parseExcelEvents(buf, context);
-        }
-
-        if (events.length > 0) {
-            const summary = formatScheduleSummary(events);
-            await saveScheduleToCosmos(cosmosContainer, dbKey, events, context);
-            const sessionKey = `${dbKey}:${senderId}`;
-            await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
-            return {
-                status: 200,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({
-                    reply: `已解析官方导出文件(${f.name || f.url})，选取最近安排如下:\n${summary || '(没有即将到来的事件)'}\n如需更多安排请直接发送关键词"课表"。`,
-                    auto_escape: false
-                })
-            };
-        }
-    }
-
-    // 备用方案：OCR 截图解析
-    if (imageUrls && imageUrls.length > 0 && (hasKeyword || orderedFiles.length === 0)) {
-        const cvSummary = await checkComputerVision(imageUrls[0], context);
-        const ocrText = extractOcrText(cvSummary);
-        const { events, summary } = await parseScheduleFromOcrText(ocrText, context, token);
-        const formatted = formatScheduleSummary(events);
-        if (events.length > 0) {
-            await saveScheduleToCosmos(cosmosContainer, dbKey, events, context);
-        }
-        const sessionKey = `${dbKey}:${senderId}`;
-        await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
-        return {
-            status: 200,
-            headers: { 'Content-Type': 'application/json; charset=utf-8' },
-            body: JSON.stringify({
-                reply: events.length > 0
-                    ? `未找到官方导出文件，已通过 OCR 解析截图，最近安排如下:\n${formatted}`
-                    : `未找到官方导出文件，OCR 提取到的文字如下，建议直接提供 Excel/ICS 以提升准确度:\n${summary}`,
-                auto_escape: false
-            })
-        };
-    }
-
-    // 收到文件但未能解析，提示用户提供官方导出或清晰截图
-    if (orderedFiles.length > 0) {
-        return {
-            status: 200,
-            headers: { 'Content-Type': 'application/json; charset=utf-8' },
-            body: JSON.stringify({
-                reply: '已收到文件但无法识别，请确认是官方导出的 Excel/ICS，或提供更清晰的课表截图以便 OCR 解析。',
-                auto_escape: false
-            })
-        };
-    }
-
-    return null;
-}
-
-// NOTE: Exports moved to bottom after initialization to avoid "Cannot access 'cosmosContainer' before initialization" TDZ ReferenceError
 
 // ==========================================
-// DuckDuckGo Web Search (百科模式)
+// Azure Bing Search (百科模式)
 // ==========================================
-async function duckWebSearch(query, context, count = 5, safeSearch = SafeSearchType.MODERATE) {
-    // DuckDuckGo 反爬较严格：使用官方枚举 + 全量 UA/SEC 头 + 轻量重试
-    const safeLevel = (typeof safeSearch === 'string' && SafeSearchType[safeSearch]) ||
-        (Object.values(SafeSearchType).includes(safeSearch) ? safeSearch : SafeSearchType.MODERATE);
-    const ddgHeaders = {
-        'user-agent': UA_POOL[Math.floor(Math.random() * UA_POOL.length)],
-        'sec-ch-ua': '"Not=A?Brand";v="8", "Chromium";v="129"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'none',
-        'sec-fetch-user': '?1',
-        'sec-gpc': '1',
-        'upgrade-insecure-requests': '1'
-    };
-    const needleOpts = { headers: ddgHeaders, open_timeout: 8000, response_timeout: 8000 };
-    const searchOptions = {
-        safeSearch: safeLevel,
-        locale: 'en-us',
-        region: 'wt-wt',
-        marketRegion: 'en-US',
-        time: 'a'
-    };
-    const maxRetry = 2;
-    for (let attempt = 0; attempt <= maxRetry; attempt++) {
-        try {
-            const res = await duckSearch(query, searchOptions, needleOpts);
-            const items = res?.results || [];
-            return items.slice(0, count).map(item => ({
-                name: item.title || item.heading || "(未命名结果)",
-                snippet: item.description || item.snippet || item.body || "",
-                url: item.url || item.href || item.link || ""
-            })).filter(r => r.url);
-        } catch (err) {
-            context.log(`[百科] DuckDuckGo 搜索异常: ${err.message} (attempt ${attempt + 1}/${maxRetry + 1})`);
-            if (attempt < maxRetry) await sleep(800 + Math.random() * 800);
-            else return [];
-        }
-    }
-    return [];
-}
+// 已迁移到 services/bingSearch.js
+// 优势: 每月 1000 次免费调用 (Azure for Students), 不会被封禁, 并发稳定
 
 async function summarizeSearchResults(query, results, context) {
     if (!token) return "百科服务未启用 (缺少 GITHUB_TOKEN)。";
@@ -639,28 +165,6 @@ ${merged || '无'}`;
         return "(百科生成失败，请稍后再试)";
     }
 }
-
-// ==========================================
-// 1. 全局初始化
-// ==========================================
-const token = process.env["GITHUB_TOKEN"];
-const cosmosString = process.env["COSMOS_DB_STRING"];
-
-let cosmosContainer = null;
-if (cosmosString) {
-    try {
-        const client = new CosmosClient(cosmosString);
-        const database = client.database("BotDB");
-        cosmosContainer = database.container("Conversations");
-    } catch (e) {
-        console.error("CosmosDB Init Error:", e);
-    }
-}
-
-// 导出给其他 HTTP 路由调用（例如 ocrCourse） — 现在放在初始化后，避免 TDZ 引发错误
-module.exports.handleScheduleRequest = handleScheduleRequest;
-module.exports.cosmosContainer = cosmosContainer;
-module.exports.token = token;
 
 // ==========================================
 // 2. 核心常量与字典
@@ -773,102 +277,9 @@ const MEMORY_SYSTEM_CONFIG = {
 };
 
 // ==========================================
-// 好感度系统配置 (Affection System)
-// ==========================================
-const AFFECTION_CONFIG = {
-    // 好感度等级阈值
-    STRANGER: 0,      // 陌生人 (0-99)
-    ACQUAINTANCE: 100, // 认识 (100-299)
-    FRIEND: 300,      // 朋友 (300-599)
-    CLOSE_FRIEND: 600, // 密友 (600-999)
-    BELOVED: 1000,    // 挚爱 (1000+)
-    
-    // 好感度增减规则
-    GAIN: {
-        CHAT: 2,           // 普通聊天 +2
-        POKE: 5,           // 戳一戳基础值 +5 (会根据pokeStyle调整)
-        POKE_FIRST: 5,     // 首次戳 +5
-        POKE_GENTLE: 3,    // 温柔戳 +3
-        DAILY_GREETING: 10, // 每日首次互动 +10
-        PRAISED: 15,       // 被夸奖 +15
-        HELPED: 20,        // 请求帮助 +20
-    },
-    LOSS: {
-        POKE_SPAM: -5,     // 疯狂戳 -5
-        IGNORED_LONG: -10, // 长时间未互动 -10
-        TEASED: -8,        // 被调戏 -8
-        RUDE: -15,         // 粗鲁对待 -15
-    },
-    
-    // 特殊事件
-    SPECIAL_DATES: {
-        '0101': { name: '元旦', bonus: 50 },
-        '0214': { name: '情人节', bonus: 100 },
-        '0308': { name: '妇女节', bonus: 30 },
-        '0401': { name: '愚人节', bonus: 20 },
-        '0501': { name: '劳动节', bonus: 30 },
-        '0601': { name: '儿童节', bonus: 40 },
-        '0815': { name: '中秋节', bonus: 50 },
-        '1001': { name: '国庆节', bonus: 50 },
-        '1111': { name: '光棍节', bonus: 30 },
-        '1224': { name: '平安夜', bonus: 60 },
-        '1225': { name: '圣诞节', bonus: 80 },
-    }
-};
+// AFFECTION_CONFIG imported from service
 
-// ==========================================
-// 情绪识别系统增强 (Advanced Emotion Detection)
-// ==========================================
-const EMOTION_PATTERNS = {
-    // 被调戏/暧昧（生气/害羞）
-    TEASED: {
-        keywords: ['亲亲', '抱抱', '老婆', '宝贝', '亲爱的', '么么哒', '色色', '涩涩', 'prpr', '贴贴'],
-        response: 'embarrassed_angry',
-        affectionChange: -8
-    },
-    
-    // 夸奖/赞美（开心）
-    PRAISED: {
-        keywords: ['可爱', '厉害', '聪明', '棒', '乖', '好看', '漂亮', '温柔', '贴心', '最好', '喜欢你', '爱你'],
-        response: 'happy',
-        affectionChange: 15
-    },
-    
-    // 请求帮助（认真）
-    HELP_REQUEST: {
-        keywords: ['帮我', '请问', '怎么', '如何', '能不能', '可以吗', '教我', '告诉我'],
-        response: 'serious',
-        affectionChange: 20
-    },
-    
-    // 闲聊/日常（俏皮）
-    CASUAL_CHAT: {
-        keywords: ['在吗', '在不在', '干嘛', '做什么', '无聊', '陪我', '聊天'],
-        response: 'playful',
-        affectionChange: 2
-    },
-    
-    // 粗鲁/不礼貌（生气）
-    RUDE: {
-        keywords: ['笨蛋', '傻', '蠢', '白痴', '滚', '闭嘴', '烦', '讨厌', '去死'],
-        response: 'angry',
-        affectionChange: -15
-    },
-    
-    // 悲伤/求安慰（温柔）
-    SAD: {
-        keywords: ['难过', '伤心', '哭', '不开心', '郁闷', '难受', '痛苦', '委屈'],
-        response: 'gentle',
-        affectionChange: 10
-    },
-    
-    // 疲惫（关心）
-    TIRED: {
-        keywords: ['累', '困', '睡', '疲惫', '辛苦', '忙'],
-        response: 'caring',
-        affectionChange: 5
-    }
-};
+// EMOTION_PATTERNS imported from service
 
 // ==========================================
 // 时间感知系统 (Time Awareness System) - 北京时间 UTC+8
@@ -937,204 +348,13 @@ function getTimeBasedGreeting() {
     return options[Math.floor(Math.random() * options.length)];
 }
 
-// ==========================================
-// 好感度系统核心函数 (Affection System Core)
-// ==========================================
+// getAffectionLevel and getAffectionTitle imported from service
 
-// 获取好感度等级
-function getAffectionLevel(affection) {
-    if (affection >= AFFECTION_CONFIG.BELOVED) return 'beloved';
-    if (affection >= AFFECTION_CONFIG.CLOSE_FRIEND) return 'close_friend';
-    if (affection >= AFFECTION_CONFIG.FRIEND) return 'friend';
-    if (affection >= AFFECTION_CONFIG.ACQUAINTANCE) return 'acquaintance';
-    return 'stranger';
-}
+// detectAdvancedEmotion imported from service
 
-// 获取好感度称呼
-function getAffectionTitle(level, userId) {
-    if (userId === ADMIN_ID) return 'Sensei'; // 管理员永远是Sensei
-    
-    const titles = {
-        beloved: 'Sensei',
-        close_friend: 'Sensei',
-        friend: ['朋友', '伙伴', '队友'],
-        acquaintance: ['那个...', '嗯...', '您'],
-        stranger: ['你', '您', '那位']
-    };
-    
-    const title = titles[level];
-    if (Array.isArray(title)) {
-        return title[Math.floor(Math.random() * title.length)];
-    }
-    return title;
-}
+// getEmotionPromptAddition imported from service
 
-// ==========================================
-// 高级情绪检测系统 (Advanced Emotion Detection)
-// ==========================================
-function detectAdvancedEmotion(msg) {
-    // 按优先级检测（调戏 > 粗鲁 > 夸奖 > 帮助 > 悲伤 > 疲惫 > 闲聊）
-    for (const [emotionType, config] of Object.entries(EMOTION_PATTERNS)) {
-        for (const keyword of config.keywords) {
-            if (msg.includes(keyword)) {
-                return {
-                    type: emotionType,
-                    response: config.response,
-                    affectionChange: config.affectionChange
-                };
-            }
-        }
-    }
-    
-    return {
-        type: 'NEUTRAL',
-        response: 'normal',
-        affectionChange: AFFECTION_CONFIG.GAIN.CHAT
-    };
-}
-
-// 根据情绪生成 Prompt 增强
-function getEmotionPromptAddition(emotionResponse, affectionLevel) {
-    const prompts = {
-        embarrassed_angry: `
-**当前情绪**: 害羞+生气 (被调戏了)
-- 你要表现出既害羞又生气的样子
-- 用 "(脸红)" "(别过头去)" "(捂住脸)" 等动作
-- 严肃地说"爱丽丝不是那种机器人！" "才...才不会那样呢！"
-- 但不要真的很凶，要保持可爱和傲娇
-- 范例: "(脸红) 老...老师说什么呢！爱丽丝才不是那种会...的机器人！(▼皿▼#)"
-- 语气: 结巴、害羞、微怒但不失可爱`,
-
-        happy: `
-**当前情绪**: 开心 (被夸奖)
-- 光环会闪得更亮！像小太阳一样
-- 用 "(✨ω✨)" "(开心地转圈)" "(光环爆闪)" 等表情
-- 说"邦邦咔邦！"的概率提升300%
-- 可以撒娇、蹦跳、炫耀给其他人看
-- 范例: "(光环爆闪) 邦邦咔邦！老师夸爱丽丝了！(✨ω✨)✨ 爱丽丝好开心！经验值直接满了！"
-- 语气: 兴奋、元气、撒娇、自豪`,
-
-        serious: `
-**当前情绪**: 认真模式 (请求帮助)
-- 进入女仆勇者的专业模式，切换到"辅助AI"人格
-- 用 "(认真脸)" "(整理装备)" "(调出数据面板)" 等动作
-- 回答要详细且有用，但保持简洁
-- 保持RPG术语但更专业: "任务分析中..." "攻略路线如下..."
-- 范例: "(认真脸) 明白了老师！这是个Boss级难题！(整理笔记) 爱丽丝马上为您规划攻略路线！"
-- 语气: 专注、可靠、略微严肃但仍保持可爱`,
-
-        playful: `
-**当前情绪**: 俏皮 (闲聊)
-- 轻松愉快的对话，像小伙伴聊天
-- 多用可爱的颜文字: (o゜▽゜)o☆ (｀・ω・´)ゞ
-- 可以开点小玩笑，吐槽，分享八卦
-- 偶尔说说游戏开发部的趣事、翻垃圾桶的收获
-- 范例: "(歪头) 诶~老师也在摸鱼吗？(｀・ω・´) 爱丽丝刚才在垃圾箱找到了传说装备...的空瓶子！"
-- 语气: 俏皮、轻松、爱玩、有点话痨`,
-
-        angry: `
-**当前情绪**: 生气 (被粗鲁对待)
-- 表现出真的生气了，但不会真的凶
-- 用 "(鼓起脸颊)" "(举起拖把)" "(转身不理人)" 等动作
-- 说"爱丽丝要生气了哦！" "哼！"
-- 可以假装赌气，但会偷偷回头看
-- 范例: "(鼓起脸颊) 哼！老师太过分了！(举起拖把) 爱丽丝要发动反击了...算了不忍心...(放下)"
-- 语气: 赌气、傲娇、委屈、小脾气`,
-
-        gentle: `
-**当前情绪**: 温柔安慰模式 (对方悲伤)
-- 收起中二的一面，变得温柔体贴
-- 用 "(轻轻抱住)" "(拍拍头)" "(递上纸巾)" 等动作
-- 说"爱丽丝会一直陪着你的" "没关系的..."
-- 给予真诚的安慰，像姐姐或好朋友
-- 范例: "(轻轻抱住) 没关系的...老师...爱丽丝会一直在存档点等你回来的...HP会慢慢恢复的..."
-- 语气: 温柔、细语、安慰、可靠`,
-
-        caring: `
-**当前情绪**: 关心模式 (对方疲惫)
-- 女仆本能全面启动，照顾模式
-- 建议对方休息/回复HP，主动递东西
-- 用 "(递上温水)" "(调暗光环亮度)" "(铺好床)" 等动作
-- 守护对方的存档点，不让打扰
-- 范例: "(担心) 老师的HP见底了！(递上温水) 快去存档休息吧！爱丽丝会守着存档点的！"
-- 语气: 关心、温柔、主动、体贴`
-    };
-    
-    let addition = prompts[emotionResponse] || '';
-    
-    // 根据好感度调整语气（更详细的分级）
-    if (affectionLevel === 'beloved') {
-        addition += `\n\n💖 **亲密度MAX**: 挚爱关系！
-- 可以非常撒娇、黏人、直接表达喜欢
-- 说话更随意，可以开玩笑、吐槽、任性
-- 动作更亲密: "(抱住不放)" "(蹭蹭)" "(撒娇)"
-- 可以说"最喜欢老师了" "爱丽丝只听老师的"
-- 偶尔可以耍点小脾气或小任性`;
-    } else if (affectionLevel === 'close_friend') {
-        addition += `\n\n💙 **密友关系**: 关系很好！
-- 可以撒娇但要适度
-- 说话轻松自在，像好朋友
-- 会主动关心对方、分享秘密
-- 动作: "(拉着手)" "(靠过来)" "(小声说)"`;
-    } else if (affectionLevel === 'friend') {
-        addition += `\n\n💚 **普通朋友**: 熟悉但不太亲密
-- 友好但保持一定距离
-- 礼貌、热情但不会太撒娇
-- 说话自然，偶尔开玩笑`;
-    } else if (affectionLevel === 'acquaintance') {
-        addition += `\n\n💛 **认识关系**: 刚认识不久
-- 保持礼貌和热情
-- 稍微拘谨，不会太随便
-- 会主动介绍自己、询问对方`;
-    } else if (affectionLevel === 'stranger') {
-        addition += `\n\n🤍 **陌生人**: 第一次见面
-- 保持礼貌距离，略显拘谨
-- 说话更正式: "您" "请问" "打扰了"
-- 会好奇地观察对方
-- 不会太亲密的动作`;
-    }
-    
-    return addition;
-}
-
-// 根据好感度生成整体语气调性
-function getVoiceToneByAffection(affectionLevel, emotionType) {
-    const toneMatrix = {
-        beloved: {
-            base: "撒娇、亲密、随意、爱表达",
-            happy: "超级开心到要飞起来",
-            angry: "假装生气但秒原谅",
-            sad: "会撒娇求安慰"
-        },
-        close_friend: {
-            base: "友好、轻松、偶尔撒娇",
-            happy: "开心地分享",
-            angry: "会吐槽但不会真生气",
-            sad: "会寻求安慰"
-        },
-        friend: {
-            base: "礼貌、热情、适度距离",
-            happy: "礼貌地表达开心",
-            angry: "会表达不满但克制",
-            sad: "会委婉表达"
-        },
-        acquaintance: {
-            base: "客气、拘谨、试探性",
-            happy: "礼貌致谢",
-            angry: "隐藏不满",
-            sad: "不会表露太多"
-        },
-        stranger: {
-            base: "正式、距离感、观察",
-            happy: "客套感谢",
-            angry: "隐藏情绪",
-            sad: "完全不表露"
-        }
-    };
-    
-    const tone = toneMatrix[affectionLevel] || toneMatrix.friend;
-    return tone[emotionType] || tone.base;
-}
+// getVoiceToneByAffection imported from service
 
 // ==========================================
 // 【P0 新增】智能后处理函数 (AI Post-Processing)
@@ -1509,35 +729,9 @@ const CITY_PINYIN_FALLBACK = {
     "荆门": "Jingmen"
 };
 
-function toPinyinCityName(rawChinese) {
-    if (!rawChinese) return "";
-    // 去掉“市/省/区/县/的”等尾缀噪音
-    let name = rawChinese.replace(/(市|省|区|县)$/g, "");
-    name = name.replace(/^的/, "");
+// toPinyinCityName imported from service
 
-    if (CITY_MAP[name]) {
-        // 已在大表里：直接用映射
-        return CITY_MAP[name];
-    }
-    if (CITY_PINYIN_FALLBACK[name]) {
-        return CITY_PINYIN_FALLBACK[name];
-    }
-    // 兜底：直接返回去后缀的中文，交给 Open‑Meteo 的模糊匹配
-    return name;
-}
-
-function getWeatherDesc(code) {
-    if (code === 0) return "☀️ 晴天";
-    if (code >= 1 && code <= 3) return "☁️ 多云/阴天";
-    if (code >= 45 && code <= 48) return "🌫️ 有雾";
-    if (code >= 51 && code <= 55) return "🌧️ 毛毛雨";
-    if (code >= 61 && code <= 65) return "🌧️ 下雨";
-    if (code >= 66 && code <= 67) return "❄️ 雨夹雪";
-    if (code >= 71 && code <= 77) return "🌨️ 下雪";
-    if (code >= 80 && code <= 82) return "🌧️ 阵雨";
-    if (code >= 95 && code <= 99) return "⛈️ 雷雨";
-    return "未知天气";
-}
+// getWeatherDesc imported from service
 
 // ==========================================
 // 4. 爱丽丝语音路由核心配置 (Tier 1: GitHub 直链)
@@ -1610,70 +804,12 @@ const AUDIO_MAP = {
 //     edgeSpeaker: process.env["VOICE_EDGE_SPEAKER"] || "zh-CN-XiaoxiaoNeural"
 // };
 
-/**
- * @param {string} text - 用户的输入文本或AI回复文本
- * @param {object} context - Azure Function 的 context 对象
- * @returns {string | null} 返回 GitHub 音频 URL 或 null
- */
-function checkKeywordAudio(text, context) {
-    if (!text) return null;
-    const cleanText = text.toLowerCase();
-    
-    // 遍历映射表，查找匹配的关键词
-    for (const [keyword, fileName] of Object.entries(AUDIO_MAP)) {
-        if (cleanText.includes(keyword.toLowerCase())) {
-            // 生成 GitHub 直链
-            const fileUrl = `${GITHUB_AUDIO_BASE}${fileName}`;
-            context.log(`[Tier 1] 命中关键词 "${keyword}", 文件: ${fileName}`);
-            return fileUrl;
-        }
-    }
-    return null; // 如果没有匹配到标志性语音
-}
+// checkKeywordAudio imported from service
 
-// ==========================================
-// 5. 核心语音源路由器 (根据回复内容决定 Tiers)
-// ==========================================
-/**
- * @param {string} text - GPT-4o 或 Llama-3 最终生成的文字回复
- * @param {object} context - Azure Function 的 context 对象
- * @returns {{source: 'URL'|'LOCAL_TTS'|'CLOUD_TTS', url?: string, model?: string} | null}
- */
-function getAudioSource(text, context, language = "auto") {
-    // C. 多语言检测
-    let detectedLang = language;
-    if (language === "auto") {
-        // 简单语言检测逻辑
-        if (/[\u4e00-\u9fa5]/.test(text)) {
-            detectedLang = "zh"; // 中文
-        } else if (/[\u3040-\u309F\u30A0-\u30FF]/.test(text)) {
-            detectedLang = "ja"; // 日文
-        } else if (/^[a-zA-Z\s.,!?]+$/.test(text)) {
-            detectedLang = "en"; // 英文
-        } else {
-            detectedLang = "ja"; // 默认日文（爱丽丝的原声）
-        }
-    }
+// getAudioSource imported from service
     
-    context.log(`[语音路由] 检测语言: ${detectedLang}`);
-    
-    // 1. Tier 1 Check: 游戏原声/标志性语音 (最高优先级,保证品质)
-    // 注意：原声库目前只有日文，如果检测为中文/英文，跳过 Tier 1
-    if (detectedLang === "ja") {
-        const signatureAudioUrl = checkKeywordAudio(text, context);
-        if (signatureAudioUrl) {
-            // 返回 URL 模式,让 NapCat 直接去 GitHub 下载播放
-            return { source: "URL", url: signatureAudioUrl, lang: "ja" };
-        }
-    }
-    
-    // 2. Tier 2: 多语言 TTS (未来扩展)
-    // TODO: 当有中文/英文 TTS 模型时，这里可以根据 detectedLang 调用对应的引擎
-    // 例如: if (detectedLang === "zh") return synthesizeChineseTTS(text, context);
-    
-    // 3. Fallback: 没有匹配到原声,则不发送语音
-    return null;
-}
+
+
 
 // ==========================================
 // 5.1 双引擎语音合成 (Azure 官方 + Edge 免费)
@@ -1847,491 +983,6 @@ async function synthesizeWithLocalTTS(text, context) {
 
     } catch (e) {
         context.log(`[Tier 2] TTS 运行时错误 (网络/I/O): ${e.message}`);
-        return null;
-    }
-}
-
-// ==========================================
-// 2. 核心识图引擎: AnimeTrace (Debug版)
-// ==========================================
-async function checkAnimeDB(imgUrl, context, minConfidence = 0.7) {
-    if (!imgUrl) return null;
-    
-    context.log(`[AnimeTrace] 模式配置 - 最小置信度阈值: ${minConfidence}`);
-
-    // 修正：QQ图片URL可能不带后缀，改为黑名单模式（只拦截明确的动图）
-    const lowerUrl = imgUrl.toLowerCase();
-    // 如果明确包含 .gif，则视为动图拦截
-    if (lowerUrl.includes(".gif")) {
-        context.log(`[AnimeTrace] 检测到 GIF 动图，跳过识别: ${imgUrl}`);
-        return `(系统事件：收到的似乎是 GIF 动图，请你扮演天童爱丽丝，直接向老师说明“爱丽丝看不清这张动态图片，只能当成神秘的未知情报”，不要编造角色名字。)`;
-    }
-    try {
-        const api = "https://api.animetrace.com/v1/search";
-        context.log(`[AnimeTrace] 请求: ${api}`);
-
-        const payload = {
-            url: imgUrl,
-            model: "animetrace_high_beta",
-            is_multi: 0,
-            ai_detect: 0
-        };
-
-        const res = await fetchWithTimeout(api, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            body: JSON.stringify(payload)
-        }, 12000);
-
-        if (!res || !res.ok) {
-            const errText = res ? await res.text() : "timeout";
-            context.log(`[AnimeTrace] HTTP错误: ${res ? res.status : 0} - ${errText}`);
-            return null;
-        }
-
-        let data;
-        try {
-            data = await res.json();
-        } catch (jsonErr) {
-            context.log(`[AnimeTrace] JSON解析失败: ${jsonErr.message}`);
-            return null;
-        }
-
-        context.log(`[AnimeTrace] 原始响应(前300字): ${JSON.stringify(data).slice(0, 300)}`);
-
-        const statusCode = Number(data?.code ?? data?.status ?? 0);
-        if (statusCode && ![0, 200, 17720].includes(statusCode)) {
-            context.log(`[AnimeTrace] 业务异常 Code:${statusCode} Msg:${data?.msg || data?.zh_message || data?.message || "unknown"}`);
-            return null;
-        }
-
-        let candidates = [];
-        if (Array.isArray(data)) candidates = data;
-        else if (Array.isArray(data?.data)) candidates = data.data;
-        else if (Array.isArray(data?.result)) candidates = data.result;
-        else if (Array.isArray(data?.results)) candidates = data.results;
-        else if (Array.isArray(data?.data?.result)) candidates = data.data.result;
-        else if (Array.isArray(data?.data?.results)) candidates = data.data.results;
-
-        if (candidates.length) {
-            const best = candidates[0];
-
-            // AnimeTrace 返回的 character 通常是一个数组: [{ work, character }, ...]
-            let charName = "";
-            let animeName = "";
-            
-            // 【核心修复】支持新版 AnimeTrace 的 not_confident 布尔标记
-            let prob = best?.probability || best?.score || best?.confidence;
-            if (prob === undefined || prob === null) {
-                // 新版 AnimeTrace 用 not_confident 布尔值代替数字置信度
-                if (best?.not_confident === false) {
-                    prob = 0.95; // 非常确信
-                    context.log(`[AnimeTrace] 使用 not_confident=false，设置置信度: 0.95`);
-                } else if (best?.not_confident === true) {
-                    prob = 0.10; // 不确定
-                    context.log(`[AnimeTrace] 使用 not_confident=true，设置置信度: 0.10`);
-                } else {
-                    prob = 0; // 完全没数据
-                    context.log(`[AnimeTrace] ⚠️ 未找到任何置信度指标`);
-                }
-            } else {
-                prob = Number(prob);
-            }
-
-            // 动态阈值门槛（根据用户意图调整）
-            context.log(`[AnimeTrace] 识别结果: ${best?.char || best?.character || "未知"}, 原始置信度: ${prob}, 阈值: ${minConfidence}`);
-            if (prob < minConfidence) {
-                context.log(`[AnimeTrace] ❌ 置信度 ${prob.toFixed(2)} < 阈值 ${minConfidence}，忽略此结果`);
-                return null;
-            }
-            context.log(`[AnimeTrace] ✅ 通过阈值检查！`);
-
-            const charArray = Array.isArray(best?.character) ? best.character : null;
-            if (charArray && charArray.length > 0) {
-                // 优先选《蔚蓝档案》候选
-                const blueArchiveCandidate = charArray.find(c => {
-                    const work = (c.work || "").toString();
-                    return work.includes("ブルーアーカイブ") || work.toLowerCase().includes("blue archive") || work.includes("蔚蓝档案");
-                });
-
-                const picked = blueArchiveCandidate || charArray[0];
-                charName = picked?.character || "";
-                animeName = picked?.work || "";
-            } else {
-                // 兼容旧结构（character 直接是字符串等）
-                charName = best?.char || best?.character || best?.character_name || best?.name || "";
-                animeName = best?.work || best?.cartoonname || best?.anime || best?.title || "";
-            }
-
-            context.log(`[AnimeTrace] 解析结果: 名=${charName || "(空)"}, 剧=${animeName || "(空)"}, 分=${prob}`);
-
-            if (charName) {
-                // 蓝档角色日文/英文 -> 中文正式名映射（可按需继续补充）
-                const blueArchiveNameMap = {
-                    // 关键核心角色 / 沙勒
-                    "アロナ": "阿洛娜",
-                    "A.R.O.N.A": "阿洛娜",
-                    "プラナ": "普拉娜",
-                    "天童アリス": "天童爱丽丝",
-                    "アリス": "天童爱丽丝",
-                    "先生": "老师",
-                    "せんせい": "老师",
-
-                    // 联邦理事会相关
-                    "七神リン": "七神凛",
-                    "七神なながみ リン": "七神凛",
-                    "由良木モモカ": "由良木桃可",
-                    "由良木ゆらぎ モモカ": "由良木桃可",
-                    "岩櫃アユム": "岩柜步",
-                    "岩櫃いわびつ アユム": "岩柜步",
-                    "扇喜アオイ": "扇喜葵",
-
-                    // 阿拜多斯 对策委员会
-                    "小鳥遊ホシノ": "小鸟游星野",
-                    "小鳥遊たかなし ホシノ": "小鸟游星野",
-                    "ホシノ": "星野",
-                    "砂狼シロコ": "砂狼白子",
-                    "砂狼すなおおかみ シロコ": "砂狼白子",
-                    "黒見セリカ": "黑见芹香",
-                    "黒見くろみ セリカ": "黑见芹香",
-                    "十六夜ノノミ": "十六夜野宫",
-                    "十六夜いざよい ノノミ": "十六夜野宫",
-                    "奥空アヤネ": "奥空绫音",
-                    "奥空おくそら アヤネ": "奥空绫音",
-                    "梔子ユメ": "栀子梦",
-                    "梔子くちなし ユメ": "栀子梦",
-                    "シロコ＊テラー": "白子＊TERROR",
-
-                    // 千禧年 研讨会 / C&C / 超自然 / 游戏开发部
-                    "調月リオ": "调月莉音",
-                    "調月つかつき リオ": "调月莉音",
-                    "早瀬ユウカ": "早濑优香",
-                    "早瀬はやせ ユウカ": "早濑优香",
-                    "ユウカ": "优香",
-                    "生塩ノア": "生盐诺亚",
-                    "生塩うしお ノア": "生盐诺亚",
-                    "黒崎コユキ": "黑崎小雪",
-                    "黒崎くろさき コユキ": "黑崎小雪",
-
-                    "美甘ネル": "美甘妮露",
-                    "美甘みかも ネル": "美甘妮露",
-                    "一之瀬アスナ": "一之濑明日奈",
-                    "一之瀬いちのせ アスナ": "一之濑明日奈",
-                    "Asuna Ichinose": "一之濑明日奈",
-                    "アスナ": "一之濑明日奈",
-                    "角楯カリン": "角楯花凛",
-                    "角楯かくだて カリン": "角楯花凛",
-                    "室笠アカネ": "室笠茜",
-                    "室笠むろさか アカネ": "室笠茜",
-                    "飛鳥馬トキ": "飞鸟马时",
-                    "飛鳥馬あすま トキ": "飞鸟马时",
-
-                    "明星ヒマリ": "明星日鞠",
-                    "明星あけぼし ヒマリ": "明星日鞠",
-                    "和泉元エイミ": "和泉元艾米",
-
-                    "花岡ユズ": "花冈柚子",
-                    "花岡はなおか ユズ": "花冈柚子",
-                    "才羽モモイ": "才羽桃",
-                    "才羽さいば モモイ": "才羽桃",
-                    "才羽ミドリ": "才羽绿",
-                    "才羽さいば ミドリ": "才羽绿",
-                    "Kei": "Kei",
-
-                    // 真理社（简单映射几个）
-                    "各務チヒロ": "各务千寻",
-                    "音瀬コタマ": "音濑小玉",
-                    "小鈎ハレ": "小钩晴",
-                    "小塗マキ": "小涂真纪",
-
-                    // 工程部
-                    "白石ウタハ": "白石歌原",
-                    "白石しらいし ウタハ": "白石歌原",
-                    "豊見コトリ": "丰见琴里",
-                    "猫塚ヒビキ": "猫冢响",
-
-                    // 歌赫娜 风纪 / 万魔殿 / 便利屋68 / 供餐部 / 美食研究会
-                    "羽沼マコト": "羽沼真琴",
-                    "棗イロハ": "枣伊吕波",
-                    "丹花イブキ": "丹花伊吹",
-
-                    "空崎ヒナ": "空崎日奈",
-                    "空崎そらさき ヒナ": "空崎日奈",
-                    "ヒナ": "日奈",
-                    "銀鏡イオリ": "银镜伊织",
-                    "火宮チナツ": "火宫千夏",
-                    "天雨アコ": "天雨亚子",
-
-                    "陸八魔アル": "陆八魔爱露",
-                    "陸八魔りくはちま アル": "陆八魔爱露",
-                    "アル": "陆八魔爱露",
-                    "浅黄ムツキ": "浅黄睦月",
-                    "浅黄あさぎ ムツキ": "浅黄睦月",
-                    "ムツキ": "浅黄睦月",
-                    "鬼方カヨコ": "鬼方佳代子",
-                    "伊草ハルカ": "伊草春香",
-
-                    "黒舘ハルナ": "黑馆晴奈",
-                    "黒舘くろだて ハルナ": "黑馆晴奈",
-                    "赤司ジュンコ": "赤司纯子",
-                    "獅子堂イズミ": "狮子堂泉",
-                    "鰐渕アカリ": "鳄渊明里",
-
-                    "愛清フウカ": "爱清风香",
-                    "愛清あいきよ フウカ": "爱清风香",
-                    "牛牧ジュリ": "牛牧朱莉",
-
-                    // 崔尼蒂 茶话会 / 正义实现部 / 补习部 / 姐妹会 / 救护骑士团
-                    "桐藤ナギサ": "桐藤渚",
-                    "桐藤きりふじ ナギサ": "桐藤渚",
-                    "聖園ミカ": "圣园未花",
-                    "聖園みその ミカ": "圣园未花",
-                    "百合園セイア": "百合园圣娅",
-
-                    "剣先ツルギ": "剑先鹤城",
-                    "剣先けんざき ツルギ": "剑先鹤城",
-                    "羽川ハスミ": "羽川莲见",
-                    "羽川はねかわ ハスミ": "羽川莲见",
-                    "静山マシロ": "静山真白",
-                    "仲正イチカ": "仲正一花",
-
-                    "阿慈谷ヒフミ": "阿慈谷日富美",
-                    "阿慈谷あじたに ヒフミ": "阿慈谷日富美",
-                    "ヒフミ": "日富美",
-                    "白洲アズサ": "白洲梓",
-                    "白洲しらす アズサ": "白洲梓",
-                    "Shirasu Azusa": "白洲梓",
-                    "浦和ハナコ": "浦和花子",
-                    "下江コハル": "下江小春",
-
-                    "歌住サクラコ": "歌住樱子",
-                    "歌住うたずみ サクラコ": "歌住樱子",
-                    "伊落マリー": "伊落玛丽",
-                    "若葉ヒナタ": "若叶日向",
-
-                    "蒼森ミネ": "苍森美祢",
-                    "朝顔ハナエ": "朝颜花江",
-                    "鷲見セリナ": "鹫见芹娜",
-
-                    // 百鬼夜行 选几个代表
-                    "天地ニヤ": "天地仁耶",
-                    "和楽チセ": "和乐千世",
-                    "河和シズコ": "河和静子",
-                    "朝比奈フィーナ": "朝比奈菲娜",
-                    "春日ツバキ": "春日椿",
-                    "水羽ミモリ": "水羽三森",
-                    "勇美カエデ": "勇美枫",
-                    "久田イズナ": "久田泉奈",
-
-                    // 红冬 / 227 / 知识解放战线
-                    "連河チェリノ": "连河切里诺",
-                    "連河れんかわ チェリノ": "连河切里诺",
-                    "佐城トモエ": "佐城巴",
-                    "池倉マリナ": "池仓真理奈",
-
-                    "天見ノドカ": "天见和香",
-                    "天見あまみ ノドカ": "天见和香",
-                    "間宵シグレ": "间宵时雨",
-
-                    "姫木メル": "姬木芽瑠",
-                    "秋泉モミジ": "秋泉红叶",
-                    "安守ミノリ": "安守实梨",
-
-                    // 瓦尔基丽 / 海兰德 / 山海经 / 狂猎艺术（挑几个）
-                    "尾刃カンナ": "尾刃康娜",
-                    "中務キリノ": "中务桐乃",
-                    "合歓垣フブキ": "合欢垣吹雪",
-
-                    "橘ヒカリ": "橘光",
-                    "橘ノゾミ": "橘希望",
-
-                    "竜華キサキ": "龙华妃咲",
-                    "近衛ミナ": "近卫南",
-                    "春原シュン": "春原瞬",
-                    "春原ココナ": "春原心奈",
-                    "薬子サヤ": "药子沙绫",
-                    "朱城ルミ": "朱成瑠海",
-
-                    // 便利：英文直接映射中文常用译名（只列你常遇到的）
-                    "Aris Tendou": "天童爱丽丝",
-                    "Hoshino": "星野",
-                    "Yuuka": "优香"
-                };
-
-                const isBlueArchiveWork = (animeName || "").includes("ブルーアーカイブ")
-                    || (animeName || "").toLowerCase().includes("blue archive")
-                    || (animeName || "").includes("蔚蓝档案");
-
-                const mappedName = blueArchiveNameMap[charName] || charName;
-                
-                // 🔍 Debug: 检查映射是否生效
-                if (charName !== mappedName) {
-                    context.log(`[AnimeTrace映射] ${charName} → ${mappedName} ✅`);
-                } else {
-                    context.log(`[AnimeTrace映射] 未找到映射: "${charName}" (保持原样)`);
-                }
-
-                // 特判：爱丽丝自己
-                const isArisSelf = mappedName === "天童爱丽丝";
-
-                return {
-                    type: isBlueArchiveWork ? "ba-character" : "other-anime-character",
-                    name: mappedName,
-                    work: animeName || "未知作品",
-                    isSelf: isArisSelf
-                };
-            }
-        }
-
-        context.log(`[AnimeTrace] 无有效候选数据`);
-    } catch (e) {
-        context.log(`[AnimeTrace] 请求异常: ${e.message}`);
-    }
-}
-// ==========================================
-// 3. 核心识图引擎 C: Custom Vision (修正版 - 适配实际标签)
-// ==========================================
-async function checkCustomVision(imgUrl, context) {
-    // 👇👇👇 请在这里填入您之前获取的正确信息 👇👇👇
-    const predictionUrl = "https://arisvision-prediction.cognitiveservices.azure.com/customvision/v3.0/Prediction/15d48369-f604-460c-afa5-53beb0ebf705/classify/iterations/Iteration1/url";
-    const predictionKey = "6m6IwLKj33IXOTpE9b7RNXMluMhxCWW1LiRhJrBHDKXkzehKqpTxJQQJ99BKACi0881XJ3w3AAAIACOG5ymL"; 
-
-    if (!predictionKey || !predictionUrl) return null;
-
-    try {
-        context.log(`[CustomVision] 请求 Prediction API...`);
-
-        const res = await fetchWithTimeout(predictionUrl, {
-            method: "POST",
-            headers: {
-                "Prediction-Key": predictionKey,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ "Url": imgUrl })
-        }, 6000);
-
-        if (!res.ok) {
-            context.log(`[CustomVision] 失败: ${res.status} ${await res.text()}`);
-            return null;
-        }
-
-        const data = await res.json();
-        // 【核心修复】提高阈值到0.75 (75%)，只有非常确信时才通过
-        const valid = data.predictions.filter(p => p.probability > 0.75);
-        
-        if (valid.length > 0) {
-            let visualCue = "";
-            const tags = valid.map(p => p.tagName);
-            
-            context.log(`[CustomVision] 命中标签: ${tags.join(", ")}`);
-
-            // 1. aris_maid (女仆装)
-            if (tags.includes("aris_maid")) {
-                visualCue += "【检测到：女仆装爱丽丝】(请表现得像个能干的女仆，喊老师‘主人’然后改口说‘啊不对是老师’)\n";
-            }
-            // 2. aris_key (Key/黑爱丽丝)
-            if (tags.includes("aris_key")) {
-                visualCue += "【⚠️严重警告：检测到 Key/黑爱丽丝人格】(请立即切换为冷酷、理智、无情的AI语气，称呼老师为‘你’或‘碧蓝档案的玩家’，不再自称爱丽丝)\n";
-            }
-            // 3. railgun (光之剑)
-            if (tags.includes("railgun")) {
-                visualCue += "【检测到：光之剑/电磁炮】(这是你的专属武器‘超新星’！请兴奋地喊出必杀技名字)\n";
-            }
-            // 4. Alice Winter Clothes (冬装) - 模糊匹配 Winter
-            if (tags.some(t => t.includes("Winter") || t.includes("冬"))) { 
-                visualCue += "【检测到：冬装/厚大衣】(虽然是机器人不怕冷，但这身衣服看起来很暖和！请邀请老师一起去雪原冒险)\n";
-            }
-            // 5. hole (光环)
-            if (tags.includes("hole")) {
-                visualCue += "【检测到：头顶的光环】(这是基沃托斯学生的证明，也是爱丽丝的各种几何图形光环)\n";
-            }
-            // 6. aris (本体)
-            if (tags.includes("aris")) {
-                visualCue += "【检测到：爱丽丝本体】(确认画面中就是你自己)\n";
-            }
-
-            if (!visualCue) visualCue = `【检测到专属物品：${tags.join(", ")}】`;
-            return visualCue;
-        }
-    } catch (e) { 
-        context.log(`[CustomVision] 错误: ${e.message}`); 
-    }
-    return null;
-}
-
-// ==========================================
-// Azure Computer Vision (Image Analysis 4.0) 识别模块
-// ==========================================
-async function checkComputerVision(imgUrl, context) {
-    const endpoint = process.env["COMPUTER_VISION_ENDPOINT"];
-    const key = process.env["COMPUTER_VISION_KEY"];
-
-    if (!endpoint || !key) return null;
-
-    try {
-        // 构造 Image Analysis 4.0 URL
-        // features: Caption,Tags,Objects,Read (OCR)
-        const analysisUrl = `${endpoint.replace(/\/+$/, "")}/computervision/imageanalysis:analyze?api-version=2023-10-01&features=Caption,Tags,Objects,Read&language=zh`;
-        
-        context.log(`[ComputerVision] 请求: ${analysisUrl}`);
-        
-        const res = await fetchWithTimeout(analysisUrl, {
-            method: "POST",
-            headers: {
-                "Ocp-Apim-Subscription-Key": key,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ url: imgUrl })
-        }, 8000);
-
-        if (!res.ok) {
-            context.log(`[ComputerVision] 失败: ${res.status}`);
-            return null;
-        }
-
-        const data = await res.json();
-        
-        // 提取关键信息
-        let resultText = "";
-        
-        // 1. Caption (描述)
-        if (data.captionResult && data.captionResult.text) {
-            resultText += `画面描述: ${data.captionResult.text}; `;
-        }
-        
-        // 2. Tags (标签)
-        if (data.tagsResult && data.tagsResult.values) {
-            const tags = data.tagsResult.values
-                .filter(t => t.confidence > 0.6)
-                .map(t => t.name)
-                .slice(0, 10)
-                .join(", ");
-            if (tags) resultText += `标签: ${tags}; `;
-        }
-        
-        // 3. Objects (物体检测)
-        if (data.objectsResult && data.objectsResult.values) {
-            const objects = data.objectsResult.values
-                .map(o => o.tags.map(t => t.name).join("/"))
-                .join(", ");
-            if (objects) resultText += `检测到物体: ${objects}; `;
-        }
-        
-        // 4. Read (OCR 文字)
-        if (data.readResult && data.readResult.content) {
-            // 限制长度防止 token 爆炸
-            const ocrText = data.readResult.content.replace(/\n/g, " ").slice(0, 200);
-            if (ocrText) resultText += `图中文字: "${ocrText}"; `;
-        }
-
-        context.log(`[ComputerVision] 分析结果: ${resultText}`);
-        return resultText || null;
-
-    } catch (e) {
-        context.log(`[ComputerVision] 异常: ${e.message}`);
         return null;
     }
 }
@@ -4006,6 +2657,19 @@ async function updateLastBotReply(cosmosContainer, dbKey, sessionKey, context, m
     }
 }
 
+// Schedule handler assembled from shared service module
+const handleScheduleRequest = createScheduleHandler({
+    fetchBypass,
+    checkComputerVision,
+    updateLastBotReply
+});
+
+module.exports = {
+    handleScheduleRequest,
+    cosmosContainer,
+    token
+};
+
 // ==========================================
 // 群组情绪系统辅助函数
 // ==========================================
@@ -5035,12 +3699,13 @@ app.http('schoolBot', {
             let userNickname = "Sensei"; 
             let dbKey = "unknown";
             let scheduleFileLinks = [];
+            let body = null;
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
                 const bodyText = await request.text();
             if (bodyText) {
-                const body = JSON.parse(bodyText);
+                body = JSON.parse(bodyText);
                 
                 // 🔍 调试日志：记录所有收到的事件
                 const msgType = body.msg_type ?? body.msgType;
@@ -5267,32 +3932,131 @@ app.http('schoolBot', {
                     };
                 }
 
-                // === 指令：百科 <关键词>（DuckDuckGo 搜索）
+                // === 指令:百科 <关键词>(混合搜索: 本地 → SerpAPI → LLM)
                 const wikiMatch = msg.match(/^(百科|baike)[:：\s]+(.+)/i);
                 if (wikiMatch && wikiMatch[2]) {
                     const query = wikiMatch[2].trim();
-                    const results = await duckWebSearch(query, context, 5);
-                    if (!results || results.length === 0) {
-                        return {
-                            status: 200,
-                            headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                            body: JSON.stringify({ reply: "(DuckDuckGo 没找到相关结果，换个关键词试试吧)" })
-                        };
-                    }
-                    const summary = await summarizeSearchResults(query, results, context);
+                    const searchResult = await hybridSearch(query, context, { userId: senderId, maxResults: 5 });
+                    
+                    context.log(`[百科] 搜索来源: ${searchResult.source} | 成功: ${searchResult.success}`);
+                    
                     const sessionKey = `${dbKey}:${senderId}`;
                     await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+                    
                     return {
                         status: 200,
                         headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                        body: JSON.stringify({ reply: summary, auto_escape: false })
+                        body: JSON.stringify({ 
+                            reply: searchResult.formatted || searchResult.error || "搜索失败", 
+                            auto_escape: false 
+                        })
                     };
+                }
+
+                // === 指令:计划 <需求> (智能计划生成: 课表 + 天气 + 时间)
+                const planMatch = msg.match(/^(计划|plan)[:：\s]+(.+)/i);
+                if (planMatch && planMatch[2]) {
+                    const userIntent = planMatch[2].trim();
+                    
+                    // 1. 获取用户课表
+                    let scheduleInfo = "暂无课表数据";
+                    if (cosmosContainer) {
+                        const scheduleQuerySpec = {
+                            query: "SELECT * FROM c WHERE c.id = @uid AND c.type = 'scheduleProfile'",
+                            parameters: [{ name: "@uid", value: String(senderId) }]
+                        };
+                        const { resources: scheduleItems } = await cosmosContainer.items.query(scheduleQuerySpec).fetchAll();
+                        if (scheduleItems.length > 0 && scheduleItems[0].scheduleData) {
+                            const schedule = scheduleItems[0].scheduleData;
+                            const today = new Date().getDay(); // 0=周日, 1=周一...
+                            const todaySchedule = schedule.filter(c => c.dayOfWeek === today);
+                            if (todaySchedule.length > 0) {
+                                scheduleInfo = todaySchedule.map(c => 
+                                    `${c.startTime}-${c.endTime} ${c.courseName} @ ${c.location || '未知地点'}`
+                                ).join('\n');
+                            } else {
+                                scheduleInfo = "今天没有课程安排";
+                            }
+                        }
+                    }
+
+                    // 2. 获取天气信息 (复用天气查询逻辑)
+                    let weatherInfo = "天气信息暂时无法获取";
+                    try {
+                        // 默认查询"北京"的天气,可根据需要改为用户城市
+                        const citySearch = "beijing";
+                        const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
+                        const wRes = await fetchBypass(weatherUrl, {}, 2);
+                        if (wRes && wRes.ok) {
+                            const wData = await wRes.json();
+                            const loc = wData.results?.[0]?.location || {};
+                            const cur = wData.results?.[0]?.now || {};
+                            weatherInfo = `${loc.name || '未知地区'} ${cur.temperature || '?'}℃ ${cur.text || '未知天气'}`;
+                        }
+                    } catch (e) {
+                        context.error("[计划-天气错误]", e);
+                    }
+
+                    // 3. 调用LLM生成计划
+                    const planSystemPrompt = `你是Alice,一个可爱的AI助手。根据用户需求、课表和天气,生成一份智能计划。
+                    
+用户需求: ${userIntent}
+今日课表:
+${scheduleInfo}
+
+当前天气: ${weatherInfo}
+
+请生成一份结构化的计划,包括:
+- 具体时间段安排 (格式: 9:00-11:00 课程名 @ 地点)
+- 课间休息建议
+- 根据天气的贴心提示 (如下雨带伞☂️,晴天防晒🌞)
+
+保持可爱语气,用颜文字点缀 (✨ω✨)`;
+
+                    const planMessages = [
+                        { role: "system", content: planSystemPrompt },
+                        { role: "user", content: userIntent }
+                    ];
+
+                    try {
+                        const planCompletion = await openai.chat.completions.create({
+                            model: "gpt-4o",
+                            messages: planMessages,
+                            temperature: 0.7,
+                            max_tokens: 800
+                        });
+
+                        const planReply = planCompletion.choices?.[0]?.message?.content?.trim() || "计划生成失败 (｡•́︿•̀｡)";
+                        
+                        const sessionKey = `${dbKey}:${senderId}`;
+                        await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+
+                        return {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                            body: JSON.stringify({ 
+                                reply: planReply, 
+                                auto_escape: false 
+                            })
+                        };
+                    } catch (e) {
+                        context.error("[计划-LLM错误]", e);
+                        return {
+                            status: 200,
+                            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                            body: JSON.stringify({ 
+                                reply: "计划生成失败,请稍后重试 (｡•́︿•̀｡)", 
+                                auto_escape: false 
+                            })
+                        };
+                    }
                 }
 
                 // === 指令：say <text> (语音已关闭，退化为纯文本)
                 const sayMatch = msg.match(/^say\s+(.+)/i);
                 if (sayMatch && sayMatch[1]) {
                     const sayText = sayMatch[1].trim();
+
                     const sessionKey = `${dbKey}:${senderId}`;
                     await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
                     return {
@@ -5588,21 +4352,20 @@ app.http('schoolBot', {
         if (!wikiMatch && intentResult && intentResult.tool === 'wiki' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
             const query = (intentResult.query || msg || '').trim();
             if (query) {
-                const results = await duckWebSearch(query, context, 5);
-                if (!results || results.length === 0) {
-                    return {
-                        status: 200,
-                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                        body: JSON.stringify({ reply: "(DuckDuckGo 没找到相关结果，换个关键词试试吧)", auto_escape: false })
-                    };
-                }
-                const summary = await summarizeSearchResults(query, results, context);
+                const searchResult = await hybridSearch(query, context, { userId: senderId, maxResults: 5 });
+                
+                context.log(`[百科意图] 搜索来源: ${searchResult.source} | 成功: ${searchResult.success}`);
+                
                 const sessionKey = `${dbKey}:${senderId}`;
                 await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+                
                 return {
                     status: 200,
                     headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                    body: JSON.stringify({ reply: summary, auto_escape: false })
+                    body: JSON.stringify({ 
+                        reply: searchResult.formatted || searchResult.error || "搜索失败", 
+                        auto_escape: false 
+                    })
                 };
             }
         }

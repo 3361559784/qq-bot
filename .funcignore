@@ -1,0 +1,9 @@
+# Azure Functions ignore file
+.git*
+.vscode
+local.settings.json
+test
+tests
+.DS_Store
+*.md
+node_modules

@@ -8,9 +8,17 @@ const {
 // HTTP API: /api/ocrCourse
 // 用于外部直接上传官方导出(ICS/Excel)或截图进行课表解析
 app.http('ocrCourse', {
-    methods: ['POST'],
+    methods: ['GET', 'POST'],
     authLevel: 'function',
     handler: async (request, context) => {
+        // 如果是 GET 请求，返回提示信息
+        if (request.method === 'GET') {
+            return {
+                status: 200,
+                body: 'Hello! This is the OCR Course API. Please use POST method with JSON body to upload course data.'
+            };
+        }
+
         try {
             const body = await request.json();
             const userId = body.userId || body.senderId || body.uid;

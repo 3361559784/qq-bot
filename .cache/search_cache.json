@@ -1,0 +1,270 @@
+{
+  "5cd7d4d47cf1b4dd715b2a67ac923ac0": {
+    "id": "5cd7d4d47cf1b4dd715b2a67ac923ac0",
+    "query": "测试缓存条目",
+    "results": [
+      {
+        "title": "示例",
+        "snippet": "这是一条示例",
+        "url": "https://example.com"
+      }
+    ],
+    "source": "testsource",
+    "timestamp": 1765450373469,
+    "ttl": 604800
+  },
+  "b26dbfcc98c3e1e435168ec66a6591f1": {
+    "id": "b26dbfcc98c3e1e435168ec66a6591f1",
+    "query": "本地缓存测试123",
+    "results": [
+      {
+        "title": "来自本地缓存",
+        "snippet": "这是一个基于缓存的测试结果",
+        "url": "https://example.local/test"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450395876,
+    "ttl": 604800
+  },
+  "f068f0dad74789bee210163c40a4b50d": {
+    "id": "f068f0dad74789bee210163c40a4b50d",
+    "query": "人工智能",
+    "results": [
+      {
+        "title": "人工智能 - 维基百科",
+        "snippet": "人工智能（AI）是计算机科学的一个分支，致力于创建能够执行通常需要人类智能的任务的系统。",
+        "url": "https://zh.wikipedia.org/wiki/人工智能"
+      },
+      {
+        "title": "什么是人工智能？| IBM",
+        "snippet": "人工智能利用计算机和机器来模拟人类大脑的问题解决和决策能力。",
+        "url": "https://www.ibm.com/cn-zh/topics/artificial-intelligence"
+      },
+      {
+        "title": "AI技术前沿",
+        "snippet": "探索最新的AI技术发展，包括机器学习、深度学习和神经网络。",
+        "url": "https://example.com/ai-frontier"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922723,
+    "ttl": 604800
+  },
+  "d08582ab2454acf94fd086b68549cf2e": {
+    "id": "d08582ab2454acf94fd086b68549cf2e",
+    "query": "量子计算",
+    "results": [
+      {
+        "title": "量子计算 - 维基百科",
+        "snippet": "量子计算是一种遵循量子力学规律调控量子信息单元进行计算的新型计算模式。",
+        "url": "https://zh.wikipedia.org/wiki/量子计算"
+      },
+      {
+        "title": "IBM量子计算",
+        "snippet": "IBM正在开发量子计算机，以解决传统计算机无法解决的复杂问题。",
+        "url": "https://www.ibm.com/quantum"
+      },
+      {
+        "title": "量子计算的未来",
+        "snippet": "量子计算将在密码学、材料科学和药物研发领域带来革命性变化。",
+        "url": "https://example.com/quantum-future"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922723,
+    "ttl": 604800
+  },
+  "271abc946611971410cc91771be5b6b0": {
+    "id": "271abc946611971410cc91771be5b6b0",
+    "query": "Azure Functions",
+    "results": [
+      {
+        "title": "Azure Functions 文档",
+        "snippet": "Azure Functions 是一个无服务器解决方案，可以减少代码编写量、降低基础结构维护成本并节省成本。",
+        "url": "https://docs.microsoft.com/zh-cn/azure/azure-functions/"
+      },
+      {
+        "title": "Azure Functions 定价",
+        "snippet": "按使用量付费的无服务器计算服务。",
+        "url": "https://azure.microsoft.com/zh-cn/pricing/details/functions/"
+      },
+      {
+        "title": "Azure Functions 快速入门",
+        "snippet": "在几分钟内创建第一个函数。",
+        "url": "https://example.com/azure-quickstart"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922723,
+    "ttl": 604800
+  },
+  "ba28475ced62491723e2b3f5e3fef2cc": {
+    "id": "ba28475ced62491723e2b3f5e3fef2cc",
+    "query": "TypeScript教程",
+    "results": [
+      {
+        "title": "TypeScript中文网",
+        "snippet": "TypeScript是JavaScript的超集，添加了可选的静态类型和基于类的面向对象编程。",
+        "url": "https://www.tslang.cn/"
+      },
+      {
+        "title": "TypeScript官方文档",
+        "snippet": "TypeScript extends JavaScript by adding types to the language.",
+        "url": "https://www.typescriptlang.org/"
+      },
+      {
+        "title": "TypeScript入门教程",
+        "snippet": "从零开始学习TypeScript，掌握现代前端开发技能。",
+        "url": "https://example.com/ts-tutorial"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922723,
+    "ttl": 604800
+  },
+  "ec550d40cb1fbec49c00ab0b459a4837": {
+    "id": "ec550d40cb1fbec49c00ab0b459a4837",
+    "query": "React开发",
+    "results": [
+      {
+        "title": "React官方文档",
+        "snippet": "React 是一个用于构建用户界面的 JavaScript 库。",
+        "url": "https://react.dev/"
+      },
+      {
+        "title": "React中文文档",
+        "snippet": "用于构建 Web 和原生交互界面的库。",
+        "url": "https://zh-hans.react.dev/"
+      },
+      {
+        "title": "React最佳实践",
+        "snippet": "学习React开发的最佳实践和设计模式。",
+        "url": "https://example.com/react-best-practices"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922724,
+    "ttl": 604800
+  },
+  "f17460ad5f6099b971b47baa10c48bf2": {
+    "id": "f17460ad5f6099b971b47baa10c48bf2",
+    "query": "Node.js性能优化",
+    "results": [
+      {
+        "title": "Node.js性能优化指南",
+        "snippet": "Node.js性能调优的实用技巧，包括事件循环、内存管理和异步编程。",
+        "url": "https://nodejs.org/en/docs/guides/simple-profiling/"
+      },
+      {
+        "title": "Node.js最佳实践",
+        "snippet": "提高Node.js应用性能的最佳实践集合。",
+        "url": "https://github.com/goldbergyoni/nodebestpractices"
+      },
+      {
+        "title": "Node.js监控工具",
+        "snippet": "使用专业工具监控和优化Node.js应用性能。",
+        "url": "https://example.com/node-monitoring"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922724,
+    "ttl": 604800
+  },
+  "31ac2cd21cca0898c529e264d536e07a": {
+    "id": "31ac2cd21cca0898c529e264d536e07a",
+    "query": "数据库设计",
+    "results": [
+      {
+        "title": "数据库设计基础",
+        "snippet": "学习关系型数据库设计的基本原则和最佳实践。",
+        "url": "https://example.com/db-design"
+      },
+      {
+        "title": "数据库范式",
+        "snippet": "理解第一范式、第二范式和第三范式在数据库设计中的应用。",
+        "url": "https://example.com/db-normalization"
+      },
+      {
+        "title": "NoSQL vs SQL",
+        "snippet": "了解关系型和非关系型数据库的区别及使用场景。",
+        "url": "https://example.com/nosql-vs-sql"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922724,
+    "ttl": 604800
+  },
+  "62bb994035cf1d21c608932bf10edc66": {
+    "id": "62bb994035cf1d21c608932bf10edc66",
+    "query": "微服务架构",
+    "results": [
+      {
+        "title": "微服务架构模式",
+        "snippet": "微服务架构将应用程序构建为一组小型服务，每个服务运行在自己的进程中。",
+        "url": "https://microservices.io/"
+      },
+      {
+        "title": "Docker与微服务",
+        "snippet": "使用Docker容器化技术实现微服务架构。",
+        "url": "https://www.docker.com/resources/what-container/"
+      },
+      {
+        "title": "Kubernetes入门",
+        "snippet": "Kubernetes是用于自动部署、扩展和管理容器化应用的开源系统。",
+        "url": "https://kubernetes.io/zh-cn/"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922724,
+    "ttl": 604800
+  },
+  "923fa248e87ad00550e25fc1d42fef60": {
+    "id": "923fa248e87ad00550e25fc1d42fef60",
+    "query": "Git版本控制",
+    "results": [
+      {
+        "title": "Git官方文档",
+        "snippet": "Git是一个免费的开源分布式版本控制系统。",
+        "url": "https://git-scm.com/"
+      },
+      {
+        "title": "Git教程 - 廖雪峰",
+        "snippet": "史上最浅显易懂的Git教程。",
+        "url": "https://www.liaoxuefeng.com/wiki/896043488029600"
+      },
+      {
+        "title": "GitHub使用指南",
+        "snippet": "学习如何使用GitHub进行协作开发。",
+        "url": "https://docs.github.com/zh"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922724,
+    "ttl": 604800
+  },
+  "5982324331cbe7765e042c799ad9c409": {
+    "id": "5982324331cbe7765e042c799ad9c409",
+    "query": "前端框架对比",
+    "results": [
+      {
+        "title": "React vs Vue vs Angular",
+        "snippet": "三大前端框架的详细对比和选型指南。",
+        "url": "https://example.com/framework-comparison"
+      },
+      {
+        "title": "2024前端框架趋势",
+        "snippet": "了解当前最流行的前端框架及其发展趋势。",
+        "url": "https://example.com/frontend-trends"
+      },
+      {
+        "title": "前端框架选型建议",
+        "snippet": "根据项目需求选择合适的前端框架。",
+        "url": "https://example.com/framework-selection"
+      }
+    ],
+    "source": "duckduckgo",
+    "timestamp": 1765450922726,
+    "ttl": 604800
+  }
+}
