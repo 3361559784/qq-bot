@@ -229,13 +229,14 @@ const INTENT_ROUTER_ENABLED = process.env["ARIS_INTENT_ROUTER"] !== "false";
 const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4o-mini";
 const INTENT_CONFIDENCE_THRESHOLD = Number(process.env["ARIS_INTENT_CONFIDENCE"] || 0.35);
 
-// 模型池 (4+4) - 白嫖优先
+// 模型池 (4+4) - GitHub Models 兼容优先
+// 说明：意图路由是纯文本 JSON 输出，不需要 vision 模型，避免使用可能不存在的 *-Vision-Instruct 名称。
 const PERCEPTION_MODELS = [
+    { name: INTENT_ROUTER_MODEL, temp: 0.1 },
     { name: "gpt-4o", temp: 0.1 },
-    { name: "Llama-3.2-90B-Vision-Instruct", temp: 0.1 },
     { name: "gpt-4o-mini", temp: 0.1 },
-    { name: "Llama-3.2-11B-Vision-Instruct", temp: 0.1 }
-];
+    { name: "Llama-3.3-70B-Instruct", temp: 0.1 }
+].filter((m, idx, arr) => m?.name && arr.findIndex(x => x.name === m.name) === idx);
 
 const RESPONSE_MODELS = [
     { name: "Mistral-large-2407", temp: 0.9 },
@@ -243,6 +244,42 @@ const RESPONSE_MODELS = [
     { name: "gpt-4o", temp: 1.0 },
     { name: "Cohere-command-r-plus", temp: 1.0 }
 ];
+
+// =====================================================
+// GitHub Models 兼容性：不支持模型自动降级（进程级缓存）
+// =====================================================
+const UNSUPPORTED_GITHUB_MODELS = new Set();
+
+function getOpenAIStatusCode(err) {
+    return err?.status || err?.response?.status || err?.cause?.status;
+}
+
+function isModelNotFoundError(err) {
+    const status = getOpenAIStatusCode(err);
+    const code = err?.code || err?.error?.code || err?.error?.type;
+    const msg = String(err?.message || err || "").toLowerCase();
+
+    // GitHub Models / OpenAI SDK 常见：404 / model_not_found / "Unknown model"
+    if (status === 404) return true;
+    if (code === 'model_not_found' || code === 'unknown_model') return true;
+    if (msg.includes('unknown model')) return true;
+    if (msg.includes('model') && msg.includes('not found')) return true;
+    if (msg.includes('does not exist') && msg.includes('model')) return true;
+    return false;
+}
+
+function shouldSkipModel(modelName) {
+    return modelName && UNSUPPORTED_GITHUB_MODELS.has(modelName);
+}
+
+function markModelUnsupported(modelName, err, context, scope = 'model') {
+    if (!modelName) return;
+    if (UNSUPPORTED_GITHUB_MODELS.has(modelName)) return;
+    UNSUPPORTED_GITHUB_MODELS.add(modelName);
+    const status = getOpenAIStatusCode(err);
+    const msg = String(err?.message || err || '').slice(0, 120);
+    context?.log?.(`[${scope}] 标记为不支持: ${modelName} (${status || 'N/A'}) ${msg}`);
+}
 
 // 防刷屏配置
 const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // 群内8秒冷却期
@@ -2439,6 +2476,10 @@ Input: "..." → {intent: 'chat', confidence: 0.15, reason: 'meaningless symbol'
 
         for (let i = 0; i < PERCEPTION_MODELS.length; i++) {
             const modelCfg = PERCEPTION_MODELS[i];
+            if (shouldSkipModel(modelCfg?.name)) {
+                context.log(`[IntentRouter] skip unsupported: ${modelCfg.name}`);
+                continue;
+            }
             try {
                 const response = await client.chat.completions.create({
                     model: modelCfg.name,
@@ -2471,6 +2512,10 @@ Input: "..." → {intent: 'chat', confidence: 0.15, reason: 'meaningless symbol'
                 };
             } catch (err) {
                 context.log(`[IntentRouter] ${modelCfg.name} fail: ${err?.message || err}`);
+                if (isModelNotFoundError(err)) {
+                    markModelUnsupported(modelCfg.name, err, context, 'IntentRouter');
+                    continue;
+                }
                 if (i === PERCEPTION_MODELS.length - 1) throw err;
             }
         }
@@ -4025,14 +4070,49 @@ ${scheduleInfo}
                     ];
 
                     try {
-                        const planCompletion = await openai.chat.completions.create({
-                            model: "gpt-4o",
-                            messages: planMessages,
-                            temperature: 0.7,
-                            max_tokens: 800
+                        if (!token) {
+                            return {
+                                status: 200,
+                                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                                body: JSON.stringify({
+                                    reply: "爱丽丝的 GITHUB_TOKEN 还没配置好呢…(｀・ω・´)ゞ 先把 Functions 的环境变量补上，再来生成计划吧！",
+                                    auto_escape: false
+                                })
+                            };
+                        }
+
+                        const planClient = new OpenAI({
+                            baseURL: "https://models.inference.ai.azure.com",
+                            apiKey: token
                         });
 
-                        const planReply = planCompletion.choices?.[0]?.message?.content?.trim() || "计划生成失败 (｡•́︿•̀｡)";
+                        let planCompletion = null;
+                        for (let i = 0; i < RESPONSE_MODELS.length; i++) {
+                            const modelCfg = RESPONSE_MODELS[i];
+                            if (shouldSkipModel(modelCfg?.name)) {
+                                context.log(`[计划] skip unsupported: ${modelCfg.name}`);
+                                continue;
+                            }
+                            try {
+                                planCompletion = await planClient.chat.completions.create({
+                                    model: modelCfg.name,
+                                    messages: planMessages,
+                                    temperature: 0.7,
+                                    max_tokens: 800
+                                });
+                                break;
+                            } catch (err) {
+                                const errMsg = err?.message || err?.toString() || "Unknown error";
+                                const statusCode = getOpenAIStatusCode(err);
+                                context.log(`[计划] 模型 ${modelCfg.name} 失败 (${statusCode || 'N/A'}): ${String(errMsg).slice(0, 120)}`);
+                                if (isModelNotFoundError(err)) {
+                                    markModelUnsupported(modelCfg.name, err, context, 'Plan');
+                                }
+                                if (i === RESPONSE_MODELS.length - 1) throw err;
+                            }
+                        }
+
+                        const planReply = planCompletion?.choices?.[0]?.message?.content?.trim() || "计划生成失败 (｡•́︿•̀｡)";
                         
                         const sessionKey = `${dbKey}:${senderId}`;
                         await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
@@ -4876,6 +4956,10 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             // 依次尝试每个模型
             for (let i = 0; i < MODEL_CHAIN.length; i++) {
                 const model = MODEL_CHAIN[i];
+                if (shouldSkipModel(model?.name)) {
+                    context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] skip unsupported: ${model.name}`);
+                    continue;
+                }
                 try {
                     context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name}`);
                     
@@ -4895,6 +4979,11 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                     const statusCode = err?.status || err?.response?.status;
                     
                     context.log(`[多脑] 模型 ${model.name} 失败 (${statusCode || 'N/A'}): ${errMsg.substring(0, 100)}`);
+
+                    // 不支持模型：加入缓存并立即尝试下一个
+                    if (isModelNotFoundError(err)) {
+                        markModelUnsupported(model.name, err, context, '多脑');
+                    }
                     
                     // 如果是最后一个模型也失败了,抛出错误
                     if (i === MODEL_CHAIN.length - 1) {
