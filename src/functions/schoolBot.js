@@ -4269,6 +4269,14 @@ ${scheduleInfo}
             } catch (err) {}
         }
 
+        // 统一兜底：新用户/读取失败时 resDoc 可能为空，后续分支会访问其字段
+        if (!resDoc || typeof resDoc !== 'object') {
+            resDoc = { id: dbKey };
+        }
+        if (!resDoc.affection) resDoc.affection = {};
+        if (!resDoc.pokeStats) resDoc.pokeStats = {};
+        if (!resDoc.lastBotReply) resDoc.lastBotReply = {};
+
         // === B. 群聊活跃度统计 ===
         if (!userActivityData[senderId]) {
             userActivityData[senderId] = { count: 0, lastSeen: new Date().toISOString(), nickname: userNickname };
@@ -4989,7 +4997,11 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 if (history.length > limit) history = history.slice(-limit);
                 
                 // 更新好感度数据
-                if (!resDoc.affection) resDoc.affection = {};
+                // 兼容新用户/读取失败：resDoc 可能为空，必须先兜底再读写 affection
+                if (!resDoc || typeof resDoc !== 'object') {
+                    resDoc = { id: dbKey, affection: {}, pokeStats: {}, lastBotReply: {} };
+                }
+                if (!resDoc.affection || typeof resDoc.affection !== 'object') resDoc.affection = {};
                 resDoc.affection[userAffectionKey] = currentAffection;
                 resDoc.affection[`${userAffectionKey}_lastDate`] = today;
                 
