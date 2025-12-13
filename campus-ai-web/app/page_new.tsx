@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Calendar, MessageCircle, BookOpen, Search, Settings, Send, ChevronDown, Plus, Image as ImageIcon, FileText, Table, Menu, PanelRightClose, Sun, Moon } from "lucide-react";
+import { Calendar, MessageCircle, BookOpen, Search, Settings, Send, ChevronDown, Plus, Image as ImageIcon, FileText, Table, Menu, PanelRightClose, Sun, Moon, Upload } from "lucide-react";
 import AliceAvatar, { type AliceEmotion } from "../components/AliceAvatar";
 import { sendMessage, sendPoke } from "../services/chat";
 import Sidebar from "../components/Sidebar";
 import RightPanel from "../components/RightPanel";
+import ScheduleImport from "../components/ScheduleImport";
 
 const MODES = [
   { name: "Plan", icon: Calendar, label: "智能计划" },
@@ -57,6 +58,7 @@ function ChatInput({
   handleSend,
   handleKeyDown,
   inputAreaRef,
+  onOpenScheduleImport,
 }: {
   variant: "center" | "bottom";
   input: string;
@@ -72,6 +74,7 @@ function ChatInput({
   handleSend: () => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   inputAreaRef: React.RefObject<HTMLDivElement | null>;
+  onOpenScheduleImport?: () => void;
 }) {
   const isCenter = variant === "center";
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -174,13 +177,19 @@ function ChatInput({
                     {isAttachmentMenuOpen && (
                       <div className="absolute bottom-full right-0 mb-3 w-48 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
                         <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">上传</div>
+                        <button 
+                          onClick={() => {
+                            onOpenScheduleImport?.();
+                            setIsAttachmentMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors"
+                        >
+                          <Calendar size={16} />
+                          <span>导入课表</span>
+                        </button>
                         <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
                           <ImageIcon size={16} />
                           <span>图片</span>
-                        </button>
-                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
-                          <Table size={16} />
-                          <span>表格</span>
                         </button>
                         <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
                           <FileText size={16} />
@@ -237,6 +246,8 @@ export default function Home() {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [showScheduleImport, setShowScheduleImport] = useState(false);
+  const [schedule, setSchedule] = useState<any[]>([]);
   const [conversations, setConversations] = useState([
     { id: "1", title: "复习计划" },
     { id: "2", title: "明天天气" },
@@ -249,6 +260,20 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const inputAreaRef = useRef<HTMLDivElement | null>(null);
+
+  // 初始化时加载课表
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("campus_schedule");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setSchedule(parsed);
+        console.log("📚 已加载课表:", parsed.length, "门课程");
+      }
+    } catch (e) {
+      console.error("加载课表失败:", e);
+    }
+  }, []);
 
   const getSessionId = () => {
     if (!sessionIdRef.current) {
@@ -324,7 +349,56 @@ export default function Home() {
     }));
 
     try {
-      const { reply, emotion } = await sendMessage(userMessage, getSessionId());
+      let reply = "";
+      let emotion = null;
+
+      // 根据模式选择不同的处理逻辑
+      if (currentMode === "Class") {
+        // Class模式：课程查询
+        if (schedule.length === 0) {
+          reply = "还没有导入课表哦，请先点击上传按钮导入课表～ 📚";
+          emotion = "sad";
+        } else {
+          const resp = await fetch("/api/class", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: userMessage, schedule })
+          });
+          const data = await resp.json();
+          reply = data.reply || "查询失败，请重试";
+          if (data.needSchedule) {
+            setShowScheduleImport(true);
+          }
+        }
+        console.log("📖 Class模式回复:", reply);
+      } else if (currentMode === "Plan") {
+        // Plan模式：生成学习计划
+        if (schedule.length === 0) {
+          reply = "还没有导入课表哦，请先导入课表再生成学习计划～ 📅";
+          emotion = "sad";
+        } else {
+          const resp = await fetch("/api/plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question: userMessage, schedule })
+          });
+          const data = await resp.json();
+          reply = data.reply || data.plan || "生成计划失败，请重试";
+          if (data.needSchedule) {
+            setShowScheduleImport(true);
+          }
+        }
+        console.log("📅 Plan模式回复:", reply);
+      } else {
+        // Ask / Search 模式：调用后端
+        const result = await sendMessage(
+          currentMode === "Search" ? `搜索:${userMessage}` : userMessage, 
+          getSessionId()
+        );
+        reply = result.reply;
+        emotion = result.emotion;
+      }
+
       setMessages(prev => [...prev, { role: "assistant", content: reply }]);
       
       // 使用后端返回的情绪，如果没有则根据内容推断
@@ -576,6 +650,7 @@ export default function Home() {
                   handleSend={handleSend}
                   handleKeyDown={handleKeyDown}
                   inputAreaRef={inputAreaRef}
+                  onOpenScheduleImport={() => setShowScheduleImport(true)}
                 />
               </div>
             </div>
@@ -619,6 +694,7 @@ export default function Home() {
             handleSend={handleSend}
             handleKeyDown={handleKeyDown}
             inputAreaRef={inputAreaRef}
+            onOpenScheduleImport={() => setShowScheduleImport(true)}
           />
         )}
       </div>
@@ -717,6 +793,24 @@ export default function Home() {
           </button>
         </div>
       </div>
+
+      {/* 课表导入模态框 */}
+      {showScheduleImport && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <ScheduleImport
+            onScheduleImported={(newSchedule) => {
+              setSchedule(newSchedule);
+              setShowScheduleImport(false);
+              // 添加系统消息
+              setMessages(prev => [...prev, { 
+                role: "assistant", 
+                content: `📚 课表导入成功！已解析 ${newSchedule.length} 门课程。现在可以问我"下一节课是什么"或者"帮我安排学习计划"啦！✨` 
+              }]);
+            }}
+            onClose={() => setShowScheduleImport(false)}
+          />
+        </div>
+      )}
 
     </div>
   );
