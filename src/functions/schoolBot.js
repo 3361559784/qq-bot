@@ -5206,7 +5206,13 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 
         // 🆕 构建课表上下文（来自前端 Web 或 CosmosDB）
         let scheduleContextAddition = '';
-        if (webSchedule && webSchedule.length > 0) {
+        
+        // ✅ 优先使用动态查询结果（如周日问明天跨周场景），避免与 webSchedule 冲突
+        if (toolContext.scheduleData?.dynamicText) {
+            // 动态查询已成功，直接使用其结果，不再处理 webSchedule
+            context.log(`[WebSchedule] ⚠️ 已有动态查询结果，跳过 webSchedule 处理`);
+            scheduleContextAddition = ''; // toolContextPrompt 里已经包含了动态查询结果
+        } else if (webSchedule && webSchedule.length > 0) {
             // 前端传入了课表数据，构建上下文
             const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
             const nowSh = new Date(Date.now() + 8 * 60 * 60 * 1000);
