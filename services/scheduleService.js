@@ -123,6 +123,129 @@ function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
   return `📚 ${todayLabel}(${dayLabel})有 ${courses.length} 门课:\n${lines.join('\n')}`;
 }
 
+/**
+ * 🆕 根据前端传入的 webSchedule 数组格式化回复
+ * webSchedule 格式: { courseName, weekday, startTime, endTime, location, ... }
+ * @param {Array} webSchedule - 前端传入的课表数组
+ * @param {string} queryType - 查询类型: 'today' | 'tomorrow' | 'this_week' | 'next_week' | null
+ * @param {Object} context - 日志上下文
+ */
+function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
+  const nowSh = getShanghaiNowUtcShifted();
+  const todayWeekday = getShanghaiWeekdayNumber(nowSh); // 1=周一...7=周日
+  const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+  
+  // 🆕 标准化 weekday 字段（兼容 weekday 或 day）
+  const normalizeWeekday = (c) => Number(c?.weekday || c?.day) || 0;
+  const normalizeName = (c) => c?.courseName || c?.name || '课程';
+  const normalizeTime = (c) => {
+    const start = c?.startTime || c?.timeStart || '';
+    const end = c?.endTime || c?.timeEnd || '';
+    return start && end ? `${start}-${end}` : (start || end || '');
+  };
+  const normalizeLocation = (c) => c?.location || '';
+  
+  // 计算日期
+  const fmtYmd = (d) => {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
+  
+  // === 查询类型处理 ===
+  if (queryType === 'today') {
+    const todayCourses = webSchedule
+      .filter(c => normalizeWeekday(c) === todayWeekday)
+      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+    
+    const dateStr = fmtYmd(nowSh);
+    const dayLabel = dayNames[todayWeekday];
+    
+    if (!todayCourses.length) {
+      return `✅ 今天(${dayLabel} ${dateStr})没有课。`;
+    }
+    
+    const lines = todayCourses.map(c => {
+      const name = normalizeName(c);
+      const time = normalizeTime(c);
+      const loc = normalizeLocation(c);
+      return `- ${time ? `${time} ` : ''}${name}${loc ? ` @ ${loc}` : ''}`;
+    });
+    
+    return `📚 今天(${dayLabel} ${dateStr})有 ${todayCourses.length} 门课:\n${lines.join('\n')}`;
+  }
+  
+  if (queryType === 'tomorrow') {
+    const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
+    const tomorrowDate = new Date(nowSh.getTime() + 24 * 60 * 60 * 1000);
+    const dateStr = fmtYmd(tomorrowDate);
+    const dayLabel = dayNames[tomorrowWeekday];
+    
+    const tomorrowCourses = webSchedule
+      .filter(c => normalizeWeekday(c) === tomorrowWeekday)
+      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+    
+    if (!tomorrowCourses.length) {
+      return `✅ 明天(${dayLabel} ${dateStr})没有课。`;
+    }
+    
+    const lines = tomorrowCourses.map(c => {
+      const name = normalizeName(c);
+      const time = normalizeTime(c);
+      const loc = normalizeLocation(c);
+      return `- ${time ? `${time} ` : ''}${name}${loc ? ` @ ${loc}` : ''}`;
+    });
+    
+    return `📚 明天(${dayLabel} ${dateStr})有 ${tomorrowCourses.length} 门课:\n${lines.join('\n')}`;
+  }
+  
+  // 默认: 本周课表
+  const mondaySh = new Date(nowSh.getTime() - (todayWeekday - 1) * 24 * 60 * 60 * 1000);
+  const weekStart = queryType === 'next_week'
+    ? new Date(mondaySh.getTime() + 7 * 24 * 60 * 60 * 1000)
+    : mondaySh;
+  const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+  const rangeLine = `${fmtYmd(weekStart)} ~ ${fmtYmd(weekEnd)}`;
+  const title = queryType === 'next_week' ? '下周课表' : '本周课表';
+  
+  // 按天分组
+  const byDay = new Map();
+  for (const c of webSchedule) {
+    const day = normalizeWeekday(c);
+    if (day < 1 || day > 7) continue;
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(c);
+  }
+  
+  const parts = [];
+  for (let d = 1; d <= 7; d++) {
+    const list = (byDay.get(d) || []).slice().sort((a, b) => 
+      (a.startTime || '').localeCompare(b.startTime || '')
+    );
+    if (!list.length) continue;
+    
+    const dayDate = new Date(weekStart.getTime() + (d - 1) * 24 * 60 * 60 * 1000);
+    const dayHeader = `${dayNames[d]} ${fmtYmd(dayDate)}`;
+    parts.push(dayHeader);
+    parts.push('| 时间 | 课程 | 地点 |');
+    parts.push('| --- | --- | --- |');
+    for (const c of list) {
+      const name = String(normalizeName(c)).replace(/\|/g, '/');
+      const loc = String(normalizeLocation(c)).replace(/\|/g, '/');
+      const time = normalizeTime(c);
+      parts.push(`| ${time || '-'} | ${name} | ${loc || '-'} |`);
+    }
+    parts.push('');
+  }
+  
+  if (!parts.length) {
+    return `⚠️ ${title}（${rangeLine}）没有课程数据。`;
+  }
+  
+  return `🗓️ ${title}（${rangeLine}）\n\n${parts.join('\n')}`;
+}
+
 function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
   const weekly = Array.isArray(profile?.weekly_schedule) ? profile.weekly_schedule : [];
   if (!weekly.length) return '⚠️ 课表数据为空。';
@@ -1052,7 +1175,7 @@ async function saveUserScheduleProfile(cosmosContainer, userId, scheduleData, so
 }
 
 function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBotReply }) {
-  return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token, curriculumUuid: webUuid }) {
+  return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token, curriculumUuid: webUuid, webSchedule }) {
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
     const queryType = detectScheduleQueryType(msg);
 
@@ -1063,7 +1186,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       // 🆕 如果 Cosmos 没有 profile 但前端传了 curriculumUuid，构造临时 profile
       const effectiveUuid = webUuid || profile?.curriculumUuid || null;
       
-      if (!profile && !effectiveUuid) {
+      // 🆕 检查是否有前端传入的 webSchedule
+      const hasWebSchedule = Array.isArray(webSchedule) && webSchedule.length > 0;
+      
+      if (!profile && !effectiveUuid && !hasWebSchedule) {
         return {
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -1075,8 +1201,12 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
 
       let replyText = '';
-      // 如果有 curriculumUuid（来自 Cosmos profile 或前端 webUuid），优先使用动态 API 查询
-      if (effectiveUuid) {
+      
+      // 🆕 优先使用前端传入的 webSchedule（Web 端直接传入的课表数组）
+      if (hasWebSchedule) {
+        context?.log?.(`[Schedule] 使用前端传入的 webSchedule (${webSchedule.length} 门课)`);
+        replyText = formatAnswerFromWebSchedule(webSchedule, queryType, context);
+      } else if (effectiveUuid) {
         // 本周/下周课表：动态请求学习通API获取对应周次数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
           const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, queryType || 'this_week', context);

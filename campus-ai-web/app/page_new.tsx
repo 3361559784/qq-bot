@@ -12,7 +12,8 @@ import Sidebar from "../components/Sidebar";
 import RightPanel from "../components/RightPanel";
 import ScheduleImportEnhanced from "../components/ScheduleImportEnhanced";
 import PlanCard, { parsePlanText, type DayPlan } from "../components/PlanCard";
-import DemoPreset, { DEMO_SCHEDULE } from "../components/DemoPreset";
+import { DEMO_SCHEDULE } from "../components/DemoPreset";
+import JudgePanel, { JUDGE_DEMO_SCHEDULE } from "../components/JudgePanel";
 
 const MODES = [
   { name: "Plan", icon: Calendar, label: "智能计划" },
@@ -306,6 +307,18 @@ export default function Home() {
       const isFromDemo = urlParams.get('demo') === 'true';
       
       const saved = localStorage.getItem("campus_schedule");
+      
+      // 🆕 新用户检测：没有课表且不是从 demo 跳转来的 → 重定向到 demo
+      if (!saved && !isFromDemo) {
+        // 检查是否是第一次访问（没有任何历史记录）
+        const hasVisited = localStorage.getItem("campus_has_visited");
+        if (!hasVisited) {
+          localStorage.setItem("campus_has_visited", "true");
+          window.location.href = "/demo";
+          return;
+        }
+      }
+      
       if (saved) {
         const parsed = JSON.parse(saved);
         // 兼容两种格式：数组 或 {schedule: [...], source: "demo"}
@@ -314,34 +327,13 @@ export default function Home() {
           setSchedule(scheduleData);
           console.log("📚 已加载课表:", scheduleData.length, "门课程");
           
-          // 如果是从 Demo 跳转过来且已有课表，显示欢迎消息
+          // 如果是从 Demo 跳转过来且已有课表，只清除 URL 参数，不显示消息
           if (isFromDemo) {
-            setMessages([{
-              role: "assistant",
-              content: `🎉 欢迎来到完整版！你的课表已经准备好了（${scheduleData.length} 门课程）。\n\n试试问我：\n• 「下一节课是什么？」\n• 「帮我安排明天的学习计划」\n• 或者随便聊聊～`
-            }]);
-            // 清除 URL 参数
             window.history.replaceState({}, '', window.location.pathname);
           }
-        } else if (isFromDemo) {
-          // 有数据但是空数组，加载示例课表
-          localStorage.setItem("campus_schedule", JSON.stringify(DEMO_SCHEDULE));
-          setSchedule(DEMO_SCHEDULE);
-          setMessages([{
-            role: "assistant",
-            content: `📚 已为你加载示例课表（${DEMO_SCHEDULE.length} 门课程）！\n\n这是一份真实学生的课表数据，你可以体验完整的课表查询功能。\n\n试试问我：「明天有什么课？」`
-          }]);
-          window.history.replaceState({}, '', window.location.pathname);
         }
       } else if (isFromDemo) {
-        // 从 Demo 跳转但没有课表，自动加载示例课表
-        localStorage.setItem("campus_schedule", JSON.stringify(DEMO_SCHEDULE));
-        setSchedule(DEMO_SCHEDULE);
-        setMessages([{
-          role: "assistant",
-          content: `📚 已为你加载示例课表（${DEMO_SCHEDULE.length} 门课程）！\n\n这是一份真实学生的课表数据，你可以体验完整的课表查询功能。\n\n试试问我：「明天有什么课？」`
-        }]);
-        // 清除 URL 参数
+        // 从 Demo 跳转但没有课表，只清除 URL 参数，保持空状态欢迎页
         window.history.replaceState({}, '', window.location.pathname);
       }
     } catch (e) {
@@ -703,29 +695,7 @@ export default function Home() {
         {/* 消息列表 */}
         <div className="flex-1 overflow-y-auto px-4 scroll-smooth">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-start justify-center max-w-3xl mx-auto pb-32">
-              {/* Demo 预设按钮（评委作弊码） */}
-              <DemoPreset
-                hasSchedule={schedule.length > 0}
-                onLoadSchedule={(demoSchedule) => {
-                  setSchedule(demoSchedule);
-                  localStorage.setItem("campus_schedule", JSON.stringify(demoSchedule));
-                  setMessages(prev => [...prev, { 
-                    role: "assistant", 
-                    content: `📚 示例课表已导入！共 ${demoSchedule.length} 门课程，现在可以开始演示了～` 
-                  }]);
-                }}
-                onSendQuestion={(mode, question) => {
-                  setCurrentMode(mode);
-                  setInput(question);
-                  // 延迟触发发送
-                  setTimeout(() => {
-                    const sendBtn = document.querySelector('[data-send-btn]') as HTMLButtonElement;
-                    sendBtn?.click();
-                  }, 100);
-                }}
-              />
-
+            <div className="h-full flex flex-col items-center justify-center max-w-3xl mx-auto py-8">
               {/* 产品身份说明：让评委30秒内看懂 */}
               <div className="flex items-center gap-3 mb-4">
                 <img 
@@ -737,13 +707,13 @@ export default function Home() {
                   <span className="font-medium text-blue-500">爱丽丝</span> · 你的校园 AI 助手
                 </div>
               </div>
-              <h1 className="text-5xl font-medium bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
+              <h1 className="text-5xl font-medium bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2 text-center">
                 你好，同学
               </h1>
-              <h2 className="text-4xl font-medium text-gray-700 dark:text-gray-300 mb-3">
+              <h2 className="text-4xl font-medium text-gray-700 dark:text-gray-300 mb-3 text-center">
                 {schedule.length > 0 ? '今天想做点什么？' : '我能帮你做这些'}
               </h2>
-              <p className="text-base text-gray-500 dark:text-gray-400 mb-6">
+              <p className="text-base text-gray-500 dark:text-gray-400 mb-6 text-center">
                 {schedule.length > 0 
                   ? '选择下面的快捷入口，或直接在输入框提问'
                   : '📅 查课表 · ✨ 做计划 · 💬 答疑解惑 · 🔍 联网搜索'}
@@ -751,7 +721,7 @@ export default function Home() {
               
               {/* 空状态时显示明显的导入按钮 */}
               {schedule.length === 0 && (
-                <div className="mb-8 flex flex-col items-center gap-4 w-full">
+                <div className="mb-6 flex flex-col items-center gap-4 w-full">
                   <div className="flex flex-wrap justify-center gap-3">
                     <button
                       onClick={() => setShowScheduleImport(true)}
@@ -780,7 +750,7 @@ export default function Home() {
               
               {/* 已有课表时显示快捷操作 */}
               {schedule.length > 0 && (
-                <div className="mb-8 flex flex-wrap gap-3">
+                <div className="mb-6 flex flex-wrap justify-center gap-3">
                   <button
                     onClick={() => { setCurrentMode('Class'); setInput('下一节课是什么'); }}
                     className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
@@ -1007,6 +977,19 @@ export default function Home() {
           />
         </div>
       )}
+
+      {/* 评委专用面板 */}
+      <JudgePanel
+        currentSchedule={schedule}
+        onLoadSchedule={(newSchedule) => {
+          setSchedule(newSchedule);
+          localStorage.setItem("campus_schedule", JSON.stringify(newSchedule));
+          setMessages([{
+            role: "assistant",
+            content: `📚 评委专用课表已导入！共 ${newSchedule.length} 门课程（真实学生数据）。\n\n推荐测试问题：\n• 「今天有什么课？」\n• 「明天的课表」\n• 「高等数学什么时候上？」\n• 「下一节课是什么？」`
+          }]);
+        }}
+      />
 
     </div>
   );

@@ -153,15 +153,27 @@ async function summarizeSearchResults(query, results, context) {
 材料:
 ${merged || '无'}`;
     try {
-        const resp = await client.chat.completions.create({
-            model: "gpt-4o-mini",
-            temperature: 0.4,
-            max_tokens: 4096,       // 允许任意长度回复
-            messages: [
-                { role: "system", content: "你是中文百科助手，简洁、客观，不胡编。" },
-                { role: "user", content: prompt }
-            ]
-        });
+        const { resp } = await chatCompletionWithFallback(
+            client,
+            [
+                "gpt-4.1-mini",
+                "gpt-4o-mini",
+                "mistral-ai/mistral-small-2503",
+                "microsoft/phi-4-mini-instruct",
+                "Phi-4",
+                "microsoft/phi-4"
+            ],
+            {
+                temperature: 0.4,
+                max_tokens: 4096,
+                messages: [
+                    { role: "system", content: "你是中文百科助手，简洁、客观，不胡编。" },
+                    { role: "user", content: prompt }
+                ]
+            },
+            context,
+            'wiki'
+        );
         return resp.choices?.[0]?.message?.content?.trim() || "(百科生成失败)";
     } catch (err) {
         context.log(`[百科] 总结异常: ${err.message}`);
@@ -226,23 +238,39 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 
 // 意图路由配置（Perception→Action 双模型）
 const INTENT_ROUTER_ENABLED = process.env["ARIS_INTENT_ROUTER"] !== "false";
-const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4o-mini";
+// 优先选一个便宜、限额更宽松的模型做意图路由；如不支持会自动 fallback。
+const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4.1-nano";
 const INTENT_CONFIDENCE_THRESHOLD = Number(process.env["ARIS_INTENT_CONFIDENCE"] || 0.35);
 
 // 模型池 (4+4) - GitHub Models 兼容优先
 // 说明：意图路由是纯文本 JSON 输出，不需要 vision 模型，避免使用可能不存在的 *-Vision-Instruct 名称。
 const PERCEPTION_MODELS = [
     { name: INTENT_ROUTER_MODEL, temp: 0.1 },
-    { name: "gpt-4o", temp: 0.1 },
+    // GitHub Models 备用池（避免单模型日限额打爆）
+    { name: "gpt-4.1-mini", temp: 0.1 },
     { name: "gpt-4o-mini", temp: 0.1 },
+    { name: "gpt-4o", temp: 0.1 },
+    { name: "microsoft/phi-4-mini-instruct", temp: 0.1 },
+    { name: "meta/llama-3.3-70b-instruct", temp: 0.1 },
+    // 兼容旧命名（你项目里原本就在用）
     { name: "Llama-3.3-70B-Instruct", temp: 0.1 }
 ].filter((m, idx, arr) => m?.name && arr.findIndex(x => x.name === m.name) === idx);
 
 const RESPONSE_MODELS = [
+    // 低延迟/高可用优先
+    { name: "gpt-4.1-mini", temp: 0.9 },
     { name: "gpt-4o-mini", temp: 0.9 },
-    { name: "Llama-3.3-70B-Instruct", temp: 1.0 },
+    // 质量/稳健备选
+    { name: "mistral-ai/mistral-small-2503", temp: 0.9 },
+    { name: "deepseek/deepseek-v3-0324", temp: 0.9 },
+    { name: "meta/llama-3.3-70b-instruct", temp: 1.0 },
+    // 你当前项目已验证可用的兜底
+    { name: "Phi-4", temp: 1.0 },
+    { name: "microsoft/phi-4", temp: 1.0 },
+    { name: "microsoft/phi-4-mini-instruct", temp: 1.0 },
     { name: "gpt-4o", temp: 1.0 },
-    { name: "Phi-4", temp: 1.0 }
+    // 兼容旧命名
+    { name: "Llama-3.3-70B-Instruct", temp: 1.0 }
 ];
 
 // =====================================================
@@ -252,6 +280,42 @@ const UNSUPPORTED_GITHUB_MODELS = new Set();
 
 // 初始化已知不支持的模型（跳过首次调用时的404延迟）
 ['Mistral-large-2407', 'Cohere-command-r-plus'].forEach(m => UNSUPPORTED_GITHUB_MODELS.add(m));
+
+function isRateLimitError(err) {
+    const status = getOpenAIStatusCode(err);
+    if (status === 429) return true;
+    const msg = String(err?.message || err || '').toLowerCase();
+    return msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('429');
+}
+
+async function chatCompletionWithFallback(client, modelCandidates, request, context, scope = 'fallback') {
+    const models = Array.isArray(modelCandidates) ? modelCandidates.filter(Boolean) : [];
+    let lastErr = null;
+    for (const model of models) {
+        if (shouldSkipModel(model)) {
+            context?.log?.(`[${scope}] skip unsupported: ${model}`);
+            continue;
+        }
+        try {
+            const resp = await client.chat.completions.create({ ...request, model });
+            return { model, resp };
+        } catch (err) {
+            lastErr = err;
+            if (isModelNotFoundError(err)) {
+                markModelUnsupported(model, err, context, scope);
+                continue;
+            }
+            if (isRateLimitError(err)) {
+                const status = getOpenAIStatusCode(err);
+                context?.log?.(`[${scope}] rate limited: ${model} (${status || 'N/A'}) ${String(err?.message || err).slice(0, 120)}`);
+                continue;
+            }
+            context?.log?.(`[${scope}] failed: ${model} (${getOpenAIStatusCode(err) || 'N/A'}) ${String(err?.message || err).slice(0, 120)}`);
+            continue;
+        }
+    }
+    throw lastErr || new Error(`[${scope}] no model available`);
+}
 
 function getOpenAIStatusCode(err) {
     return err?.status || err?.response?.status || err?.cause?.status;
@@ -1065,16 +1129,28 @@ async function getDrawPromptFromAI(userText, context) {
     `;
 
     try {
-        const response = await client.chat.completions.create({
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userText }
+        const { resp } = await chatCompletionWithFallback(
+            client,
+            [
+                "gpt-4.1-mini",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "microsoft/phi-4",
+                "Phi-4",
+                "mistral-ai/mistral-small-2503"
             ],
-            model: "gpt-4o", // 用聪明的模型
-            temperature: 0.3, // 稍微给一点灵活性，不用 0.1 那么死
-            max_tokens: 100
-        });
-        const tags = response.choices[0].message.content.trim();
+            {
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userText }
+                ],
+                temperature: 0.3,
+                max_tokens: 100
+            },
+            context,
+            'sd-prompt'
+        );
+        const tags = resp.choices[0].message.content.trim();
         
         // 安全锁：防中文报错
         if (/[\u4e00-\u9fa5]/.test(tags)) {
@@ -1418,31 +1494,35 @@ async function callGitHubModelWithImage(systemPrompt, userText, imgUrl, context)
     });
 
     try {
-        context.log(`[GitHub Models] 正在调用 Llama-3.2-11B-Vision...`);
-        
-        const response = await client.chat.completions.create({
+        const request = {
             messages: [
                 { role: "system", content: systemPrompt },
-                { 
-                    role: "user", 
+                {
+                    role: "user",
                     content: [
                         { type: "text", text: userText },
                         { type: "image_url", image_url: { url: imgUrl } }
                     ]
                 }
             ],
-            // 使用 Llama Vision
-            model: "Llama-3.2-11B-Vision-Instruct", 
-            
-            // 【关键参数调整】
-            temperature: 0.6,       // 稍微调低，让它稳一点，不要太发散
-            max_tokens: 4096,       // 允许任意长度回复
-            top_p: 0.9,             // 保持一定的逻辑性
-            frequency_penalty: 1.2, // 重中之重：强力惩罚重复词，解决复读机问题！
-            presence_penalty: 0.6   // 鼓励它说点新词
-        });
+            temperature: 0.6,
+            max_tokens: 4096,
+            top_p: 0.9,
+            frequency_penalty: 1.2,
+            presence_penalty: 0.6
+        };
 
-        return response.choices[0].message.content;
+        const visionModels = [
+            "Llama-3.2-11B-Vision-Instruct",
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-4.1-mini"
+        ];
+
+        context.log(`[GitHub Models] Vision fallback: ${visionModels.join(' -> ')}`);
+        const { resp, model } = await chatCompletionWithFallback(client, visionModels, request, context, 'vision');
+        context.log(`[GitHub Models] Vision success: ${model}`);
+        return resp.choices?.[0]?.message?.content;
     } catch (e) {
         context.log(`[GitHub Models] 调用失败: ${e.message}`);
         return null;
@@ -4498,7 +4578,8 @@ ${scheduleInfo}
                 cosmosContainer,
                 context,
                 token,
-                curriculumUuid: body?.curriculumUuid || null  // 🆕 从前端传入 curriculumUuid
+                curriculumUuid: body?.curriculumUuid || null,  // 🆕 从前端传入 curriculumUuid
+                webSchedule  // 🆕 从前端传入的课表数组
             });
             if (scheduleResp) return scheduleResp;
             if ((!scheduleFileLinks || scheduleFileLinks.length === 0) && imageUrls.length === 0) {
