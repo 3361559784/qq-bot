@@ -1294,6 +1294,7 @@ module.exports = {
   extractScheduleFileLinks,
   readScheduleProfileFromCosmos,
   fetchDayScheduleFromChaoxing,
+  fetchWeekScheduleFromChaoxing,
   createScheduleHandler,
   formatScheduleSummary
 };
