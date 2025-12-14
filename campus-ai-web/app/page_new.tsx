@@ -673,38 +673,55 @@ export default function Home() {
                 }}
               />
 
-              {/* 产品定位说明 */}
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 flex items-center gap-2">
-                🎓 大学生专属 AI 助手 · 一键导入课表 · 智能规划学习
-              </p>
+              {/* 产品身份说明：让评委30秒内看懂 */}
+              <div className="flex items-center gap-3 mb-4">
+                <img 
+                  src="/images/aris_normal.png" 
+                  alt="Aris" 
+                  className="w-10 h-10 rounded-full shadow-md"
+                />
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  <span className="font-medium text-blue-500">爱丽丝</span> · 你的校园 AI 助手
+                </div>
+              </div>
               <h1 className="text-5xl font-medium bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2">
                 你好，同学
               </h1>
-              <h2 className="text-4xl font-medium text-gray-700 dark:text-gray-300 mb-6">
-                {schedule.length > 0 ? '今天想做点什么？' : '导入课表，让 AI 帮你规划'}
+              <h2 className="text-4xl font-medium text-gray-700 dark:text-gray-300 mb-3">
+                {schedule.length > 0 ? '今天想做点什么？' : '我能帮你做这些'}
               </h2>
+              <p className="text-base text-gray-500 dark:text-gray-400 mb-6">
+                {schedule.length > 0 
+                  ? '选择下面的快捷入口，或直接在输入框提问'
+                  : '📅 查课表 · ✨ 做计划 · 💬 答疑解惑 · 🔍 联网搜索'}
+              </p>
               
               {/* 空状态时显示明显的导入按钮 */}
               {schedule.length === 0 && (
-                <div className="mb-8 flex flex-col items-center gap-4">
-                  <button
-                    onClick={() => setShowScheduleImport(true)}
-                    className="px-8 py-4 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-medium text-lg transition-all shadow-lg hover:shadow-xl flex items-center gap-3"
-                  >
-                    <Calendar size={24} />
-                    导入我的课表
-                  </button>
-                  <span className="text-gray-400 text-sm">或</span>
-                  <button
-                    onClick={() => {
-                      // 使用 Demo 课表
-                      setSchedule(DEMO_SCHEDULE);
-                      setMessages([{ role: 'assistant', content: '📚 已加载示例课表！你可以试试问我「下一节课是什么」或「帮我安排学习计划」～' }]);
-                    }}
-                    className="px-6 py-2 border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-sm transition-colors text-gray-600 dark:text-gray-300"
-                  >
-                    🎮 使用示例课表快速体验
-                  </button>
+                <div className="mb-8 flex flex-col items-center gap-4 w-full">
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <button
+                      onClick={() => setShowScheduleImport(true)}
+                      className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-medium transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
+                    >
+                      <Calendar size={20} />
+                      导入学习通课表
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSchedule(DEMO_SCHEDULE);
+                        localStorage.setItem("campus_schedule", JSON.stringify(DEMO_SCHEDULE));
+                        setMessages([{ role: 'assistant', content: '📚 已加载示例课表！\n\n你可以试试：\n• 「下周课表是什么」\n• 「帮我安排明天的学习计划」\n• 或直接问我任何问题～' }]);
+                      }}
+                      className="px-6 py-3 border-2 border-blue-500 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full font-medium transition-colors flex items-center gap-2"
+                    >
+                      <Zap size={20} />
+                      快速体验（无需登录）
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">
+                    💡 提示：没有课表也能正常聊天，课表只是让我更懂你的时间安排
+                  </p>
                 </div>
               )}
               
@@ -718,16 +735,22 @@ export default function Home() {
                     📚 下一节课是什么
                   </button>
                   <button
-                    onClick={() => { setCurrentMode('Class'); setInput('今天有什么课'); }}
+                    onClick={() => { setCurrentMode('Class'); setInput('下周课表是什么'); }}
                     className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
                   >
-                    📅 今天的课程
+                    📅 下周课表
                   </button>
                   <button
                     onClick={() => { setCurrentMode('Plan'); setInput('帮我安排今天的学习计划'); }}
                     className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
                   >
                     ✨ 生成学习计划
+                  </button>
+                  <button
+                    onClick={() => { setCurrentMode('Ask'); setInput(''); }}
+                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                  >
+                    💬 随便聊聊
                   </button>
                 </div>
               )}
