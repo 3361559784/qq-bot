@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import { 
   Sparkles, X, Calendar, FileSpreadsheet, FileText, 
-  Image, Edit3, Link, CheckCircle, ChevronDown, ChevronUp,
+  Image, Edit3, Link, CheckCircle,
   Download, Eye
 } from "lucide-react";
 
@@ -50,16 +50,26 @@ const SUPPORTED_FORMATS = [
 
 interface JudgePanelProps {
   onLoadSchedule: (schedule: typeof JUDGE_DEMO_SCHEDULE) => void;
-  currentSchedule: any[];
+  onClearSchedule?: () => void;
+  currentSchedule: typeof JUDGE_DEMO_SCHEDULE;
 }
 
-export default function JudgePanel({ onLoadSchedule, currentSchedule }: JudgePanelProps) {
+export default function JudgePanel({ onLoadSchedule, onClearSchedule, currentSchedule }: JudgePanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
   const handleLoadSchedule = () => {
     onLoadSchedule(JUDGE_DEMO_SCHEDULE);
     setIsOpen(false);
+  };
+
+  const handleClearSchedule = () => {
+    // 清除 localStorage 中的课表
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('campus_schedule');
+      localStorage.removeItem('campus_curriculum_uuid');
+    }
+    onClearSchedule?.();
   };
 
   return (
@@ -214,13 +224,51 @@ export default function JudgePanel({ onLoadSchedule, currentSchedule }: JudgePan
                 </div>
               )}
 
+              {/* 标准命令提示 */}
+              <div className="mb-6">
+                <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                  <span className="text-lg">🎯</span>
+                  爱丽丝可以做什么？
+                </h3>
+                <div className="grid gap-2">
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <p className="font-medium text-blue-700 dark:text-blue-300 mb-1">📅 课表查询</p>
+                    <p className="text-sm text-blue-600 dark:text-blue-400">「今天有什么课？」「明天有什么课？」「下一节课是什么？」「高等数学什么时候上？」</p>
+                  </div>
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <p className="font-medium text-green-700 dark:text-green-300 mb-1">📚 课表导入</p>
+                    <p className="text-sm text-green-600 dark:text-green-400">支持学习通链接、Excel、ICS日历、图片OCR、手动输入 5种方式</p>
+                  </div>
+                  <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                    <p className="font-medium text-purple-700 dark:text-purple-300 mb-1">💬 人格化闲聊</p>
+                    <p className="text-sm text-purple-600 dark:text-purple-400">「爱丽丝，你在干嘛？」「今天天气怎么样？」「讲个笑话」（戳头像互动）</p>
+                  </div>
+                  <div className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+                    <p className="font-medium text-orange-700 dark:text-orange-300 mb-1">🔍 搜索功能</p>
+                    <p className="text-sm text-orange-600 dark:text-orange-400">「帮我搜索 xxx」「查一下 yyy」</p>
+                  </div>
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <p className="font-medium text-red-700 dark:text-red-300 mb-1">⚠️ 红线意识演示</p>
+                    <p className="text-sm text-red-600 dark:text-red-400">清除课表后问「今天有什么课？」→ AI 拒绝幻觉，引导导入</p>
+                  </div>
+                </div>
+              </div>
+
               {/* 当前状态 */}
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl">
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-2">当前状态</h3>
                 {currentSchedule.length > 0 ? (
-                  <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                    <CheckCircle size={18} />
-                    <span>已导入 {currentSchedule.length} 门课程，可以开始查询</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
+                      <CheckCircle size={18} />
+                      <span>已导入 {currentSchedule.length} 门课程，可以开始查询</span>
+                    </div>
+                    <button
+                      onClick={handleClearSchedule}
+                      className="text-sm px-3 py-1 text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                    >
+                      🗑️ 清除课表（测试红线意识）
+                    </button>
                   </div>
                 ) : (
                   <div className="text-gray-500 dark:text-gray-400">

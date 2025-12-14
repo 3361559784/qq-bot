@@ -402,7 +402,7 @@ const AliceAvatar: React.FC<AliceAvatarProps> = ({ onPoke, onAffectionChange, af
           key={currentImage}
           src={currentImage}
           alt={`Alice - ${emotion}`}
-          className="w-full h-full object-contain drop-shadow-lg"
+          className="w-full h-full aspect-square object-contain drop-shadow-lg"
           style={{
             opacity: isImageLoaded ? 1 : 0,
             transition: "opacity 0.3s ease-in-out",

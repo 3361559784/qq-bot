@@ -19,6 +19,55 @@
 			"label": "npm prune (functions)",
 			"command": "npm prune --production",
 			"problemMatcher": []
+		},
+		{
+			"label": "func7087",
+			"type": "shell",
+			"command": "func host start --port 7087",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "web: lint",
+			"type": "shell",
+			"command": "cd campus-ai-web && npm run lint",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "web: build",
+			"type": "shell",
+			"command": "cd campus-ai-web && npm run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "web: build (clean check)",
+			"type": "shell",
+			"command": "cd campus-ai-web && rm -rf .next && npm run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "web: build (offline safe)",
+			"type": "shell",
+			"command": "cd campus-ai-web && rm -rf .next && npm run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "web: build (post-emotion-fix)",
+			"type": "shell",
+			"command": "cd campus-ai-web && rm -rf .next && npm run build",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "web: dev (manual avatar check)",
+			"type": "shell",
+			"command": "cd campus-ai-web && npm run dev -- --port 3000",
+			"isBackground": true,
+			"problemMatcher": []
 		}
 	]
 }

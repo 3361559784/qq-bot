@@ -79,6 +79,22 @@ export default function ScheduleImportEnhanced({
     { courseName: "", ...EMPTY_COURSE },
   ]);
 
+  // 将原始错误文本格式化为 Alice 风格文案并保留 emotion 标签
+  const formatAliceError = (raw: string) => {
+    const lower = String(raw || '').toLowerCase();
+    if (lower.includes('文件解析') || lower.includes('parse') || lower.includes('文件')) {
+      return "[panicked] 呜哇... Sensei！这张卷轴（文件）上面的魔法符文太潦草了，爱丽丝解读不能！( >﹏<。) 能换一张清晰点的 PDF 重新咏唱吗？";
+    }
+    if (lower.includes('图片') || lower.includes('加载失败') || lower.includes('image')) {
+      return "[dizzy] 糟糕！连接千年学园的通讯线路由于‘不明原因’断开了... (◎_◎;) 可能是服务器娘在打瞌睡，Sensei 我们稍后再试一次吧！";
+    }
+    if (lower.includes('不支持') || lower.includes('format') || lower.includes('格式')) {
+      return "[thinking] 嗯... 这个格式好像不是勇者公会通用的卷轴呢。爱丽丝目前只能解读 PDF 和 ICS 哦！( •̀ ω •́ )y";
+    }
+    // fallback
+    return `[sad] 抱歉，爱丽丝遇到了一点小麻烦：${raw}`;
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const icsInputRef = useRef<HTMLInputElement>(null);
@@ -172,7 +188,9 @@ export default function ScheduleImportEnhanced({
 
       console.log(`✅ 课表导入成功 (来源: ${data.source}):`, data.schedule);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "导入失败");
+      const raw = err instanceof Error ? err.message : "导入失败";
+      console.error('Schedule import error:', err);
+      setError(formatAliceError(raw));
     } finally {
       stopProgress();
       setIsLoading(false);
@@ -224,7 +242,9 @@ export default function ScheduleImportEnhanced({
 
         console.log(`✅ 文件导入成功 (${file.name}):`, data.schedule);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "文件解析失败");
+        const raw = err instanceof Error ? err.message : "文件解析失败";
+        console.error('Schedule file upload error:', err);
+        setError(formatAliceError(raw));
       } finally {
         stopProgress();
         setIsLoading(false);
@@ -458,11 +478,15 @@ export default function ScheduleImportEnhanced({
             )}
             {imageUrl && !imageUrl.startsWith("data:") && imageUrl.startsWith("http") && (
               <div className="mt-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={imageUrl}
                   alt="预览"
                   className="max-h-32 rounded-lg border border-gray-200"
-                  onError={() => setError("图片加载失败，请检查URL")}
+                  onError={() => {
+                    console.error('Schedule image load error:', imageUrl);
+                    setError(formatAliceError('图片加载失败，请检查URL'));
+                  }}
                 />
               </div>
             )}
