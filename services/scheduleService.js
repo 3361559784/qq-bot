@@ -1051,14 +1051,18 @@ async function saveUserScheduleProfile(cosmosContainer, userId, scheduleData, so
 }
 
 function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBotReply }) {
-  return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token }) {
+  return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token, curriculumUuid: webUuid }) {
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
     const queryType = detectScheduleQueryType(msg);
 
     // 课表查询（不带文件/图片/学习通链接）：动态请求学习通API获取对应周次数据
     if ((hasKeyword || queryType) && !extractChaoxingScheduleUrl(msg) && (!fileLinks || fileLinks.length === 0) && (!imageUrls || imageUrls.length === 0)) {
       const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
-      if (!profile) {
+      
+      // 🆕 如果 Cosmos 没有 profile 但前端传了 curriculumUuid，构造临时 profile
+      const effectiveUuid = webUuid || profile?.curriculumUuid || null;
+      
+      if (!profile && !effectiveUuid) {
         return {
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -1070,37 +1074,54 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
 
       let replyText = '';
-      // 如果 profile 有 curriculumUuid，优先使用动态 API 查询；否则使用 profile 中的静态 weekly_schedule
-      if (profile.curriculumUuid) {
+      // 如果有 curriculumUuid（来自 Cosmos profile 或前端 webUuid），优先使用动态 API 查询
+      if (effectiveUuid) {
         // 本周/下周课表：动态请求学习通API获取对应周次数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
-          const dynamicResult = await fetchWeekScheduleFromChaoxing(profile.curriculumUuid, queryType || 'this_week', context);
+          const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, queryType || 'this_week', context);
           if (dynamicResult.error) {
-            // API失败时降级到静态profile
+            // API失败时降级到静态profile（如果存在）
             context?.log?.(`[Schedule] 动态查询失败,降级到静态profile: ${dynamicResult.error}`);
-            replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
+            if (profile?.weekly_schedule) {
+              replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
+            } else {
+              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+            }
           } else {
             replyText = dynamicResult.text;
           }
         } else if (queryType === 'tomorrow') {
           // 明天有课吗：动态请求
-          const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'tomorrow', context);
+          const dynamicResult = await fetchDayScheduleFromChaoxing(effectiveUuid, 'tomorrow', context);
           if (dynamicResult.error) {
-            replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
+            if (profile?.weekly_schedule) {
+              replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
+            } else {
+              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+            }
           } else {
             replyText = dynamicResult.text;
           }
         } else if (queryType === 'today') {
-          const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'today', context);
+          const dynamicResult = await fetchDayScheduleFromChaoxing(effectiveUuid, 'today', context);
           if (dynamicResult.error) {
-            replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+            if (profile?.weekly_schedule) {
+              replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+            } else {
+              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+            }
           } else {
             replyText = dynamicResult.text;
           }
         } else {
-          replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+          if (profile?.weekly_schedule) {
+            replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+          } else {
+            const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, 'this_week', context);
+            replyText = dynamicResult.error ? `⚠️ 查询失败: ${dynamicResult.error}` : dynamicResult.text;
+          }
         }
-      } else {
+      } else if (profile?.weekly_schedule) {
         // 无 curriculumUuid：直接使用 profile 中静态数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
           replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');

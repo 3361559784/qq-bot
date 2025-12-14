@@ -81,6 +81,10 @@ export default function ScheduleImport({ onScheduleImported, onClose }: Schedule
 
       // 保存到localStorage
       localStorage.setItem("campus_schedule", JSON.stringify(data.schedule));
+      // 🆕 保存 curriculumUuid 供跨周动态查询
+      if (data.curriculumUuid) {
+        localStorage.setItem("campus_curriculum_uuid", data.curriculumUuid);
+      }
       setSchedule(data.schedule);
       setImportSuccess(true);
       

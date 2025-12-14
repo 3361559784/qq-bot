@@ -32,7 +32,7 @@ const POKE_REPLIES_BY_MOOD: Record<string, Array<{ reply: string; emotion: strin
 
 export async function POST(req: Request) {
   try {
-    const { message, sessionId, mode = 'Ask', schedule, isPoke, mood } = await req.json();
+    const { message, sessionId, mode = 'Ask', schedule, isPoke, mood, curriculumUuid } = await req.json();
 
     // 戳一戳快速本地响应 - 根据心情返回不同回复
     if (isPoke || message === '[poke]') {
@@ -89,6 +89,8 @@ export async function POST(req: Request) {
 
         // 让后端能读取已导入课表（若后端不使用该字段也不会有副作用）
         schedule: Array.isArray(schedule) ? schedule : undefined,
+        // 🆕 传递 curriculumUuid 供后端跨周动态查询
+        curriculumUuid: typeof curriculumUuid === 'string' ? curriculumUuid : undefined,
       })
     });
 
