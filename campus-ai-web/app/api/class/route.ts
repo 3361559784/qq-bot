@@ -34,6 +34,39 @@ function formatTimeRange(start: string, end: string): string {
   return `${start} - ${end}`;
 }
 
+function formatWeeklyOverview(schedule: CourseItem[]): string {
+  const weekdays = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+  const grouped: Record<number, CourseItem[]> = {};
+  for (const c of schedule) {
+    if (!grouped[c.weekday]) grouped[c.weekday] = [];
+    grouped[c.weekday].push(c);
+  }
+
+  // 按表格形式输出
+  const rows: string[] = [];
+  rows.push('| 星期 | 时间 | 课程 | 地点 |');
+  rows.push('|------|------|------|------|');
+
+  for (let d = 1; d <= 7; d++) {
+    const courses = (grouped[d] || []).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+    if (courses.length === 0) continue;
+
+    for (let i = 0; i < courses.length; i++) {
+      const c = courses[i];
+      const dayLabel = i === 0 ? weekdays[d] : '';
+      const loc = c.location || '-';
+      rows.push(`| ${dayLabel} | ${c.startTime}-${c.endTime} | ${c.courseName} | ${loc} |`);
+    }
+  }
+
+  if (rows.length <= 2) {
+    return '课表是空的，先导入课表再试一次。';
+  }
+
+  return `📅 **下周课表**\n\n${rows.join('\n')}\n\n✨ 合理安排时间，加油！`;
+}
+
 /**
  * 根据课表回答问题
  */
@@ -43,6 +76,16 @@ function answerClassQuestion(question: string, schedule: CourseItem[]): string {
   const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   
   const lowerQ = question.toLowerCase();
+
+  // “下周/下个星期/下星期/课表”
+  if (
+    lowerQ.includes('下周') ||
+    lowerQ.includes('下个星期') ||
+    lowerQ.includes('下星期') ||
+    lowerQ.includes('课表')
+  ) {
+    return formatWeeklyOverview(schedule);
+  }
 
   // 今天的课程
   const todayCourses = schedule

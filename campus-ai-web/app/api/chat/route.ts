@@ -2,9 +2,56 @@
 // (Edge runtime can be restrictive for localhost/network access in dev.)
 export const runtime = 'nodejs';
 
+// 戳一戳回复 - 根据心情状态返回不同回复
+const POKE_REPLIES_BY_MOOD: Record<string, Array<{ reply: string; emotion: string }>> = {
+  happy: [
+    { reply: "嗯？有什么事吗？(*^ω^*)", emotion: "happy" },
+    { reply: "Aris在这里！有什么可以帮您的吗？✨", emotion: "excited" },
+    { reply: "哇哦，被戳到了！(๑•̀ㅂ•́)و✧", emotion: "shy" },
+    { reply: "邦邦咔邦！Aris登场！(≧∇≦)/", emotion: "excited" },
+    { reply: "嘿嘿，找Aris有什么事呀？(✿◠‿◠)", emotion: "happy" },
+  ],
+  normal: [
+    { reply: "唔...是在叫我吗？(*´▽`*)", emotion: "shy" },
+    { reply: "Aris已就位！请问有什么需要帮助的？📚", emotion: "normal" },
+    { reply: "哼哼，Aris感受到了您的召唤！✨", emotion: "happy" },
+  ],
+  annoyed: [
+    { reply: "又戳...有事就说吧。(´-ω-`)", emotion: "annoyed" },
+    { reply: "戳来戳去的...到底有什么事？", emotion: "annoyed" },
+    { reply: "Aris已经知道了，不用再戳了。(-_-)", emotion: "annoyed" },
+  ],
+  angry: [
+    { reply: "够了！不要再戳了！💢", emotion: "angry" },
+    { reply: "再戳就生气了哦！(╬ಠ益ಠ)", emotion: "angry" },
+    { reply: "Aris很不高兴！请不要再戳了！😤", emotion: "angry" },
+    { reply: "哼！不理你了！", emotion: "angry" },
+    { reply: "戳戳戳！烦死了！💢💢💢", emotion: "angry" },
+  ],
+};
+
 export async function POST(req: Request) {
   try {
-    const { message, sessionId, mode = 'Ask' } = await req.json();
+    const { message, sessionId, mode = 'Ask', schedule, isPoke, mood } = await req.json();
+
+    // 戳一戳快速本地响应 - 根据心情返回不同回复
+    if (isPoke || message === '[poke]') {
+      // 根据 mood 选择回复池
+      let replyPool = POKE_REPLIES_BY_MOOD.normal;
+      if (mood === 'angry' || mood === 'furious') {
+        replyPool = POKE_REPLIES_BY_MOOD.angry;
+      } else if (mood === 'annoyed') {
+        replyPool = POKE_REPLIES_BY_MOOD.annoyed;
+      } else if (mood === 'happy' || mood === 'joyful' || mood === 'excited') {
+        replyPool = POKE_REPLIES_BY_MOOD.happy;
+      }
+      
+      const randomReply = replyPool[Math.floor(Math.random() * replyPool.length)];
+      return new Response(
+        JSON.stringify(randomReply),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!message || typeof message !== 'string') {
       return new Response(
@@ -39,6 +86,9 @@ export async function POST(req: Request) {
         message,
         sessionId: safeSessionId,
         mode,
+
+        // 让后端能读取已导入课表（若后端不使用该字段也不会有副作用）
+        schedule: Array.isArray(schedule) ? schedule : undefined,
       })
     });
 

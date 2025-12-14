@@ -212,14 +212,22 @@ const AliceAvatar: React.FC<AliceAvatarProps> = ({ onPoke, onAffectionChange, af
     if (decayTimeoutRef.current) clearTimeout(decayTimeoutRef.current);
     if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
 
-    // 设置衰减定时器
-    decayTimeoutRef.current = window.setTimeout(() => {
-      if (!isLockedAngry && pokeCount > 0) {
-        setPokeCount((prev) => Math.max(0, prev - 1));
-        // 递归继续衰减
-        startDecayTimer();
-      }
-    }, MOOD_DECAY_MS);
+    // 设置衰减定时器（用内部 tick 避免引用自身导致 TDZ）
+    const tick = () => {
+      if (isLockedAngry) return;
+
+      setPokeCount((prev) => {
+        if (prev <= 0) return 0;
+        const next = Math.max(0, prev - 1);
+        // 继续递减直到归零
+        if (next > 0) {
+          decayTimeoutRef.current = window.setTimeout(tick, MOOD_DECAY_MS);
+        }
+        return next;
+      });
+    };
+
+    decayTimeoutRef.current = window.setTimeout(tick, MOOD_DECAY_MS);
 
     // 设置完全重置定时器
     resetTimeoutRef.current = window.setTimeout(() => {
@@ -230,7 +238,7 @@ const AliceAvatar: React.FC<AliceAvatarProps> = ({ onPoke, onAffectionChange, af
         setBubbleText(null);
       }
     }, MOOD_RESET_MS);
-  }, [isLockedAngry, pokeCount]);
+  }, [isLockedAngry]);
 
   // 戳一戳处理
   const handlePoke = useCallback(() => {

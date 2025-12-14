@@ -39,6 +39,8 @@ function parseEmotionTag(text) {
  */
 export async function sendMessage(message, sessionId, options = {}) {
   const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
+  const mode = typeof options.mode === "string" ? options.mode : undefined;
+  const schedule = Array.isArray(options.schedule) ? options.schedule : undefined;
 
   if (!message || typeof message !== "string") {
     return { reply: "消息不能为空", emotion: null };
@@ -60,7 +62,12 @@ export async function sendMessage(message, sessionId, options = {}) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ message, sessionId }),
+      body: JSON.stringify({
+        message,
+        sessionId,
+        ...(mode ? { mode } : {}),
+        ...(schedule ? { schedule } : {}),
+      }),
       signal: controller.signal,
     });
 
@@ -97,9 +104,13 @@ export async function sendMessage(message, sessionId, options = {}) {
  * 戳一戳 API
  * - POST /api/chat with poke intent
  * - 返回 { reply, emotion }
+ * @param {string} sessionId - 会话ID
+ * @param {Object} options - 可选参数
+ * @param {string} options.mood - 当前心情状态 (happy/normal/annoyed/angry)
  */
 export async function sendPoke(sessionId, options = {}) {
   const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
+  const mood = options.mood || "normal";
 
   if (!sessionId || typeof sessionId !== "string") {
     return { reply: null, emotion: null };
@@ -121,7 +132,8 @@ export async function sendPoke(sessionId, options = {}) {
       body: JSON.stringify({ 
         message: "[poke]", // 特殊的戳一戳消息
         sessionId,
-        isPoke: true 
+        isPoke: true,
+        mood // 传递当前心情状态
       }),
       signal: controller.signal,
     });

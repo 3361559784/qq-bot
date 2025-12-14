@@ -27,10 +27,19 @@ function detectScheduleQueryType(msg = '') {
   if (!lower) return null;
   if (lower.includes('明天') && lower.includes('课')) return 'tomorrow';
   if (lower.includes('今天') && lower.includes('课')) return 'today';
-  if (lower.includes('下周') && lower.includes('课表')) return 'next_week';
+  if ((lower.includes('下周') || lower.includes('下星期') || lower.includes('下个星期') || lower.includes('下礼拜')) && lower.includes('课表')) return 'next_week';
   if ((lower.includes('本周') || lower.includes('这周')) && lower.includes('课表')) return 'this_week';
   if (lower.includes('课表')) return 'this_week';
   return null;
+}
+
+function parseTimeToMinutes(timeStr) {
+  const m = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(String(timeStr || ''));
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
 }
 
 async function readScheduleProfileFromCosmos(cosmosContainer, userId, context) {
@@ -85,7 +94,16 @@ function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
   const courses = weekly
     .filter(c => Number(c?.day) === weekday)
     .slice()
-    .sort((a, b) => (Number(a?.start) || 0) - (Number(b?.start) || 0));
+    .sort((a, b) => {
+      const aStart = Number(a?.start) || 0;
+      const bStart = Number(b?.start) || 0;
+      if (aStart > 0 && bStart > 0) return aStart - bStart;
+      if (aStart > 0) return -1;
+      if (bStart > 0) return 1;
+      const aT = parseTimeToMinutes(a?.timeStart);
+      const bT = parseTimeToMinutes(b?.timeStart);
+      return (aT ?? 999999) - (bT ?? 999999);
+    });
 
   if (!courses.length) {
     return `✅ ${todayLabel}(${dayLabel})看起来没有课。`;
@@ -94,9 +112,11 @@ function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
   const lines = courses.map(c => {
     const p = Number(c?.start) || 0;
     const name = c?.name || '课程';
-    const t = (c?.timeStart && c?.timeEnd) ? ` (${c.timeStart}-${c.timeEnd})` : '';
+    const t = (c?.timeStart && c?.timeEnd) ? `${c.timeStart}-${c.timeEnd}` : '';
     const loc = c?.location ? ` @ ${c.location}` : '';
-    return `- 第${p}节 ${name}${t}${loc}`;
+    if (p > 0) return `- 第${p}节 ${name}${t ? ` (${t})` : ''}${loc}`;
+    if (t) return `- ${t} ${name}${loc}`;
+    return `- ${name}${loc}`;
   });
 
   return `📚 ${todayLabel}(${dayLabel})有 ${courses.length} 门课:\n${lines.join('\n')}`;
@@ -119,15 +139,26 @@ function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
 
   const parts = [];
   for (let d = 1; d <= 7; d++) {
-    const list = (byDay.get(d) || []).slice().sort((a, b) => (Number(a?.start) || 0) - (Number(b?.start) || 0));
+    const list = (byDay.get(d) || []).slice().sort((a, b) => {
+      const aStart = Number(a?.start) || 0;
+      const bStart = Number(b?.start) || 0;
+      if (aStart > 0 && bStart > 0) return aStart - bStart;
+      if (aStart > 0) return -1;
+      if (bStart > 0) return 1;
+      const aT = parseTimeToMinutes(a?.timeStart);
+      const bT = parseTimeToMinutes(b?.timeStart);
+      return (aT ?? 999999) - (bT ?? 999999);
+    });
     if (!list.length) continue;
     parts.push(`${dayNames[d]}:`);
     for (const c of list) {
       const p = Number(c?.start) || 0;
       const name = c?.name || '课程';
-      const t = (c?.timeStart && c?.timeEnd) ? ` (${c.timeStart}-${c.timeEnd})` : '';
+      const t = (c?.timeStart && c?.timeEnd) ? `${c.timeStart}-${c.timeEnd}` : '';
       const loc = c?.location ? ` @ ${c.location}` : '';
-      parts.push(`- 第${p}节 ${name}${t}${loc}`);
+      if (p > 0) parts.push(`- 第${p}节 ${name}${t ? ` (${t})` : ''}${loc}`);
+      else if (t) parts.push(`- ${t} ${name}${loc}`);
+      else parts.push(`- ${name}${loc}`);
     }
   }
 
@@ -146,6 +177,11 @@ function extractChaoxingScheduleUrl(rawMsg = '') {
     (url.includes('schedule') || url.includes('kb') || url.includes('mycourse'))
   );
   return chaoxingUrl;
+}
+
+function extractCurriculumUuidFromUrl(url = '') {
+  const m = String(url || '').match(/curriculumUuid=([a-f0-9-]+)/i);
+  return m ? m[1] : null;
 }
 
 function extractScheduleFileLinks(body, rawMsg = '') {
@@ -489,17 +525,29 @@ async function fetchScheduleFromChaoxingAPI(url, context, week = null) {
     context?.log?.(`[Chaoxing API] 单周验证成功,准备获取全学期课表...`);
 
     // 🎯 获取全学期课表数据
-    const curriculumUuid = result.metadata?.curriculumUuid;
+    const curriculumUuid = result.metadata?.curriculumUuid || extractCurriculumUuidFromUrl(url);
     if (!curriculumUuid) {
       context?.log?.(`[Chaoxing API] 警告: 未找到 curriculumUuid,仅返回单周数据`);
       return formatSingleWeekResult(result, context);
     }
 
     const fullSchedule = await fetchAllWeeksLessons(curriculumUuid);
-    context?.log?.(`[Chaoxing API] 成功获取全学期课表: ${fullSchedule.length} 条课程`);
+    if (!fullSchedule?.success) {
+      context?.log?.(`[Chaoxing API] 全学期获取失败,回退到单周数据: ${fullSchedule?.error || 'unknown error'}`);
+      return formatSingleWeekResult(result, context);
+    }
+
+    const lessons = Array.isArray(fullSchedule.lessons) ? fullSchedule.lessons : [];
+    context?.log?.(`[Chaoxing API] 成功获取全学期课表: ${lessons.length} 条课程`);
 
     // 🎯 使用标准化字段 (name, teacher, location, day, start, duration, date, raw)
-    const events = fullSchedule.map(lesson => ({
+    // 同时补齐 beginNumber/period：避免时间字段解析失败导致 schedule_profile 过滤后为空
+    const events = lessons.map(lesson => {
+      const raw = lesson?.raw || {};
+      const beginNumber = Number(raw?.beginNumber) || 0;
+      const length = Number(raw?.length) || 0;
+      const endNumber = (beginNumber > 0 && length > 0) ? (beginNumber + length - 1) : 0;
+      return {
       summary: lesson.name,
       start: {
         dateTime: lesson.date ? `${lesson.date} ${lesson.start}` : null,
@@ -517,19 +565,27 @@ async function fetchScheduleFromChaoxingAPI(url, context, week = null) {
         instructor: lesson.teacher,
         dayOfWeek: lesson.day,
         startTime: lesson.start,
+        // beginNumber/period 用于“第几节”语义；time 解析失败时仍可保存 weekly_schedule
+        beginNumber,
+        period: beginNumber,
+        length,
+        endNumber,
         duration: lesson.duration,
         source: 'chaoxing-api-full',
         raw: lesson.raw // 保留完整原始数据
       }
-    }));
+    };
+    });
 
     return {
       events,
-      curriculum: result.curriculum,
+      curriculum: fullSchedule.curriculum || result.curriculum,
       metadata: {
         ...result.metadata,
+        curriculumUuid,
         fullSemester: true,
-        totalLessons: fullSchedule.length
+        totalLessons: lessons.length,
+        maxWeek: fullSchedule.maxWeek || fullSchedule.curriculum?.maxWeek || null
       }
     };
   } catch (err) {
@@ -553,7 +609,12 @@ function formatSingleWeekResult(result, context) {
   context?.log?.(`[Chaoxing API] 成功获取 ${result.schedule.length} 门课程 (单周数据)`);
   context?.log?.(`[Chaoxing API] 课表信息 - 学年: ${result.curriculum.schoolYear}, 学期: ${result.curriculum.semester}, 当前周: ${result.curriculum.currentWeek}`);
 
-  const events = result.schedule.map(lesson => ({
+  const events = result.schedule.map(lesson => {
+    const raw = lesson?.raw || {};
+    const beginNumber = Number(raw?.beginNumber) || 0;
+    const length = Number(raw?.length) || 0;
+    const endNumber = (beginNumber > 0 && length > 0) ? (beginNumber + length - 1) : 0;
+    return {
     summary: lesson.name,
     start: {
       dateTime: lesson.date ? `${lesson.date} ${lesson.start}` : null,
@@ -571,11 +632,16 @@ function formatSingleWeekResult(result, context) {
       instructor: lesson.teacher,
       dayOfWeek: lesson.day,
       startTime: lesson.start,
+      beginNumber,
+      period: beginNumber,
+      length,
+      endNumber,
       duration: lesson.duration,
       source: 'chaoxing-api',
       raw: lesson.raw
     }
-  }));
+  };
+  });
 
   return {
     events,
@@ -654,22 +720,33 @@ async function saveUserScheduleProfile(cosmosContainer, userId, scheduleData, so
 
     // 🎯 提取扩展字段 (qq, curriculumUuid, semesterStartDate, maxWeek)
     const qq = userId; // QQ 号与 userId 相同
-    const curriculumUuid = scheduleData.metadata?.curriculumUuid || null;
-    const semesterStartDate = scheduleData.curriculum?.semesterStartDate || null;
-    const maxWeek = scheduleData.curriculum?.maxWeek || null;
+    const curriculumUuid = scheduleData?.metadata?.curriculumUuid || scheduleData?.curriculum?.curriculumUuid || null;
+    const semesterStartDate = scheduleData?.curriculum?.semesterStartDate || scheduleData?.metadata?.semesterStartDate || null;
+    const maxWeek = scheduleData?.curriculum?.maxWeek || scheduleData?.metadata?.maxWeek || null;
 
-    const weeklySchedule = (scheduleData.events || []).map(evt => {
+    const sourceEvents = Array.isArray(scheduleData?.events) ? scheduleData.events : [];
+    const weeklySchedule = sourceEvents.map(evt => {
       const dayMap = { '周一': 1, '周二': 2, '周三': 3, '周四': 4, '周五': 5, '周六': 6, '周日': 7 };
+      const ext = evt?.extendedProps || {};
+      const raw = ext?.raw || {};
       return {
-        day: dayMap[evt.extendedProps?.day] || evt.extendedProps?.dayOfWeek || 0,
-        start: parseInt(evt.extendedProps?.period) || parseInt(evt.extendedProps?.beginNumber) || 0,
-        name: evt.summary,
+        day: dayMap[ext?.day] || Number(ext?.dayOfWeek) || Number(ext?.weekday) || Number(raw?.dayOfWeek) || Number(raw?.weekday) || 0,
+        // start(第几节) 可能不存在：学习通 API 路径只给 startTime/endTime
+        start: parseInt(ext?.period) || parseInt(ext?.beginNumber) || parseInt(raw?.beginNumber) || 0,
+        name: evt.summary || evt.title || '课程',
         location: evt.location || '',
-        timeStart: evt.start?.time || '',
-        timeEnd: evt.end?.time || '',
-        teacher: evt.extendedProps?.teacher || evt.extendedProps?.instructor || ''
+        timeStart: ext?.startTime || evt.start?.time || raw?.startTime || raw?.beginTime || raw?.timeStart || '',
+        timeEnd: ext?.endTime || evt.end?.time || raw?.endTime || raw?.finishTime || raw?.timeEnd || '',
+        teacher: ext?.teacher || ext?.instructor || ''
       };
-    }).filter(c => c.day > 0 && c.start > 0);
+    }).filter(c => c.day > 0 && (c.start > 0 || c.timeStart));
+
+    // 诊断：有 events 但 weekly_schedule 为空时，输出关键字段帮助排查（不打印敏感内容）
+    if (weeklySchedule.length === 0 && sourceEvents.length > 0) {
+      const sample = sourceEvents[0] || {};
+      const sampleExt = sample?.extendedProps || {};
+      context?.log?.(`[ScheduleProfile][Diag] events=${sourceEvents.length} but weekly_schedule=0; sample dayOfWeek=${sampleExt?.dayOfWeek}, period=${sampleExt?.period || sampleExt?.beginNumber}, startTime=${sampleExt?.startTime || sample?.start?.time || ''}`);
+    }
 
     const profile = {
       id: profileId,
