@@ -2783,7 +2783,13 @@ const handleScheduleRequest = createScheduleHandler({
 module.exports = {
     handleScheduleRequest,
     cosmosContainer,
-    token
+    token,
+    // Expose helpers for local regression scripts (e.g. test-p0-features.js)
+    aiPostProcess,
+    detectLanguage,
+    getPromptByLanguage,
+    simpleVectorize,
+    cosineSimilarity
 };
 
 // ==========================================

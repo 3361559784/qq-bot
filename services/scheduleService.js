@@ -1058,7 +1058,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
     // 课表查询（不带文件/图片/学习通链接）：动态请求学习通API获取对应周次数据
     if ((hasKeyword || queryType) && !extractChaoxingScheduleUrl(msg) && (!fileLinks || fileLinks.length === 0) && (!imageUrls || imageUrls.length === 0)) {
       const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
-      if (!profile || !profile.curriculumUuid) {
+      if (!profile) {
         return {
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -1070,33 +1070,47 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
 
       let replyText = '';
-      // 本周/下周课表：动态请求学习通API获取对应周次数据
-      if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
-        const dynamicResult = await fetchWeekScheduleFromChaoxing(profile.curriculumUuid, queryType || 'this_week', context);
-        if (dynamicResult.error) {
-          // API失败时降级到静态profile
-          context?.log?.(`[Schedule] 动态查询失败,降级到静态profile: ${dynamicResult.error}`);
-          replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
+      // 如果 profile 有 curriculumUuid，优先使用动态 API 查询；否则使用 profile 中的静态 weekly_schedule
+      if (profile.curriculumUuid) {
+        // 本周/下周课表：动态请求学习通API获取对应周次数据
+        if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
+          const dynamicResult = await fetchWeekScheduleFromChaoxing(profile.curriculumUuid, queryType || 'this_week', context);
+          if (dynamicResult.error) {
+            // API失败时降级到静态profile
+            context?.log?.(`[Schedule] 动态查询失败,降级到静态profile: ${dynamicResult.error}`);
+            replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
+          } else {
+            replyText = dynamicResult.text;
+          }
+        } else if (queryType === 'tomorrow') {
+          // 明天有课吗：动态请求
+          const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'tomorrow', context);
+          if (dynamicResult.error) {
+            replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
+          } else {
+            replyText = dynamicResult.text;
+          }
+        } else if (queryType === 'today') {
+          const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'today', context);
+          if (dynamicResult.error) {
+            replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+          } else {
+            replyText = dynamicResult.text;
+          }
         } else {
-          replyText = dynamicResult.text;
-        }
-      } else if (queryType === 'tomorrow') {
-        // 明天有课吗：动态请求
-        const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'tomorrow', context);
-        if (dynamicResult.error) {
-          replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
-        } else {
-          replyText = dynamicResult.text;
-        }
-      } else if (queryType === 'today') {
-        const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'today', context);
-        if (dynamicResult.error) {
-          replyText = formatTomorrowAnswerFromProfile(profile, 'today');
-        } else {
-          replyText = dynamicResult.text;
+          replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
         }
       } else {
-        replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+        // 无 curriculumUuid：直接使用 profile 中静态数据
+        if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
+          replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
+        } else if (queryType === 'tomorrow') {
+          replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
+        } else if (queryType === 'today') {
+          replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+        } else {
+          replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+        }
       }
 
       const sessionKey = `${dbKey}:${senderId}`;
