@@ -4535,11 +4535,36 @@ ${scheduleInfo}
 
         // 1. 如果需要课表数据
         if (intentResult?.needsSchedule || intentResult?.tool === 'schedule' || intentResult?.tool === 'plan') {
+            const nowSh = new Date(Date.now() + 8 * 60 * 60 * 1000);
+            const todayWeekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
+            const msgText = String(rawMsg || msg || '');
+            const isTomorrowQuery = /明天/.test(msgText);
+
+            // ✅ 关键修复：周日问“明天(周一)”时，前端传入的本周课表常常会落到“本周周一”，导致把上周周一当成明天。
+            // 优先用 Cosmos 中的 curriculumUuid 走学习通动态接口拿下一周周一的数据。
+            if (isTomorrowQuery && todayWeekday === 7 && cosmosContainer) {
+                try {
+                    const { readScheduleProfileFromCosmos, fetchDayScheduleFromChaoxing } = require('../../services/scheduleService');
+                    const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
+                    if (profile?.curriculumUuid) {
+                        const dynamic = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'tomorrow', context);
+                        if (dynamic?.text && !dynamic?.error) {
+                            toolContext.scheduleData = {
+                                dynamicText: dynamic.text,
+                                source: 'chaoxing-dynamic',
+                                target: 'tomorrow'
+                            };
+                            context.log(`[ToolContext] 课表动态查询已加载(周日→明天跨周): ${dynamic.text.split('\n')[0]}`);
+                        }
+                    }
+                } catch (e) {
+                    context.log(`[ToolContext] 动态课表查询失败: ${e.message}`);
+                }
+            }
+
             // 优先使用前端传入的课表 (webSchedule)
-            if (webSchedule && webSchedule.length > 0) {
+            if (!toolContext.scheduleData && webSchedule && webSchedule.length > 0) {
                 const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
-                const nowSh = new Date(Date.now() + 8 * 60 * 60 * 1000);
-                const todayWeekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
                 const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
                 
                 const todayCourses = webSchedule.filter(c => Number(c?.weekday || c?.day) === todayWeekday)
@@ -4573,10 +4598,10 @@ ${scheduleInfo}
                     totalCourses: webSchedule.length
                 };
                 context.log(`[ToolContext] 课表数据已加载: 今日${todayCourses.length}节, 明日${tomorrowCourses.length}节`);
-            } else if (cosmosContainer) {
+            } else if (!toolContext.scheduleData && cosmosContainer) {
                 // 回退: 从 CosmosDB 读取课表
                 try {
-                    const { readScheduleProfileFromCosmos, formatTomorrowAnswerFromProfile } = require('../../services/scheduleService');
+                    const { readScheduleProfileFromCosmos } = require('../../services/scheduleService');
                     const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
                     if (profile?.weekly_schedule) {
                         toolContext.scheduleData = { fromCosmos: true, profile };
@@ -4638,6 +4663,8 @@ ${scheduleInfo}
             const sd = toolContext.scheduleData;
             if (sd.fromCosmos) {
                 toolContextPrompt += `\n\n📚【课表数据】用户已导入课表，可查询 CosmosDB。`;
+            } else if (sd.dynamicText) {
+                toolContextPrompt += `\n\n📚【课表数据】\n${sd.dynamicText}`;
             } else {
                 toolContextPrompt += `\n\n📚【课表数据】
 - 今天是${sd.today}，共 ${sd.todayCourses?.length || 0} 节课
@@ -4645,6 +4672,9 @@ ${sd.todayCourses?.length > 0 ? sd.todayCourses.map(c => `  · ${c.time} ${c.nam
 ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @ ${sd.nextCourse.location}` : '- 今天课程已上完/没有课'}
 - 明天有 ${sd.tomorrowCourses?.length || 0} 节课`;
             }
+
+            // 课表类回答统一要求：保持工具感，避免角色扮演化口癖
+            toolContextPrompt += `\n\n【回答要求】当用户询问课表/日程时：保持冷静工具风格；不要使用“Sensei”等称呼；不要添加表情/拟声词/夸张感叹；直接给出结论与列表。`;
         }
         if (toolContext.weatherData) {
             const wd = toolContext.weatherData;
