@@ -126,8 +126,25 @@ function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
   const weekly = Array.isArray(profile?.weekly_schedule) ? profile.weekly_schedule : [];
   if (!weekly.length) return '⚠️ 课表数据为空。';
 
-  const title = which === 'next_week' ? '下周课表(按周内规律展示)' : '本周课表(按周内规律展示)';
+  const title = which === 'next_week' ? '下周课表' : '本周课表';
   const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+
+  // 计算本周/下周的日期范围（上海时区）
+  const nowSh = getShanghaiNowUtcShifted();
+  const weekday = getShanghaiWeekdayNumber(nowSh); // 1..7
+  const mondaySh = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+  const weekStart = which === 'next_week'
+    ? new Date(mondaySh.getTime() + 7 * 24 * 60 * 60 * 1000)
+    : mondaySh;
+  const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+
+  const fmtYmd = (d) => {
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  };
+  const rangeLine = `${fmtYmd(weekStart)} ~ ${fmtYmd(weekEnd)}`;
 
   const byDay = new Map();
   for (const c of weekly) {
@@ -150,23 +167,27 @@ function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
       return (aT ?? 999999) - (bT ?? 999999);
     });
     if (!list.length) continue;
-    parts.push(`${dayNames[d]}:`);
+
+    const dayDate = new Date(weekStart.getTime() + (d - 1) * 24 * 60 * 60 * 1000);
+    const dayHeader = `${dayNames[d]} ${fmtYmd(dayDate)}`;
+    parts.push(dayHeader);
+    parts.push('| 时间 | 课程 | 地点 |');
+    parts.push('| --- | --- | --- |');
     for (const c of list) {
       const p = Number(c?.start) || 0;
-      const name = c?.name || '课程';
-      const t = (c?.timeStart && c?.timeEnd) ? `${c.timeStart}-${c.timeEnd}` : '';
-      const loc = c?.location ? ` @ ${c.location}` : '';
-      if (p > 0) parts.push(`- 第${p}节 ${name}${t ? ` (${t})` : ''}${loc}`);
-      else if (t) parts.push(`- ${t} ${name}${loc}`);
-      else parts.push(`- ${name}${loc}`);
+      const name = String(c?.name || '课程').replace(/\|/g, '/');
+      const loc = String(c?.location || '').replace(/\|/g, '/');
+      const t = (c?.timeStart && c?.timeEnd) ? `${c.timeStart}-${c.timeEnd}` : (p > 0 ? `第${p}节` : '');
+      parts.push(`| ${t || '-'} | ${name} | ${loc || '-'} |`);
     }
+    parts.push('');
   }
 
   const metaLine = profile?.schedule_config?.last_updated
     ? `\n\n更新时间: ${String(profile.schedule_config.last_updated).slice(0, 19).replace('T', ' ')}`
     : '';
 
-  return `🗓️ ${title}\n${parts.join('\n')}${metaLine}`;
+  return `🗓️ ${title}（${rangeLine}）\n\n${parts.join('\n')}${metaLine}`;
 }
 
 function extractChaoxingScheduleUrl(rawMsg = '') {
