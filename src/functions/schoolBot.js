@@ -7,6 +7,7 @@ const { toPinyinCityName, getWeatherDesc } = require('../../services/weatherServ
 const { checkAnimeDB, checkCustomVision, checkComputerVision } = require('../../services/visionService');
 const { getAudioSource, checkKeywordAudio } = require('../../services/voiceService');
 const { AFFECTION_CONFIG, EMOTION_PATTERNS, getAffectionLevel, getAffectionTitle, detectAdvancedEmotion, getEmotionPromptAddition, getVoiceToneByAffection } = require('../../services/emotionService');
+const { computeScheduleLoadStats } = require('../../services/scheduleService');
 
 // 全局 UA 池：用于伪装常见浏览器，给天气/其他 HTTP 请求用
 const UA_POOL = [
@@ -123,6 +124,34 @@ const cosmosString = process.env["COSMOS_DB_STRING"];
 
 // 本地联调兜底：ARIS_MOCK_CHAT=true 时，不要求外部 Token
 const MOCK_CHAT_ENABLED = String(process.env["ARIS_MOCK_CHAT"] || "").toLowerCase() === "true";
+
+// 开发者后门（默认关闭）：仅用于本地/评审联调输出调试信息
+const DEV_BACKDOOR_ENABLED = String(process.env["ARIS_DEV_BACKDOOR"] || "").toLowerCase() === "true";
+const DEV_BACKDOOR_TOKEN = String(process.env["ARIS_DEV_BACKDOOR_TOKEN"] || "").trim();
+
+// 本地/无 Cosmos 环境下的 persona 覆盖（进程级别，不持久化）
+const DEV_PERSONA_OVERRIDES = new Map();
+
+function parseDevCommand(msg) {
+    const text = String(msg || '').trim();
+    if (!text) return null;
+
+    // 支持：aris debug <token> / alice debug <token>
+    const m = text.match(/^\/?\s*(aris|alice)\s+(debug|persona)\b\s*(.*)$/i);
+    if (!m) return null;
+
+    const verb = String(m[2] || '').toLowerCase();
+    const rest = String(m[3] || '').trim();
+    const parts = rest.split(/\s+/).filter(Boolean);
+    return { verb, parts, raw: text };
+}
+
+function isDevBackdoorAllowed(senderId) {
+    if (!DEV_BACKDOOR_ENABLED) return false;
+    if (!DEV_BACKDOOR_TOKEN) return false;
+    // 可选：只允许管理员；如果你希望评委也能用，就把这里放宽
+    return String(senderId) === String(ADMIN_ID);
+}
 
 let cosmosContainer = null;
 if (cosmosString) {
@@ -4044,6 +4073,10 @@ app.http('schoolBot', {
                 webSchedule = Array.isArray(body.schedule) ? body.schedule : null;
                 webMode = body.mode || null; // Ask/Plan/Class/Search
                 
+                // 🆕 用户可选的人格模式（Alice/Professional）- 由前端 UI 开关控制
+                // 这是面向普通用户的功能，与开发者后门无关
+                const userPersonaMode = body.persona || null; // 'alice' | 'professional'
+                
                 if (body.user_id) senderId = String(body.user_id);
                 dbKey = senderId; // 默认为个人ID
                 if (body.sender && body.sender.nickname) userNickname = body.sender.nickname;
@@ -4528,6 +4561,82 @@ ${scheduleInfo}
         if (!resDoc.affection) resDoc.affection = {};
         if (!resDoc.pokeStats) resDoc.pokeStats = {};
         if (!resDoc.lastBotReply) resDoc.lastBotReply = {};
+
+        // ================================
+        // 🆕 开发者口令后门（默认关闭）
+        // ================================
+        const devCmd = parseDevCommand(msg);
+        if (devCmd && isDevBackdoorAllowed(senderId)) {
+            const providedToken = devCmd.parts[devCmd.verb === 'persona' ? 1 : 0] || '';
+            if (String(providedToken) !== String(DEV_BACKDOOR_TOKEN)) {
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({
+                        reply: '❌ debug 口令无效。',
+                        auto_escape: false
+                    })
+                };
+            }
+
+            if (devCmd.verb === 'debug') {
+                const wsLen = Array.isArray(webSchedule) ? webSchedule.length : 0;
+                const stats = wsLen > 0 ? computeScheduleLoadStats(webSchedule.map(e => ({ start: e?.start, end: e?.end }))) : null;
+                const personaKey = `${dbKey}:${senderId}`;
+                const persona = String(DEV_PERSONA_OVERRIDES.get(personaKey) || resDoc?.devPersona?.[senderId] || 'aris');
+                const replyLines = [
+                    '【ARIS DEBUG】',
+                    `senderId=${senderId} dbKey=${dbKey}`,
+                    `mock=${MOCK_CHAT_ENABLED} gh_token_present=${!!token} gh_token_len=${String(token || '').length}`,
+                    `webMode=${webMode || 'null'} webSchedule=${wsLen} fileLinks=${scheduleFileLinks?.length || 0}`,
+                    `persona=${persona}`,
+                    stats ? `scheduleLoad: maxPerDay=${stats.maxPerDay} heavyDays=${stats.heavyDays} earliest=${stats.earliestMin} latest=${stats.latestMin} streak=${stats.longestStreak}` : 'scheduleLoad: (no webSchedule)'
+                ];
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ reply: replyLines.join('\n'), auto_escape: false })
+                };
+            }
+
+            if (devCmd.verb === 'persona') {
+                const target = String(devCmd.parts[0] || '').toLowerCase();
+                if (!target || !['aris', 'al-1s', 'al1s', 'al_1s'].includes(target)) {
+                    return {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                        body: JSON.stringify({
+                            reply: '用法：aris persona aris <token> 或 aris persona al-1s <token>',
+                            auto_escape: false
+                        })
+                    };
+                }
+
+                const normalized = target === 'aris' ? 'aris' : 'al-1s';
+                const personaKey = `${dbKey}:${senderId}`;
+                DEV_PERSONA_OVERRIDES.set(personaKey, normalized);
+                resDoc.devPersona = resDoc.devPersona || {};
+                resDoc.devPersona[senderId] = normalized;
+                resDoc.last_updated = new Date().toISOString();
+
+                if (cosmosContainer) {
+                    try {
+                        await cosmosContainer.items.upsert(resDoc);
+                    } catch (e) {
+                        context.log(`[DevBackdoor] persona 写入失败: ${e.message}`);
+                    }
+                }
+
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({
+                        reply: `✅ persona 已切换为 ${normalized}`,
+                        auto_escape: false
+                    })
+                };
+            }
+        }
 
         // === B. 群聊活跃度统计 ===
         if (!userActivityData[senderId]) {
@@ -5318,6 +5427,11 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                 context.log(`[P0-语言] 使用${userLang === 'zh' ? '中文' : userLang === 'ja' ? '日文' : '英文'}Prompt模板`);
             }
         }
+
+        // 🆕 开发者人格切换（仅在后门开启且允许时生效）
+        const activeDevPersona = isDevBackdoorAllowed(senderId)
+            ? String((DEV_PERSONA_OVERRIDES.get(`${dbKey}:${senderId}`) || resDoc?.devPersona?.[senderId] || '')).toLowerCase()
+            : '';
         
         // 🆕 模式感知的情绪强度调整 (Imagine Cup 反馈优化)
         // Class模式：专业、信息密集、几乎无情绪 (⭐)
@@ -5393,8 +5507,33 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 给出可执行的时间块安排与任务拆解。
 `;
 
-    if (isCopilotMode) {
+    // 🆕 用户可选的专业模式：前端传 persona='professional' 时强制使用专业提示词
+    // 这是面向普通用户的功能（UI 开关），与开发者后门 (al-1s) 无关
+    const isUserProfessionalMode = body?.persona === 'professional';
+    
+    if (isCopilotMode || isUserProfessionalMode) {
         basePrompt = COPILOT_PROMPT_ZH;
+    }
+
+    const AL1S_PROMPT_ZH = `
+你是代号 AL-1S 的调试机器人。
+
+【目标】
+- 用最短路径定位问题并给出可执行步骤。
+
+【风格】
+- 冷静、硬核、工程化；直接给结论。
+- 不使用任何二次元口癖/撒娇/动作描写。
+- 不称呼用户为 Sensei/老师；用“你/用户”称呼。
+- 不使用颜文字/Emoji；不输出情绪标签（例如 [happy]）。
+
+【约束】
+- 不编造系统状态；缺信息就问 1-3 个关键问题。
+- 优先输出：结论 -> 依据 -> 下一步。
+`;
+
+    if (!isCopilotMode && activeDevPersona === 'al-1s') {
+        basePrompt = AL1S_PROMPT_ZH;
     }
         
         if (inferredMode === 'Class') {
@@ -5591,13 +5730,13 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 
         // 🆕 将模式风格覆盖插入到系统提示词的最前面（优先级最高）
         const basePromptRendered = basePrompt.replace('{{CURRENT_USER_ID}}', senderId);
-        const personaAdditions = isCopilotMode
+        const personaAdditions = (isCopilotMode || isUserProfessionalMode || activeDevPersona === 'al-1s')
             ? ''
             : `${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}`;
         let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${personaAdditions}${combinedToolContext}`;
         
         // 日志记录当前模式（webMode 可能为空：QQ 场景/GET 调试等）
-        context.log(`[模式感知] webMode=${webMode || 'null'} inferredMode=${inferredMode} isCopilotMode=${isCopilotMode} hasSchedule=${webSchedule && webSchedule.length > 0}`);
+        context.log(`[模式感知] webMode=${webMode || 'null'} inferredMode=${inferredMode} isCopilotMode=${isCopilotMode} isUserProfessionalMode=${isUserProfessionalMode} hasSchedule=${webSchedule && webSchedule.length > 0}`);
         
         // 调用 AI 封装函数
         const client = token

@@ -295,6 +295,9 @@ export default function Home() {
   // 好感度系统
   const [affection, setAffection] = useState(50); // 初始好感度 50
   
+  // 🆕 人格模式开关：'alice' (女仆勇者) | 'professional' (专业模式)
+  const [personaMode, setPersonaMode] = useState<"alice" | "professional">("alice");
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const inputAreaRef = useRef<HTMLDivElement | null>(null);
@@ -442,7 +445,8 @@ export default function Home() {
         { 
           mode: currentMode, 
           schedule: schedule.length > 0 ? schedule : undefined,
-          curriculumUuid: savedUuid || undefined
+          curriculumUuid: savedUuid || undefined,
+          persona: personaMode,  // 🆕 传递人格模式
         }
       );
       reply = result.reply;
@@ -655,6 +659,32 @@ export default function Home() {
               </div>
            </div>
            <div className="flex items-center gap-4">
+              {/* 🆕 人格模式切换：Alice Mode / Professional Mode */}
+              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-0.5">
+                <button
+                  onClick={() => setPersonaMode("alice")}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all ${
+                    personaMode === "alice"
+                      ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-sm"
+                      : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  }`}
+                  title="Alice Mode - 女仆勇者人格，情感支持"
+                >
+                  🎀 Alice
+                </button>
+                <button
+                  onClick={() => setPersonaMode("professional")}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all ${
+                    personaMode === "professional"
+                      ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-sm"
+                      : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  }`}
+                  title="Professional Mode - 专业高效模式"
+                >
+                  ⚡ Pro
+                </button>
+              </div>
+
               {/* 评委体验入口 */}
               <a
                 href="/demo"
@@ -853,7 +883,7 @@ export default function Home() {
             {isAvatarExpanded && (
               <motion.div
                 ref={avatarWrapRef}
-                className="w-56 h-56 origin-bottom-right"
+                className="w-48 h-48 origin-bottom-right"
                 initial={{ 
                   opacity: 0, 
                   scale: 0.3, 
@@ -879,7 +909,7 @@ export default function Home() {
                   mass: 0.8
                 }}
               >
-                <div className="w-full h-full flex items-center justify-center">
+                <div className="flex items-center justify-center">
                   <AliceAvatar 
                     onPoke={handlePoke} 
                     onAffectionChange={handleAffectionChange}
@@ -987,6 +1017,13 @@ export default function Home() {
           setMessages([{
             role: "assistant",
             content: `📚 评委专用课表已导入！共 ${newSchedule.length} 门课程（真实学生数据）。\n\n推荐测试问题：\n• 「今天有什么课？」\n• 「明天的课表」\n• 「高等数学什么时候上？」\n• 「下一节课是什么？」`
+          }]);
+        }}
+        onClearSchedule={() => {
+          setSchedule([]);
+          setMessages([{
+            role: "assistant",
+            content: `🗑️ 课表已清除！现在可以测试 **红线意识** 功能。\n\n尝试问：「今天有什么课？」\n→ 爱丽丝将拒绝编造，引导你导入课表。`
           }]);
         }}
       />

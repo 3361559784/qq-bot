@@ -1,33 +1,59 @@
 const DEFAULT_TIMEOUT_MS = Infinity;
 
 // 情绪标签正则：[happy], [sad], [panicked] 等
-const EMOTION_TAG_REGEX = /^\[(\w+)\]\s*/;
+// 允许前导空白，避免后端偶发换行/空格导致解析失败
+const EMOTION_TAG_REGEX = /^\s*\[(\w+)\]\s*/;
 
-// 有效的情绪标签列表
+// 有效的情绪标签列表（与 AliceAvatar.tsx 的 AliceEmotion 对齐）
 const VALID_EMOTIONS = new Set([
-  "normal", "happy", "joyful", "smile", "sad", "angry", 
-  "panicked", "shy", "bashful", "thinking", "anxious", 
+  "normal", "happy", "joyful", "smile", "sad", "angry",
+  "panicked", "shy", "bashful", "thinking", "anxious",
   "worried", "calm", "aggrieved"
 ]);
+
+// 兼容后端/模型可能输出的同义情绪标签
+// 目的：不让 [excited] 之类出现在 UI，同时尽可能驱动头像表情。
+const EMOTION_SYNONYM_MAP = {
+  excited: "joyful",
+  cheerful: "happy",
+  delighted: "joyful",
+  furious: "angry",
+  mad: "angry",
+  annoyed: "aggrieved",
+  upset: "aggrieved",
+  neutral: "normal",
+};
 
 /**
  * 解析并移除情绪标签
  * @param {string} text - 原始回复文本
  * @returns {{ cleanText: string, emotion: string | null }}
  */
-function parseEmotionTag(text) {
+export function parseEmotionTag(text) {
   if (!text || typeof text !== "string") {
     return { cleanText: text || "", emotion: null };
   }
-  
-  const match = text.match(EMOTION_TAG_REGEX);
-  if (match && VALID_EMOTIONS.has(match[1].toLowerCase())) {
-    return {
-      cleanText: text.replace(EMOTION_TAG_REGEX, "").trim(),
-      emotion: match[1].toLowerCase()
-    };
+
+  // 支持多个前导标签：例如 "[thinking] [joyful] ..."
+  let remaining = text;
+  let lastTag = null;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const match = remaining.match(EMOTION_TAG_REGEX);
+    if (!match) break;
+    lastTag = match[1]?.toLowerCase?.() || null;
+    remaining = remaining.replace(EMOTION_TAG_REGEX, "");
   }
-  
+
+  const mapped = lastTag && (VALID_EMOTIONS.has(lastTag) ? lastTag : (EMOTION_SYNONYM_MAP[lastTag] || null));
+  const cleanText = remaining.trim();
+
+  // 只要检测到过标签，就剥离（避免 UI 出现 [xxx]）
+  if (lastTag) {
+    return { cleanText, emotion: mapped };
+  }
+
   return { cleanText: text, emotion: null };
 }
 
@@ -42,6 +68,8 @@ export async function sendMessage(message, sessionId, options = {}) {
   const mode = typeof options.mode === "string" ? options.mode : undefined;
   const schedule = Array.isArray(options.schedule) ? options.schedule : undefined;
   const curriculumUuid = typeof options.curriculumUuid === "string" ? options.curriculumUuid : undefined;
+  // 🆕 用户可选的人格模式：'alice' | 'professional'
+  const persona = typeof options.persona === "string" ? options.persona : undefined;
 
   if (!message || typeof message !== "string") {
     return { reply: "消息不能为空", emotion: null };
@@ -69,6 +97,7 @@ export async function sendMessage(message, sessionId, options = {}) {
         ...(mode ? { mode } : {}),
         ...(schedule ? { schedule } : {}),
         ...(curriculumUuid ? { curriculumUuid } : {}),  // 🆕 传递 curriculumUuid
+        ...(persona ? { persona } : {}),  // 🆕 传递 persona (alice/professional)
       }),
       signal: controller.signal,
     });

@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Play, Upload, MessageCircle, CheckCircle, AlertTriangle, Sparkles, ArrowRight, Download, Sun, Moon } from "lucide-react";
+import Link from "next/link";
+import Image from "next/image";
+import { Upload, MessageCircle, CheckCircle, AlertTriangle, Sparkles, ArrowRight, Download, Sun, Moon } from "lucide-react";
 
 // 严乐的真实课表数据
 const DEMO_SCHEDULE = [
@@ -75,7 +77,8 @@ export default function DemoPage() {
     }]);
   };
 
-  // 清除课表
+  // 清除课表（保留以备后用）
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const clearSchedule = () => {
     localStorage.removeItem("campus_schedule");
     setHasSchedule(false);
@@ -135,12 +138,12 @@ export default function DemoPage() {
             >
               {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            <a 
+            <Link 
               href="/"
               className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
               进入完整版 <ArrowRight size={14} />
-            </a>
+            </Link>
           </div>
         </div>
       </header>
@@ -242,13 +245,13 @@ export default function DemoPage() {
               体验精确的课表查询和<strong className="text-blue-600 dark:text-blue-400">人格化闲聊</strong>的无缝切换。
             </p>
             {currentStep === 3 && (
-              <a
+              <Link
                 href="/?demo=true"
                 className="w-full py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
               >
                 <ArrowRight size={16} />
                 进入完整版体验
-              </a>
+              </Link>
             )}
           </div>
         </div>
@@ -267,7 +270,7 @@ export default function DemoPage() {
                 messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     {msg.role !== "user" && (
-                      <img src="/images/aris_normal.png" alt="Aris" className="w-8 h-8 rounded-full mr-2 flex-shrink-0" />
+                      <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="rounded-full mr-2 flex-shrink-0" />
                     )}
                     <div className={`max-w-[80%] rounded-2xl px-4 py-2 whitespace-pre-wrap ${
                       msg.role === "user" 
@@ -281,7 +284,7 @@ export default function DemoPage() {
               )}
               {isLoading && (
                 <div className="flex justify-start">
-                  <img src="/images/aris_normal.png" alt="Aris" className="w-8 h-8 rounded-full mr-2" />
+                  <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="rounded-full mr-2" />
                   <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm px-4 py-2">
                     <div className="flex gap-1">
                       <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />

@@ -761,6 +761,206 @@ function getTimeSafe(value) {
   return dt ? dt.getTime() : 0;
 }
 
+function getShanghaiNow() {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000);
+}
+
+function getShanghaiWeekdayNumber(date) {
+  const dt = coerceToDate(date);
+  if (!dt) return null;
+  const sh = new Date(dt.getTime() + 8 * 60 * 60 * 1000);
+  const d = sh.getUTCDay();
+  return d === 0 ? 7 : d; // 1=Mon ... 7=Sun
+}
+
+function getShanghaiMinutesOfDay(date) {
+  const dt = coerceToDate(date);
+  if (!dt) return null;
+  const sh = new Date(dt.getTime() + 8 * 60 * 60 * 1000);
+  return sh.getUTCHours() * 60 + sh.getUTCMinutes();
+}
+
+function mmToHHMM(mm) {
+  if (typeof mm !== 'number' || !Number.isFinite(mm)) return '';
+  const h = Math.floor(mm / 60);
+  const m = mm % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function computeScheduleLoadStats(events) {
+  const list = Array.isArray(events) ? events : [];
+  const perDay = new Array(8).fill(0); // 1..7
+  let earliest = null;
+  let latest = null;
+
+  for (const e of list) {
+    const wd = getShanghaiWeekdayNumber(e?.start);
+    if (wd) perDay[wd] += 1;
+
+    const s = getShanghaiMinutesOfDay(e?.start);
+    const en = getShanghaiMinutesOfDay(e?.end);
+    if (typeof s === 'number') earliest = earliest === null ? s : Math.min(earliest, s);
+    if (typeof en === 'number') latest = latest === null ? en : Math.max(latest, en);
+  }
+
+  const maxPerDay = Math.max(...perDay.slice(1));
+  const daysWithClass = perDay.slice(1).filter(Boolean).length;
+  const heavyDays = perDay.slice(1).filter(c => c >= 4).length;
+
+  // 最长连续上课天数（周内）
+  let longestStreak = 0;
+  let current = 0;
+  for (let i = 1; i <= 7; i += 1) {
+    if (perDay[i] > 0) {
+      current += 1;
+      longestStreak = Math.max(longestStreak, current);
+    } else {
+      current = 0;
+    }
+  }
+
+  return {
+    total: list.length,
+    perDay,
+    daysWithClass,
+    heavyDays,
+    maxPerDay,
+    earliestMin: earliest,
+    latestMin: latest,
+    longestStreak
+  };
+}
+
+function buildScheduleCompanionReaction(events) {
+  const stats = computeScheduleLoadStats(events);
+  if (!stats || stats.total <= 0) return '';
+
+  const isVeryHeavy = stats.maxPerDay >= 6 || stats.heavyDays >= 3;
+  const isEarly = typeof stats.earliestMin === 'number' && stats.earliestMin <= 8 * 60;
+  const isLate = typeof stats.latestMin === 'number' && stats.latestMin >= 21 * 60;
+  const isLongStreak = stats.longestStreak >= 5;
+
+  const parts = [];
+  if (isVeryHeavy) parts.push(`单日最多 ${stats.maxPerDay} 门`);
+  if (stats.heavyDays > 0) parts.push(`${stats.heavyDays} 天 ≥4 门`);
+  if (isEarly && typeof stats.earliestMin === 'number') parts.push(`最早 ${mmToHHMM(stats.earliestMin)} 开始`);
+  if (isLate && typeof stats.latestMin === 'number') parts.push(`最晚到 ${mmToHHMM(stats.latestMin)}`);
+  if (isLongStreak) parts.push(`连续 ${stats.longestStreak} 天都有课`);
+
+  if (parts.length === 0) return '';
+
+  const severity = isVeryHeavy || isLate || isLongStreak ? 'worry' : 'note';
+  if (severity === 'worry') {
+    return `\n\n(捏紧拖把) 这份课表像高难度副本：${parts.join('，')}。需要的话你直接问“明天课表/下一节课”，爱丽丝帮你把战斗顺序列清楚。`;
+  }
+  return `\n\n(翻看课表) 小提示：${parts.join('，')}。`;
+}
+
+function buildOcrRecoveryQuestions(ocrText) {
+  const raw = String(ocrText || '').trim();
+  const snippet = raw
+    ? raw.split(/\r?\n/).map(s => String(s || '').trim()).filter(Boolean).slice(0, 10).join('\n')
+    : '';
+
+  return [
+    '⚠️ 爱丽丝没能把这张截图稳定解析成“课程条目”。为了不浪费这张图，我们走一个最短的补全流程：',
+    '1) 先回一句：学期开始日期（例如 2025-09-02）',
+    '2) 再回：你们一天的作息（可选，例如 08:00-09:35/09:55-11:30/…）',
+    '3) 最后把课程按“一行一门”发我（建议以“补全课表：”开头），格式示例：',
+    '补全课表：',
+    '周一 08:00-09:35 高等数学 @A101',
+    '周三 14:00-15:35 数据结构 @实验楼201',
+    '',
+    snippet ? `OCR 文字（节选）：\n${snippet}` : ''
+  ].filter(Boolean).join('\n');
+}
+
+function parseWeekdayCN(token) {
+  const map = {
+    '一': 1,
+    '二': 2,
+    '三': 3,
+    '四': 4,
+    '五': 5,
+    '六': 6,
+    '日': 7,
+    '天': 7
+  };
+  return map[String(token || '').trim()] || null;
+}
+
+function getShanghaiYmd(dateLike) {
+  const dt = coerceToDate(dateLike);
+  if (!dt) return null;
+  const sh = new Date(dt.getTime() + 8 * 60 * 60 * 1000);
+  const y = sh.getUTCFullYear();
+  const m = String(sh.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(sh.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function buildShanghaiWeekMondayYmd() {
+  const nowSh = getShanghaiNow();
+  const weekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
+  const mondaySh = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+  return getShanghaiYmd(new Date(mondaySh.getTime() - 8 * 60 * 60 * 1000));
+}
+
+function addDaysToYmd(ymd, days) {
+  if (!ymd) return null;
+  const [y, m, d] = ymd.split('-').map(Number);
+  const base = new Date(Date.UTC(y, m - 1, d));
+  const next = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+  const yy = next.getUTCFullYear();
+  const mm = String(next.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(next.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+function parseManualScheduleLines(msg, context) {
+  const text = String(msg || '');
+  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const startIdx = lines.findIndex(l => l.includes('补全课表'));
+  const payloadLines = (startIdx >= 0 ? lines.slice(startIdx + 1) : lines).filter(Boolean);
+
+  const monday = buildShanghaiWeekMondayYmd();
+  const events = [];
+
+  for (const line of payloadLines) {
+    const m = line.match(/^周([一二三四五六日天])\s+(\d{1,2}:\d{2})\s*[-~～]\s*(\d{1,2}:\d{2})\s+(.+?)(?:\s+@\s*(.+))?$/);
+    if (!m) continue;
+    const wd = parseWeekdayCN(m[1]);
+    if (!wd) continue;
+
+    const ymd = addDaysToYmd(monday, wd - 1);
+    if (!ymd) continue;
+    const startIso = `${ymd}T${m[2]}:00+08:00`;
+    const endIso = `${ymd}T${m[3]}:00+08:00`;
+    const start = new Date(startIso);
+    const end = new Date(endIso);
+    if (isNaN(start) || isNaN(end)) continue;
+
+    const title = String(m[4] || '').trim();
+    if (!title) continue;
+
+    const location = String(m[5] || '').trim();
+    events.push({
+      title,
+      start,
+      end,
+      location,
+      description: 'manual-recovery',
+      source: 'manual-recovery'
+    });
+  }
+
+  if (events.length > 0) {
+    context?.log?.(`[Schedule] 补全课表解析成功 ${events.length} 条`);
+  }
+
+  return events;
+}
+
 function formatScheduleSummary(events, limit = 5) {
   if (!events || events.length === 0) return '';
   const sorted = [...events].sort((a, b) => getTimeSafe(a?.start) - getTimeSafe(b?.start));
@@ -1179,6 +1379,37 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
     const queryType = detectScheduleQueryType(msg);
 
+    // 🆕 补全课表（文本恢复通道）：优先级必须高于“课表查询”分支
+    if (msg && String(msg).includes('补全课表')) {
+      const recoveredEvents = parseManualScheduleLines(msg, context);
+      if (recoveredEvents.length > 0) {
+        await saveScheduleToCosmos(cosmosContainer, dbKey, recoveredEvents, context);
+        await saveUserScheduleProfile(cosmosContainer, senderId, { events: recoveredEvents }, 'manual_recovery', context);
+
+        const summary = formatScheduleSummary(recoveredEvents, 8);
+        const companion = buildScheduleCompanionReaction(recoveredEvents);
+        const sessionKey = `${dbKey}:${senderId}`;
+        await updateLastBotReply?.(cosmosContainer, dbKey, sessionKey, context);
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({
+            reply: `✅ 补全导入成功！已记录 ${recoveredEvents.length} 条课程。\n\n最近安排:\n${summary || '(没有即将到来的事件)'}${companion}\n\n你现在可以直接问“明天课表/本周课表/下一节课”。`,
+            auto_escape: false
+          })
+        };
+      }
+
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          reply: '⚠️ 爱丽丝看到了“补全课表”，但没识别到有效行。\n请用格式：\n周一 08:00-09:35 课程名 @地点\n一行一门课（时间用 24 小时制）。',
+          auto_escape: false
+        })
+      };
+    }
+
     // 课表查询（不带文件/图片/学习通链接）：动态请求学习通API获取对应周次数据
     if ((hasKeyword || queryType) && !extractChaoxingScheduleUrl(msg) && (!fileLinks || fileLinks.length === 0) && (!imageUrls || imageUrls.length === 0)) {
       const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
@@ -1274,6 +1505,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       };
     }
 
+
     const chaoxingUrl = extractChaoxingScheduleUrl(msg);
     if (chaoxingUrl) {
       context.log(`[Schedule] 检测到学习通课表链接: ${chaoxingUrl}`);
@@ -1314,12 +1546,13 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
 
         const summary = formatScheduleSummary(apiResult.events, 8);
         const curriculum = apiResult.curriculum;
+        const companion = buildScheduleCompanionReaction(apiResult.events);
 
         return {
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
           body: JSON.stringify({
-            reply: `✅ 学习通课表解析成功！\n\n📅 学年: ${curriculum.schoolYear || '未知'}-${curriculum.semester || '未知'}\n📍 当前周次: 第 ${curriculum.currentWeek || '?'} 周 (共 ${curriculum.maxWeek || '?'} 周)\n📚 课程总数: ${apiResult.events.length} 门\n\n最近课程安排:\n${summary}\n\n💡 数据已保存,可查询"本周课表"、"明天有课吗"等`,
+            reply: `✅ 学习通课表解析成功！\n\n📅 学年: ${curriculum.schoolYear || '未知'}-${curriculum.semester || '未知'}\n📍 当前周次: 第 ${curriculum.currentWeek || '?'} 周 (共 ${curriculum.maxWeek || '?'} 周)\n📚 课程总数: ${apiResult.events.length} 门\n\n最近课程安排:\n${summary}${companion}\n\n💡 数据已保存,可查询"本周课表"、"明天有课吗"等`,
             auto_escape: false
           })
         };
@@ -1333,11 +1566,24 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
     });
 
     for (const f of orderedFiles) {
+      const lowerUrl = (f.url || '').toLowerCase();
+
+      // 🆕 PDF：给出可操作替代方案（当前仅支持 Excel/ICS 或截图 OCR）
+      if (lowerUrl.endsWith('.pdf')) {
+        return {
+          status: 200,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({
+            reply: '⚠️ 目前爱丽丝不能直接解析 PDF 课表文件。\n\n你可以选一个最快的方式：\n1) 从学校系统导出 Excel/ICS 再发我（最稳）\n2) 把 PDF 课表页面截图发我（我用 OCR 识别）\n3) 复制 PDF 里的课程文本，按“补全课表：”格式一行一门发我（我会导入）',
+            auto_escape: false
+          })
+        };
+      }
+
       const buf = await downloadFileBuffer(f.url, context, fetchBypass);
       if (!buf) continue;
       let events = [];
-      const lower = f.url.toLowerCase();
-      if (lower.endsWith('.ics')) {
+      if (lowerUrl.endsWith('.ics')) {
         events = parseIcsEvents(buf, context);
       } else {
         events = parseExcelEvents(buf, context);
@@ -1345,6 +1591,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
 
       if (events.length > 0) {
         const summary = formatScheduleSummary(events);
+        const companion = buildScheduleCompanionReaction(events);
         await saveScheduleToCosmos(cosmosContainer, dbKey, events, context);
         await saveUserScheduleProfile(cosmosContainer, senderId, { events }, f.url, context);
 
@@ -1354,7 +1601,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
           body: JSON.stringify({
-            reply: `已解析官方导出文件(${f.name || f.url})，选取最近安排如下:\n${summary || '(没有即将到来的事件)'}\n如需更多安排请直接发送关键词"课表"。`,
+            reply: `已解析官方导出文件(${f.name || f.url})，选取最近安排如下:\n${summary || '(没有即将到来的事件)'}${companion}\n如需更多安排请直接发送关键词"课表"。`,
             auto_escape: false
           })
         };
@@ -1392,13 +1639,14 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
       const sessionKey = `${dbKey}:${senderId}`;
       await updateLastBotReply?.(cosmosContainer, dbKey, sessionKey, context);
+      const companion = events.length > 0 ? buildScheduleCompanionReaction(events) : '';
       return {
         status: 200,
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
         body: JSON.stringify({
           reply: events.length > 0
-            ? `${lowConfidenceWarning}未找到官方导出文件,已通过 OCR 解析截图,最近安排如下:\n${formatted}`
-            : `未找到官方导出文件,OCR 提取到的文字如下,建议直接提供 Excel/ICS 以提升准确度:\n${summary}`,
+            ? `${lowConfidenceWarning}未找到官方导出文件,已通过 OCR 解析截图,最近安排如下:\n${formatted}${companion}`
+            : buildOcrRecoveryQuestions(ocrText),
           auto_escape: false
         })
       };
@@ -1427,5 +1675,6 @@ module.exports = {
   fetchDayScheduleFromChaoxing,
   fetchWeekScheduleFromChaoxing,
   createScheduleHandler,
-  formatScheduleSummary
+  formatScheduleSummary,
+  computeScheduleLoadStats
 };
