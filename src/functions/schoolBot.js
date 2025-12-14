@@ -4540,6 +4540,8 @@ ${scheduleInfo}
             const todayWeekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
             const msgText = String(rawMsg || msg || '');
             const isTomorrowQuery = /明天/.test(msgText);
+            const isNextWeekQuery = /下周|下个星期|下星期|下礼拜/.test(msgText);
+            const isNextCourseQuery = /下一节|下节课|接下来/.test(msgText);
 
             // ✅ 关键修复：周日问“明天(周一)”时，前端传入的本周课表常常会落到“本周周一”，导致把上周周一当成明天。
             // 🆕 从前端 body 直接读取 curriculumUuid（优先于 Cosmos profile）
@@ -4578,6 +4580,73 @@ ${scheduleInfo}
                     }
                 } else {
                     context.log(`[ToolContext] 周日问明天但无 curriculumUuid，将回退到 webSchedule`);
+                }
+            }
+
+            // ✅ 场景2：问"下周"/"下个星期" → 动态查询下周课表
+            if (!toolContext.scheduleData && isNextWeekQuery) {
+                let uuidToUse = webCurriculumUuid;
+                if (!uuidToUse && cosmosContainer) {
+                    try {
+                        const { readScheduleProfileFromCosmos } = require('../../services/scheduleService');
+                        const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
+                        uuidToUse = profile?.curriculumUuid || null;
+                    } catch (e) {
+                        context.log(`[ToolContext] 读取 Cosmos profile 失败: ${e.message}`);
+                    }
+                }
+                if (uuidToUse) {
+                    try {
+                        const { fetchWeekScheduleFromChaoxing } = require('../../services/scheduleService');
+                        const dynamic = await fetchWeekScheduleFromChaoxing(uuidToUse, 'next_week', context);
+                        if (dynamic?.text && !dynamic?.error) {
+                            toolContext.scheduleData = {
+                                dynamicText: dynamic.text,
+                                source: 'chaoxing-dynamic',
+                                target: 'next_week'
+                            };
+                            context.log(`[ToolContext] 课表动态查询已加载(下周): ${dynamic.text.split('\n')[0]}`);
+                        }
+                    } catch (e) {
+                        context.log(`[ToolContext] 下周课表动态查询失败: ${e.message}`);
+                    }
+                }
+            }
+
+            // ✅ 场景3：问"下一节课"且今天没课 → 查明天第一节课（周日时需跨周）
+            if (!toolContext.scheduleData && isNextCourseQuery) {
+                const todayCourses = (webSchedule || []).filter(c => Number(c?.weekday || c?.day) === todayWeekday);
+                const nowHour = nowSh.getUTCHours();
+                const nowMin = nowSh.getUTCMinutes();
+                const nowTimeStr = `${String(nowHour).padStart(2,'0')}:${String(nowMin).padStart(2,'0')}`;
+                const remainingToday = todayCourses.filter(c => (c.startTime || '') > nowTimeStr);
+                
+                // 今天没有剩余课程 → 查明天
+                if (remainingToday.length === 0) {
+                    let uuidToUse = webCurriculumUuid;
+                    if (!uuidToUse && cosmosContainer) {
+                        try {
+                            const { readScheduleProfileFromCosmos } = require('../../services/scheduleService');
+                            const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
+                            uuidToUse = profile?.curriculumUuid || null;
+                        } catch (e) { /* ignore */ }
+                    }
+                    if (uuidToUse) {
+                        try {
+                            const { fetchDayScheduleFromChaoxing } = require('../../services/scheduleService');
+                            const dynamic = await fetchDayScheduleFromChaoxing(uuidToUse, 'tomorrow', context);
+                            if (dynamic?.text && !dynamic?.error) {
+                                toolContext.scheduleData = {
+                                    dynamicText: `今天已经没有课了。\n${dynamic.text}`,
+                                    source: 'chaoxing-dynamic',
+                                    target: 'next_course_tomorrow'
+                                };
+                                context.log(`[ToolContext] 下一节课→查明天: ${dynamic.text.split('\n')[0]}`);
+                            }
+                        } catch (e) {
+                            context.log(`[ToolContext] 下一节课查明天失败: ${e.message}`);
+                        }
+                    }
                 }
             }
 
