@@ -118,6 +118,8 @@ export async function POST(req: NextRequest) {
     let courses: CourseItem[] = [];
     let source = 'unknown';
 
+    let curriculumUuid: string | null = null;
+
     // 方式1: 学习通链接爬取
     if (url && typeof url === 'string') {
       const uuid = extractCurriculumUuid(url);
@@ -125,9 +127,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '无效的学习通链接' }, { status: 400 });
       }
       
+      curriculumUuid = uuid; // 保存 uuid 供返回
       courses = await fetchChaoxingSchedule(uuid);
       source = 'chaoxing';
-      console.log(`[Schedule API] 从学习通获取 ${courses.length} 条课程`);
+      console.log(`[Schedule API] 从学习通获取 ${courses.length} 条课程, uuid=${uuid}`);
     }
     // 方式2: OCR图片识别（调用后端）
     else if (imageUrl && typeof imageUrl === 'string') {
@@ -168,6 +171,7 @@ export async function POST(req: NextRequest) {
       source,
       count: courses.length,
       schedule: courses,
+      curriculumUuid, // 🆕 供前端保存用于跨周动态查询
     });
 
   } catch (error: unknown) {

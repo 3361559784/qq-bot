@@ -41,6 +41,7 @@ export async function sendMessage(message, sessionId, options = {}) {
   const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : DEFAULT_TIMEOUT_MS;
   const mode = typeof options.mode === "string" ? options.mode : undefined;
   const schedule = Array.isArray(options.schedule) ? options.schedule : undefined;
+  const curriculumUuid = typeof options.curriculumUuid === "string" ? options.curriculumUuid : undefined;
 
   if (!message || typeof message !== "string") {
     return { reply: "消息不能为空", emotion: null };
@@ -67,6 +68,7 @@ export async function sendMessage(message, sessionId, options = {}) {
         sessionId,
         ...(mode ? { mode } : {}),
         ...(schedule ? { schedule } : {}),
+        ...(curriculumUuid ? { curriculumUuid } : {}),  // 🆕 传递 curriculumUuid
       }),
       signal: controller.signal,
     });

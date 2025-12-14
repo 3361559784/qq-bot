@@ -405,10 +405,16 @@ export default function Home() {
       }
       
       // 统一调用后端 chat API
+      // 🆕 从 localStorage 读取 curriculumUuid 用于动态跨周查询
+      const savedUuid = typeof window !== 'undefined' ? localStorage.getItem("campus_curriculum_uuid") : null;
       const result = await sendMessage(
         enhancedMessage,
         getSessionId(),
-        { mode: currentMode, schedule: schedule.length > 0 ? schedule : undefined }
+        { 
+          mode: currentMode, 
+          schedule: schedule.length > 0 ? schedule : undefined,
+          curriculumUuid: savedUuid || undefined
+        }
       );
       reply = result.reply;
       emotion = result.emotion;

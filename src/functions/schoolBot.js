@@ -4492,7 +4492,8 @@ ${scheduleInfo}
                 dbKey,
                 cosmosContainer,
                 context,
-                token
+                token,
+                curriculumUuid: body?.curriculumUuid || null  // 🆕 从前端传入 curriculumUuid
             });
             if (scheduleResp) return scheduleResp;
             if ((!scheduleFileLinks || scheduleFileLinks.length === 0) && imageUrls.length === 0) {
@@ -4541,13 +4542,29 @@ ${scheduleInfo}
             const isTomorrowQuery = /明天/.test(msgText);
 
             // ✅ 关键修复：周日问“明天(周一)”时，前端传入的本周课表常常会落到“本周周一”，导致把上周周一当成明天。
-            // 优先用 Cosmos 中的 curriculumUuid 走学习通动态接口拿下一周周一的数据。
-            if (isTomorrowQuery && todayWeekday === 7 && cosmosContainer) {
-                try {
-                    const { readScheduleProfileFromCosmos, fetchDayScheduleFromChaoxing } = require('../../services/scheduleService');
-                    const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
-                    if (profile?.curriculumUuid) {
-                        const dynamic = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'tomorrow', context);
+            // 🆕 从前端 body 直接读取 curriculumUuid（优先于 Cosmos profile）
+            const webCurriculumUuid = body?.curriculumUuid || null;
+
+            // ✅ 关键修复：周日问"明天(周一)"时，前端传入的本周课表会落到"本周周一"，导致把上周周一当成明天。
+            // 优先用 curriculumUuid 走学习通动态接口拿下一周周一的数据。
+            if (isTomorrowQuery && todayWeekday === 7) {
+                let uuidToUse = webCurriculumUuid;
+                
+                // 如果前端没传 uuid，尝试从 Cosmos 读取
+                if (!uuidToUse && cosmosContainer) {
+                    try {
+                        const { readScheduleProfileFromCosmos } = require('../../services/scheduleService');
+                        const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
+                        uuidToUse = profile?.curriculumUuid || null;
+                    } catch (e) {
+                        context.log(`[ToolContext] 读取 Cosmos profile 失败: ${e.message}`);
+                    }
+                }
+                
+                if (uuidToUse) {
+                    try {
+                        const { fetchDayScheduleFromChaoxing } = require('../../services/scheduleService');
+                        const dynamic = await fetchDayScheduleFromChaoxing(uuidToUse, 'tomorrow', context);
                         if (dynamic?.text && !dynamic?.error) {
                             toolContext.scheduleData = {
                                 dynamicText: dynamic.text,
@@ -4556,9 +4573,11 @@ ${scheduleInfo}
                             };
                             context.log(`[ToolContext] 课表动态查询已加载(周日→明天跨周): ${dynamic.text.split('\n')[0]}`);
                         }
+                    } catch (e) {
+                        context.log(`[ToolContext] 动态课表查询失败: ${e.message}`);
                     }
-                } catch (e) {
-                    context.log(`[ToolContext] 动态课表查询失败: ${e.message}`);
+                } else {
+                    context.log(`[ToolContext] 周日问明天但无 curriculumUuid，将回退到 webSchedule`);
                 }
             }
 
