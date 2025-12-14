@@ -298,14 +298,51 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const inputAreaRef = useRef<HTMLDivElement | null>(null);
 
-  // 初始化时加载课表
+  // 初始化时加载课表 + 检查 demo 参数
   useEffect(() => {
     try {
+      // 检查 URL 参数是否从 Demo 页面跳转过来
+      const urlParams = new URLSearchParams(window.location.search);
+      const isFromDemo = urlParams.get('demo') === 'true';
+      
       const saved = localStorage.getItem("campus_schedule");
       if (saved) {
         const parsed = JSON.parse(saved);
-        setSchedule(parsed);
-        console.log("📚 已加载课表:", parsed.length, "门课程");
+        // 兼容两种格式：数组 或 {schedule: [...], source: "demo"}
+        const scheduleData = Array.isArray(parsed) ? parsed : (parsed.schedule || []);
+        if (scheduleData.length > 0) {
+          setSchedule(scheduleData);
+          console.log("📚 已加载课表:", scheduleData.length, "门课程");
+          
+          // 如果是从 Demo 跳转过来且已有课表，显示欢迎消息
+          if (isFromDemo) {
+            setMessages([{
+              role: "assistant",
+              content: `🎉 欢迎来到完整版！你的课表已经准备好了（${scheduleData.length} 门课程）。\n\n试试问我：\n• 「下一节课是什么？」\n• 「帮我安排明天的学习计划」\n• 或者随便聊聊～`
+            }]);
+            // 清除 URL 参数
+            window.history.replaceState({}, '', window.location.pathname);
+          }
+        } else if (isFromDemo) {
+          // 有数据但是空数组，加载示例课表
+          localStorage.setItem("campus_schedule", JSON.stringify(DEMO_SCHEDULE));
+          setSchedule(DEMO_SCHEDULE);
+          setMessages([{
+            role: "assistant",
+            content: `📚 已为你加载示例课表（${DEMO_SCHEDULE.length} 门课程）！\n\n这是一份真实学生的课表数据，你可以体验完整的课表查询功能。\n\n试试问我：「明天有什么课？」`
+          }]);
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      } else if (isFromDemo) {
+        // 从 Demo 跳转但没有课表，自动加载示例课表
+        localStorage.setItem("campus_schedule", JSON.stringify(DEMO_SCHEDULE));
+        setSchedule(DEMO_SCHEDULE);
+        setMessages([{
+          role: "assistant",
+          content: `📚 已为你加载示例课表（${DEMO_SCHEDULE.length} 门课程）！\n\n这是一份真实学生的课表数据，你可以体验完整的课表查询功能。\n\n试试问我：「明天有什么课？」`
+        }]);
+        // 清除 URL 参数
+        window.history.replaceState({}, '', window.location.pathname);
       }
     } catch (e) {
       console.error("加载课表失败:", e);
@@ -626,6 +663,16 @@ export default function Home() {
               </div>
            </div>
            <div className="flex items-center gap-4">
+              {/* 评委体验入口 */}
+              <a
+                href="/demo"
+                className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm font-medium rounded-full transition-all shadow-sm hover:shadow-md flex items-center gap-1.5"
+                title="评委快速体验 Demo"
+              >
+                <Zap size={14} />
+                Demo
+              </a>
+
               {/* 右侧面板切换按钮 */}
               <button 
                 onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
