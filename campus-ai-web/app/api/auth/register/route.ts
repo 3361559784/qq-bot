@@ -1,4 +1,5 @@
-export const runtime = 'edge';
+// 使用 Node.js 运行时以支持 crypto/Buffer
+export const runtime = 'nodejs';
 
 import { CosmosClient } from "@azure/cosmos";
 import { createHash } from "crypto";

@@ -206,6 +206,23 @@ function transformLessonsToStandardFormat(lessons, curriculum) {
   const events = [];
   const timeConfigArray = curriculum.lessonTimeConfigArray || [];
 
+  // lessonTimeConfigArray 在不同学校可能是 0/1 基索引，这里做容错
+  const pickTimeConfig = (idx) => {
+    if (!Array.isArray(timeConfigArray)) return '';
+    if (idx == null) return '';
+    const i = Number(idx);
+    if (!Number.isFinite(i)) return '';
+    // 先尝试原索引，再尝试 idx-1（常见 1 基）
+    return String(timeConfigArray[i] || timeConfigArray[i - 1] || '');
+  };
+
+  const extractHHMM = (s) => {
+    const m = String(s || '').match(/(\d{1,2}:\d{2})/);
+    if (!m) return '';
+    const [hh, mm] = m[1].split(':');
+    return `${String(Number(hh)).padStart(2, '0')}:${mm}`;
+  };
+
   for (const lesson of lessons) {
     try {
       // 解析时间
@@ -213,15 +230,17 @@ function transformLessonsToStandardFormat(lessons, curriculum) {
       const length = lesson.length || 1;
       const endNumber = beginNumber + length - 1;
 
-      const startTimeConfig = timeConfigArray[beginNumber] || '';
-      const endTimeConfig = timeConfigArray[endNumber + 1] || timeConfigArray[endNumber] || '';
+      const startTimeConfig = pickTimeConfig(beginNumber);
+      // 结束时间通常在“下一节开始”或“本节结束”，做多路兜底
+      const endTimeConfig = pickTimeConfig(endNumber + 1) || pickTimeConfig(endNumber);
 
       // 提取开始和结束时间 (HH:MM 格式)
-      const startMatch = startTimeConfig.match(/(\d{2}:\d{2})/);
-      const endMatch = endTimeConfig.match(/(\d{2}:\d{2})/);
+      let startTime = extractHHMM(startTimeConfig);
+      let endTime = extractHHMM(endTimeConfig);
 
-      const startTime = startMatch ? startMatch[1] : '';
-      const endTime = endMatch ? endMatch[1] : '';
+      // 某些返回里 lesson 自带时间字段（优先补齐）
+      if (!startTime) startTime = extractHHMM(lesson.startTime || lesson.beginTime || lesson.timeStart || '');
+      if (!endTime) endTime = extractHHMM(lesson.endTime || lesson.finishTime || lesson.timeEnd || '');
 
       // 计算时长(分钟)
       let duration = 0;
@@ -286,6 +305,7 @@ async function getChaoxingScheduleFromUrl(url, week = null) {
     schedule,
     curriculum: result.data.curriculum,
     metadata: {
+      curriculumUuid: uuid,
       visitor: result.data.visitor,
       sysTime: result.data.sysTime,
       totalLessons: schedule.length

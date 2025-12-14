@@ -2425,13 +2425,29 @@ syncCharacterNamesToDB();
 // ==========================================
 function normalizeIntentTool(raw) {
     const val = (raw || '').toLowerCase();
+    // 🆕 新增: 课表查询
+    if (val.includes('schedule') || val.includes('class') || val.includes('course') || val.includes('课')) {
+        return { intent: 'schedule', tool: 'schedule' };
+    }
+    // 🆕 新增: 计划生成
+    if (val.includes('plan') || val.includes('计划') || val.includes('规划') || val.includes('安排')) {
+        return { intent: 'plan', tool: 'plan' };
+    }
+    // 🆕 新增: 天气查询
+    if (val.includes('weather') || val.includes('天气')) {
+        return { intent: 'weather', tool: 'weather' };
+    }
+    // 🆕 新增: 搜索
+    if (val.includes('search') || val.includes('搜索') || val.includes('查')) {
+        return { intent: 'search', tool: 'search' };
+    }
     if (val.includes('draw') || val.includes('paint') || val.includes('image_gen')) {
         return { intent: 'draw', tool: 'draw' };
     }
     if (val.includes('vision') || val.includes('image') || val.includes('identify') || val.includes('photo')) {
         return { intent: 'vision', tool: 'vision' };
     }
-    if (val.includes('wiki') || val.includes('search') || val.includes('baike')) {
+    if (val.includes('wiki') || val.includes('baike') || val.includes('百科')) {
         return { intent: 'wiki', tool: 'wiki' };
     }
     if (val.includes('help') || val.includes('command')) {
@@ -2472,29 +2488,48 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
             apiKey: token
         });
 
-        const systemPrompt = `You are an intent router for a dual-model QQ bot. Output JSON only. 
+        // 🔄 升级版意图路由 - 支持更多工具类型
+        const systemPrompt = `You are an intent router for a dual-model campus AI assistant. Output JSON only.
 
-Fields: intent, tool (draw|vision|wiki|chat|help), query, draw_prompt, is_self, nsfw, confidence (0-1), reason.
+AVAILABLE TOOLS:
+- schedule: 课表查询 (下一节课/今天有课吗/明天课表/本周课程)
+- plan: 计划生成 (制定计划/安排学习/规划时间/日程安排)
+- weather: 天气查询 (天气怎么样/要带伞吗/温度多少)
+- search: 信息搜索 (搜索/查一下/了解/鸿蒙/开发者大会/活动信息)
+- wiki: 百科查询 (什么是/谁是/介绍一下)
+- draw: 绘图 (画一个/生成图片)
+- vision: 图片识别 (这是什么/识别图片)
+- chat: 普通聊天 (闲聊/打招呼/情感交流)
 
-CRITICAL RULES - 负面样本检测:
-- If input is ONLY emoji/stickers (😀, 👍, 😂), intent MUST be 'chat' with confidence < 0.2
-- If input is pure greeting (hi, hello, 你好), intent MUST be 'chat' with confidence < 0.3
-- If input is meaningless symbols (..., ???, !!!), intent MUST be 'chat' with confidence < 0.2
-- If user text is < 3 characters with no images, confidence MUST be < 0.4
+OUTPUT FORMAT (JSON):
+{
+  "intent": "primary intent",
+  "tool": "schedule|plan|weather|search|wiki|draw|vision|chat",
+  "needs_schedule": true/false,  // 是否需要课表数据
+  "needs_weather": true/false,   // 是否需要天气数据
+  "needs_search": true/false,    // 是否需要搜索外部信息
+  "query": "extracted search query if applicable",
+  "confidence": 0.0-1.0,
+  "reason": "brief explanation"
+}
 
-Positive intent detection:
-- Infer drawing intent even without explicit keywords (e.g., "来张图" → draw)
-- If images present, decide: vision_identify/translate/analyze
-- Detect Tendou Aris: silver hair, red eyes, anime maid/cyborg style
-- When unsure, set confidence ≤ 0.3 and default to chat
+CRITICAL RULES:
+1. "下一节课"/"今天有课吗"/"明天课表" → tool=schedule, needs_schedule=true
+2. "制定计划"/"安排学习"/"规划" → tool=plan, needs_schedule=true, needs_weather=true
+3. "鸿蒙开发者大会"/"某某活动" → tool=plan/search, needs_search=true (搜索活动信息)
+4. 如果用户问外部活动+制定计划 → needs_search=true, needs_schedule=true, needs_weather=true
+5. 纯闲聊/情感交流 → tool=chat
 
 Examples:
-Input: "😀" → {intent: 'chat', confidence: 0.1, reason: 'emoji only'}
-Input: "hello" → {intent: 'chat', confidence: 0.2, reason: 'greeting'}
-Input: "画个猫娘" → {intent: 'draw', tool: 'draw', confidence: 0.9}
-Input: "..." → {intent: 'chat', confidence: 0.15, reason: 'meaningless symbol'}`;
+"下一节课是什么" → {tool:"schedule", needs_schedule:true, confidence:0.95}
+"今天天气怎么样" → {tool:"weather", needs_weather:true, confidence:0.9}
+"帮我制定去鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, query:"鸿蒙开发者大会", confidence:0.9}
+"明天有课吗" → {tool:"schedule", needs_schedule:true, confidence:0.95}`;
 
-        const summaryText = `User text: ${userMessage || '(empty)'}\nImages attached: ${imageUrls.length > 0 ? 'yes' : 'no'}\nUser: ${extras.userId || 'unknown'} ${extras.nickname || ''}`;
+        const summaryText = `User text: ${userMessage || '(empty)'}
+Images attached: ${imageUrls.length > 0 ? 'yes' : 'no'}
+User: ${extras.userId || 'unknown'} ${extras.nickname || ''}
+Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
 
         const messages = [
             { role: "system", content: systemPrompt },
@@ -2511,7 +2546,7 @@ Input: "..." → {intent: 'chat', confidence: 0.15, reason: 'meaningless symbol'
                 const response = await client.chat.completions.create({
                     model: modelCfg.name,
                     temperature: modelCfg.temp,
-                    max_tokens: 300,
+                    max_tokens: 400,
                     response_format: { type: "json_object" },
                     messages
                 });
@@ -2535,7 +2570,11 @@ Input: "..." → {intent: 'chat', confidence: 0.15, reason: 'meaningless symbol'
                     nsfw: !!parsed.nsfw,
                     confidence: clampConfidence(parsed.confidence),
                     reason: parsed.reason || parsed.notes || '',
-                    modelUsed: modelCfg.name
+                    modelUsed: modelCfg.name,
+                    // 🆕 新增工具需求标记
+                    needsSchedule: !!parsed.needs_schedule,
+                    needsWeather: !!parsed.needs_weather,
+                    needsSearch: !!parsed.needs_search
                 };
             } catch (err) {
                 context.log(`[IntentRouter] ${modelCfg.name} fail: ${err?.message || err}`);
@@ -3778,6 +3817,8 @@ app.http('schoolBot', {
             let scheduleFileLinks = [];
             let body = null;
             let wikiMatch = null;
+            let webSchedule = null;  // 🆕 前端传入的课表数据
+            let webMode = null;      // 🆕 前端模式 (Ask/Plan/Class/Search)
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
@@ -3905,6 +3946,10 @@ app.http('schoolBot', {
 
                 const rawMsg = body.raw_message || "";
                 scheduleFileLinks = extractScheduleFileLinks(body, rawMsg);
+                
+                // 🆕 从前端 Web 接收课表数据（campus-ai-web 传入）
+                webSchedule = Array.isArray(body.schedule) ? body.schedule : null;
+                webMode = body.mode || null; // Ask/Plan/Class/Search
                 
                 if (body.user_id) senderId = String(body.user_id);
                 dbKey = senderId; // 默认为个人ID
@@ -4191,12 +4236,24 @@ ${scheduleInfo}
                 jsonBody: { status: 'ok', message: 'no_message_content' }
             };
         }
+
+        // 允许“课表导入/查询”等非 LLM 功能在本地无 token 时照常工作
         if (!token && !MOCK_CHAT_ENABLED) {
-            return {
-                status: 500,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({ reply: "Error: Token missing" })
-            };
+            const msgLowerForGate = String(msg || '').toLowerCase();
+            const isScheduleLike =
+                (scheduleFileLinks && scheduleFileLinks.length > 0) ||
+                SCHEDULE_KEYWORDS.some(k => msgLowerForGate.includes(String(k).toLowerCase())) ||
+                msgLowerForGate.includes('kb.chaoxing.com/res/app/curriculum/schedule.html') ||
+                msgLowerForGate.includes('curriculumuuid=');
+
+            if (!isScheduleLike) {
+                return {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({ reply: "Error: Token missing" })
+                };
+            }
+            context.log('[Auth] token missing, but schedule-like request → continue without LLM');
         }
         // ==========================================
         // P0-Hook 1: 语言检测 (为后续动态Prompt做准备)
@@ -4459,10 +4516,147 @@ ${scheduleInfo}
         // 感知层意图路由 (Model A)
         let intentResult = null;
         if (INTENT_ROUTER_ENABLED) {
-            intentResult = await analyzeIntentRouter(msg, imageUrls, { userId: senderId, nickname: userNickname }, context);
+            intentResult = await analyzeIntentRouter(msg, imageUrls, { 
+                userId: senderId, 
+                nickname: userNickname,
+                hasSchedule: !!(webSchedule && webSchedule.length > 0)
+            }, context);
             if (intentResult) {
-                context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} self=${intentResult.isSelf}`);
+                context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} needsSchedule=${intentResult.needsSchedule} needsWeather=${intentResult.needsWeather} needsSearch=${intentResult.needsSearch}`);
             }
+        }
+
+        // ==========================================
+        // 🆕 智能工具调用层 - 根据意图自动获取所需数据
+        // ==========================================
+        let toolContext = {
+            scheduleData: null,
+            weatherData: null,
+            searchData: null
+        };
+
+        // 1. 如果需要课表数据
+        if (intentResult?.needsSchedule || intentResult?.tool === 'schedule' || intentResult?.tool === 'plan') {
+            // 优先使用前端传入的课表 (webSchedule)
+            if (webSchedule && webSchedule.length > 0) {
+                const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+                const nowSh = new Date(Date.now() + 8 * 60 * 60 * 1000);
+                const todayWeekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
+                const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
+                
+                const todayCourses = webSchedule.filter(c => Number(c?.weekday || c?.day) === todayWeekday)
+                    .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+                const tomorrowCourses = webSchedule.filter(c => Number(c?.weekday || c?.day) === tomorrowWeekday)
+                    .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+                
+                // 计算下一节课
+                const nowHour = nowSh.getUTCHours();
+                const nowMin = nowSh.getUTCMinutes();
+                const nowTimeStr = `${String(nowHour).padStart(2,'0')}:${String(nowMin).padStart(2,'0')}`;
+                const nextCourse = todayCourses.find(c => c.startTime > nowTimeStr);
+                
+                toolContext.scheduleData = {
+                    today: dayNames[todayWeekday],
+                    todayCourses: todayCourses.map(c => ({
+                        name: c.courseName || c.name,
+                        time: `${c.startTime || ''}-${c.endTime || ''}`,
+                        location: c.location || '未知地点'
+                    })),
+                    tomorrowCourses: tomorrowCourses.map(c => ({
+                        name: c.courseName || c.name,
+                        time: `${c.startTime || ''}-${c.endTime || ''}`,
+                        location: c.location || '未知地点'
+                    })),
+                    nextCourse: nextCourse ? {
+                        name: nextCourse.courseName || nextCourse.name,
+                        time: `${nextCourse.startTime}-${nextCourse.endTime}`,
+                        location: nextCourse.location || '未知地点'
+                    } : null,
+                    totalCourses: webSchedule.length
+                };
+                context.log(`[ToolContext] 课表数据已加载: 今日${todayCourses.length}节, 明日${tomorrowCourses.length}节`);
+            } else if (cosmosContainer) {
+                // 回退: 从 CosmosDB 读取课表
+                try {
+                    const { readScheduleProfileFromCosmos, formatTomorrowAnswerFromProfile } = require('../../services/scheduleService');
+                    const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
+                    if (profile?.weekly_schedule) {
+                        toolContext.scheduleData = { fromCosmos: true, profile };
+                        context.log(`[ToolContext] 从 CosmosDB 加载课表`);
+                    }
+                } catch (e) {
+                    context.log(`[ToolContext] CosmosDB 课表读取失败: ${e.message}`);
+                }
+            }
+        }
+
+        // 2. 如果需要天气数据
+        if (intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan') {
+            try {
+                const SENIVERSE_API_KEY = process.env["SENIVERSE_API_KEY"];
+                if (SENIVERSE_API_KEY) {
+                    const citySearch = "wuhan"; // TODO: 可以从用户资料读取城市
+                    const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
+                    const wRes = await fetchBypass(weatherUrl, { timeoutMs: 5000 }, 2);
+                    if (wRes && wRes.ok) {
+                        const wData = await wRes.json();
+                        const loc = wData.results?.[0]?.location || {};
+                        const cur = wData.results?.[0]?.now || {};
+                        toolContext.weatherData = {
+                            city: loc.name || '武汉',
+                            temperature: cur.temperature || '?',
+                            weather: cur.text || '未知',
+                            formatted: `${loc.name || '武汉'} ${cur.temperature || '?'}℃ ${cur.text || ''}`
+                        };
+                        context.log(`[ToolContext] 天气数据: ${toolContext.weatherData.formatted}`);
+                    }
+                }
+            } catch (e) {
+                context.log(`[ToolContext] 天气获取失败: ${e.message}`);
+            }
+        }
+
+        // 3. 如果需要搜索外部信息
+        if (intentResult?.needsSearch && intentResult?.query) {
+            try {
+                const searchQuery = intentResult.query;
+                const searchResult = await hybridSearch(searchQuery, context, { userId: senderId, maxResults: 3 });
+                if (searchResult.success) {
+                    toolContext.searchData = {
+                        query: searchQuery,
+                        results: searchResult.results || [],
+                        formatted: searchResult.formatted || ''
+                    };
+                    context.log(`[ToolContext] 搜索完成: "${searchQuery}" → ${searchResult.results?.length || 0} 条结果`);
+                }
+            } catch (e) {
+                context.log(`[ToolContext] 搜索失败: ${e.message}`);
+            }
+        }
+
+        // 构建工具上下文提示（注入到系统 Prompt）
+        let toolContextPrompt = '';
+        if (toolContext.scheduleData) {
+            const sd = toolContext.scheduleData;
+            if (sd.fromCosmos) {
+                toolContextPrompt += `\n\n📚【课表数据】用户已导入课表，可查询 CosmosDB。`;
+            } else {
+                toolContextPrompt += `\n\n📚【课表数据】
+- 今天是${sd.today}，共 ${sd.todayCourses?.length || 0} 节课
+${sd.todayCourses?.length > 0 ? sd.todayCourses.map(c => `  · ${c.time} ${c.name} @ ${c.location}`).join('\n') : '  · 今天没有课'}
+${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @ ${sd.nextCourse.location}` : '- 今天课程已上完/没有课'}
+- 明天有 ${sd.tomorrowCourses?.length || 0} 节课`;
+            }
+        }
+        if (toolContext.weatherData) {
+            const wd = toolContext.weatherData;
+            toolContextPrompt += `\n\n🌤️【天气数据】${wd.city} 当前 ${wd.temperature}℃ ${wd.weather}`;
+            if (Number(wd.temperature) < 10) toolContextPrompt += ' (较冷，建议多穿衣服)';
+            if (wd.weather.includes('雨')) toolContextPrompt += ' (有雨，记得带伞☂️)';
+        }
+        if (toolContext.searchData) {
+            const srd = toolContext.searchData;
+            toolContextPrompt += `\n\n🔍【搜索结果】关于"${srd.query}":\n${srd.formatted || '暂无结果'}`;
         }
 
         const intentHintText = intentResult
@@ -4927,7 +5121,72 @@ ${scheduleInfo}
             ? "\n【群聊回溯指南】重点关注标记为'当前用户'的发言，其它群聊消息只作背景参考，不要跑题。"
             : "";
 
-        let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}`;
+        // 🆕 构建课表上下文（来自前端 Web 或 CosmosDB）
+        let scheduleContextAddition = '';
+        if (webSchedule && webSchedule.length > 0) {
+            // 前端传入了课表数据，构建上下文
+            const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+            const nowSh = new Date(Date.now() + 8 * 60 * 60 * 1000);
+            const todayWeekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
+            
+            // 按星期分组
+            const byDay = {};
+            for (const c of webSchedule) {
+                const day = Number(c?.weekday || c?.day) || 0;
+                if (day < 1 || day > 7) continue;
+                if (!byDay[day]) byDay[day] = [];
+                byDay[day].push(c);
+            }
+            
+            // 格式化今日课程
+            const todayCourses = (byDay[todayWeekday] || []).sort((a, b) => 
+                (a.startTime || '').localeCompare(b.startTime || '')
+            );
+            
+            // 格式化明日课程
+            const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
+            const tomorrowCourses = (byDay[tomorrowWeekday] || []).sort((a, b) => 
+                (a.startTime || '').localeCompare(b.startTime || '')
+            );
+            
+            // 🆕 格式化完整周课表
+            let fullWeekSchedule = '';
+            for (let d = 1; d <= 7; d++) {
+                const dayCourses = (byDay[d] || []).sort((a, b) => 
+                    (a.startTime || '').localeCompare(b.startTime || '')
+                );
+                if (dayCourses.length > 0) {
+                    const isToday = d === todayWeekday;
+                    const isTomorrow = d === tomorrowWeekday;
+                    const dayMark = isToday ? '(今天)' : isTomorrow ? '(明天)' : '';
+                    fullWeekSchedule += `\n  ${dayNames[d]}${dayMark}: ${dayCourses.map(c => 
+                        `${c.courseName || c.name}(${c.startTime || '?'}-${c.endTime || '?'}${c.location ? '@' + c.location : ''})`
+                    ).join('、')}`;
+                }
+            }
+            
+            scheduleContextAddition = `\n\n📚【用户完整周课表】
+- 今天是${dayNames[todayWeekday]}，当前周课程总数：${webSchedule.length} 节
+- 完整一周课程安排:${fullWeekSchedule}
+
+【今日重点】
+- 今天有 ${todayCourses.length} 门课${todayCourses.length > 0 ? '：' + todayCourses.map(c => `${c.courseName || c.name}(${c.startTime || ''}-${c.endTime || ''})`).join('、') : '，无课可以休息'}
+- 明天(${dayNames[tomorrowWeekday]})有 ${tomorrowCourses.length} 门课${tomorrowCourses.length > 0 ? '：' + tomorrowCourses.map(c => `${c.courseName || c.name}`).join('、') : '，无课'}
+
+【回答指南】
+- 用户问"下周课表"/"下个星期课程"时，展示完整一周课程（因为课表每周循环）
+- 用户问"本周课表"时，也展示完整一周课程
+- 用户问具体某天（如"周三有什么课"）时，只展示该天课程
+- 如果用户问非课程问题，请正常聊天，不要强行关联课表`;
+            
+            context.log(`[WebSchedule] 前端传入 ${webSchedule.length} 条课程，今日${todayCourses.length}节，明日${tomorrowCourses.length}节`);
+        }
+
+        // 🆕 合并工具上下文（来自智能工具调用层）
+        // toolContextPrompt 包含了根据意图自动获取的天气、搜索等数据
+        const combinedToolContext = scheduleContextAddition + (toolContextPrompt || '');
+
+        let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}${combinedToolContext}`;
         
         // 调用 AI 封装函数
         const client = token
