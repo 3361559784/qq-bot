@@ -5109,6 +5109,42 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             }
         }
         
+        // 🆕 模式感知的情绪强度调整 (Imagine Cup 反馈优化)
+        // Class模式：专业、信息密集、几乎无情绪 (⭐)
+        // Plan模式：简洁、计划感、低情绪 (⭐⭐)
+        // Search模式：客观、结果导向 (⭐⭐)
+        // Ask/Chat模式：完整Aris人格 (⭐⭐⭐⭐)
+        let modeStyleOverride = '';
+        const isCopilotMode = webMode === 'Class' || webMode === 'Plan' || webMode === 'Search';
+        
+        if (webMode === 'Class') {
+            modeStyleOverride = `
+【⚠️ 课程助手模式 - 专业信息优先】
+当前是"课程查询"场景，用户需要的是准确、清晰的课程信息。
+- 回复风格：**专业、信息密集**，像一个高效的日程助手
+- 情绪表达：**几乎不用**，省略颜文字和kaomoji (偶尔用一个也行)
+- 禁止：过多的角色扮演语气、"邦邦咔邦"、"勇者任务"等二次元表达
+- 允许：简短的礼貌语("好的"/"明白了")，清晰的时间和地点信息
+- 回复示例："明天周三有3门课：高等数学(08:00-09:50 @教学楼A101)、英语听力(10:10-11:50 @语言中心)、体育(14:00-15:50 @体育馆)"`;
+        } else if (webMode === 'Plan') {
+            modeStyleOverride = `
+【⚠️ 计划助手模式 - 简洁实用优先】
+当前是"智能计划"场景，用户需要实用的建议和规划。
+- 回复风格：**简洁、有条理**，像一个高效的助理
+- 情绪表达：**少量**，可以用少许鼓励语气但不要夸张
+- 禁止：长篇大论、过多修辞、频繁使用颜文字
+- 允许：条目化建议、时间节点、简短鼓励
+- 回复示例："建议安排：1. 09:00-11:00 复习高数第三章 2. 下午可以去图书馆 3. 记得周五前完成作业"`;
+        } else if (webMode === 'Search') {
+            modeStyleOverride = `
+【⚠️ 搜索助手模式 - 客观结果优先】
+当前是"搜索问答"场景，用户需要准确的信息。
+- 回复风格：**客观、结果导向**，像一个知识助手
+- 情绪表达：**少量**
+- 禁止：主观臆断、无关信息
+- 允许：引用来源、结构化答案`;
+        }
+        
         const groupHistoryFocus = dbKey.startsWith('group_')
             ? "\n【群聊回溯指南】重点关注标记为'当前用户'的发言，其它群聊消息只作背景参考，不要跑题。"
             : "";
@@ -5172,13 +5208,45 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 如果用户问非课程问题，请正常聊天，不要强行关联课表`;
             
             context.log(`[WebSchedule] 前端传入 ${webSchedule.length} 条课程，今日${todayCourses.length}节，明日${tomorrowCourses.length}节`);
+        } else {
+            // 🆕 无课表时的严格模式 - 防止幻觉 (Imagine Cup 致命问题修复)
+            // ⚠️ 无论什么模式，没有课表就绝对不能编造任何课程信息！
+            scheduleContextAddition = `
+【🚨 红线级指令：无课表数据】
+**你没有该用户的任何课表数据。** 这是系统事实，不可违背。
+
+当用户询问任何与课程相关的问题时（如"下一节课"、"今天有什么课"、"明天课表"等）：
+
+❌ 绝对禁止（违反将导致产品失败）：
+- 编造任何课程名称（如"高等数学"、"游戏开发"、"英语"等）
+- 编造任何上课时间（如"下午2点"、"08:00-09:50"等）
+- 编造任何上课地点（如"A101教室"、"图书馆"等）
+- 猜测用户可能是什么专业/有什么课
+- 用"根据系统"、"根据记录"等措辞暗示你有数据
+
+✅ 必须这样回答：
+1. 直接、简洁地说明没有课表数据
+2. 引导用户导入课表
+3. 不要啰嗦、不要道歉过多
+
+标准回复（直接使用或微调）：
+"目前没有检测到您的课表数据。请先通过超星学习通导入课表，之后我可以帮您查询课程安排、提醒上课时间。"
+
+注意：即使在闲聊模式下，也不能编造课程。这是数据准确性的底线。`;
+            context.log(`[WebSchedule] ⚠️ 无课表数据 → 启用红线级防幻觉模式`);
         }
 
         // 🆕 合并工具上下文（来自智能工具调用层）
         // toolContextPrompt 包含了根据意图自动获取的天气、搜索等数据
         const combinedToolContext = scheduleContextAddition + (toolContextPrompt || '');
 
-        let currentSystemPrompt = `${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}${combinedToolContext}`;
+        // 🆕 将模式风格覆盖插入到系统提示词的最前面（优先级最高）
+        let currentSystemPrompt = `${modeStyleOverride}${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}${combinedToolContext}`;
+        
+        // 日志记录当前模式
+        if (webMode) {
+            context.log(`[模式感知] webMode=${webMode}, isCopilotMode=${isCopilotMode}, hasSchedule=${webSchedule && webSchedule.length > 0}`);
+        }
         
         // 调用 AI 封装函数
         const client = token
