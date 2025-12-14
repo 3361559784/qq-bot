@@ -190,6 +190,221 @@ function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
   return `🗓️ ${title}（${rangeLine}）\n\n${parts.join('\n')}${metaLine}`;
 }
 
+/**
+ * 动态请求学习通API获取本周/下周课表
+ * @param {string} curriculumUuid - 课表UUID
+ * @param {string} which - 'this_week' | 'next_week'
+ * @param {Object} context - Azure Functions context
+ */
+async function fetchWeekScheduleFromChaoxing(curriculumUuid, which, context) {
+  const { fetchChaoxingSchedule, transformLessonsToStandardFormat, getScheduleInfo } = require('./chaoxingSchedule');
+  
+  try {
+    // 先获取当前周次
+    const info = await getScheduleInfo(curriculumUuid);
+    if (!info.success) {
+      return { error: info.error };
+    }
+    
+    const currentWeek = info.curriculum?.currentWeek || 1;
+    const targetWeek = which === 'next_week' ? currentWeek + 1 : currentWeek;
+    const maxWeek = info.curriculum?.maxWeek || 25;
+    
+    if (targetWeek > maxWeek) {
+      return { error: `已超过学期最大周次(${maxWeek}周)` };
+    }
+    
+    context?.log?.(`[Schedule] 动态查询第${targetWeek}周课表 (当前第${currentWeek}周)`);
+    
+    // 请求指定周次数据
+    const result = await fetchChaoxingSchedule(curriculumUuid, targetWeek);
+    if (!result.success) {
+      return { error: result.error };
+    }
+    
+    const lessons = transformLessonsToStandardFormat(result.data.lessons, result.data.curriculum);
+    
+    // 格式化输出
+    const title = which === 'next_week' ? `下周课表（第${targetWeek}周）` : `本周课表（第${targetWeek}周）`;
+    const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+    
+    // 计算日期范围
+    const nowSh = getShanghaiNowUtcShifted();
+    const weekday = getShanghaiWeekdayNumber(nowSh);
+    const mondaySh = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+    const weekStart = which === 'next_week'
+      ? new Date(mondaySh.getTime() + 7 * 24 * 60 * 60 * 1000)
+      : mondaySh;
+    const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+    
+    const fmtYmd = (d) => {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    };
+    const rangeLine = `${fmtYmd(weekStart)} ~ ${fmtYmd(weekEnd)}`;
+    
+    // 按天分组
+    const byDay = new Map();
+    for (const c of lessons) {
+      const day = Number(c?.day) || 0;
+      if (day < 1 || day > 7) continue;
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push(c);
+    }
+    
+    const parts = [];
+    for (let d = 1; d <= 7; d++) {
+      const list = (byDay.get(d) || []).slice().sort((a, b) => {
+        const aBegin = Number(a?.raw?.beginNumber) || 0;
+        const bBegin = Number(b?.raw?.beginNumber) || 0;
+        if (aBegin > 0 && bBegin > 0) return aBegin - bBegin;
+        const aT = parseTimeToMinutes(a?.start);
+        const bT = parseTimeToMinutes(b?.start);
+        return (aT ?? 999999) - (bT ?? 999999);
+      });
+      if (!list.length) continue;
+      
+      const dayDate = new Date(weekStart.getTime() + (d - 1) * 24 * 60 * 60 * 1000);
+      const dayHeader = `${dayNames[d]} ${fmtYmd(dayDate)}`;
+      parts.push(dayHeader);
+      parts.push('| 时间 | 课程 | 地点 |');
+      parts.push('| --- | --- | --- |');
+      
+      // 合并连续节次的同一门课
+      const merged = mergeConsecutiveLessons(list);
+      for (const c of merged) {
+        const name = String(c?.name || '课程').replace(/\|/g, '/');
+        const loc = String(c?.location || '').replace(/\|/g, '/');
+        const t = c.timeRange || (c.start ? c.start : '-');
+        parts.push(`| ${t} | ${name} | ${loc || '-'} |`);
+      }
+      parts.push('');
+    }
+    
+    if (parts.length === 0) {
+      return { text: `🗓️ ${title}（${rangeLine}）\n\n本周没有课程安排。` };
+    }
+    
+    return { text: `🗓️ ${title}（${rangeLine}）\n\n${parts.join('\n')}` };
+  } catch (err) {
+    context?.log?.(`[Schedule] 动态查询异常: ${err.message}`);
+    return { error: err.message };
+  }
+}
+
+/**
+ * 合并连续节次的同一门课（如第1-2节 → 一行）
+ */
+function mergeConsecutiveLessons(lessons) {
+  if (!lessons.length) return [];
+  
+  const result = [];
+  let current = null;
+  
+  for (const lesson of lessons) {
+    const beginNum = Number(lesson?.raw?.beginNumber) || 0;
+    const name = lesson?.name || '';
+    const location = lesson?.location || '';
+    
+    if (current && current.name === name && current.location === location && beginNum === current.endNum + 1) {
+      // 合并：扩展结束节次
+      current.endNum = beginNum;
+      current.endTime = lesson.start; // HH:MM
+    } else {
+      // 新课程
+      if (current) result.push(finalizeMerged(current));
+      current = {
+        name,
+        location,
+        startNum: beginNum,
+        endNum: beginNum,
+        startTime: lesson.start,
+        endTime: lesson.start,
+        raw: lesson.raw
+      };
+    }
+  }
+  if (current) result.push(finalizeMerged(current));
+  
+  return result;
+}
+
+function finalizeMerged(c) {
+  const timeRange = c.startNum === c.endNum
+    ? `第${c.startNum}节 ${c.startTime || ''}`
+    : `第${c.startNum}-${c.endNum}节 ${c.startTime || ''}-${c.endTime || ''}`;
+  return {
+    name: c.name,
+    location: c.location,
+    timeRange: timeRange.trim(),
+    start: c.startTime,
+    raw: c.raw
+  };
+}
+
+/**
+ * 动态请求学习通API获取今天/明天课表
+ */
+async function fetchDayScheduleFromChaoxing(curriculumUuid, when, context) {
+  const { fetchChaoxingSchedule, transformLessonsToStandardFormat, getScheduleInfo } = require('./chaoxingSchedule');
+  
+  try {
+    const info = await getScheduleInfo(curriculumUuid);
+    if (!info.success) {
+      return { error: info.error };
+    }
+    
+    const currentWeek = info.curriculum?.currentWeek || 1;
+    const nowSh = getShanghaiNowUtcShifted();
+    const targetDate = when === 'tomorrow'
+      ? new Date(nowSh.getTime() + 24 * 60 * 60 * 1000)
+      : nowSh;
+    
+    // 判断目标日期是否跨周
+    const todayWeekday = getShanghaiWeekdayNumber(nowSh);
+    const targetWeekday = getShanghaiWeekdayNumber(targetDate);
+    const targetWeek = (when === 'tomorrow' && todayWeekday === 7) ? currentWeek + 1 : currentWeek;
+    
+    context?.log?.(`[Schedule] 动态查询${when === 'tomorrow' ? '明天' : '今天'}课表: 第${targetWeek}周 周${targetWeekday}`);
+    
+    const result = await fetchChaoxingSchedule(curriculumUuid, targetWeek);
+    if (!result.success) {
+      return { error: result.error };
+    }
+    
+    const lessons = transformLessonsToStandardFormat(result.data.lessons, result.data.curriculum);
+    const dayCourses = lessons.filter(c => Number(c?.day) === targetWeekday);
+    
+    const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+    const todayLabel = when === 'tomorrow' ? '明天' : '今天';
+    const dayLabel = dayNames[targetWeekday] || `周${targetWeekday}`;
+    
+    if (!dayCourses.length) {
+      return { text: `✅ ${todayLabel}(${dayLabel})看起来没有课。` };
+    }
+    
+    // 排序并合并
+    dayCourses.sort((a, b) => {
+      const aBegin = Number(a?.raw?.beginNumber) || 0;
+      const bBegin = Number(b?.raw?.beginNumber) || 0;
+      return aBegin - bBegin;
+    });
+    
+    const merged = mergeConsecutiveLessons(dayCourses);
+    const lines = merged.map(c => {
+      const loc = c.location ? ` @ ${c.location}` : '';
+      return `- ${c.timeRange}${loc} ${c.name}`;
+    });
+    
+    return { text: `📚 ${todayLabel}(${dayLabel})有 ${merged.length} 门课:\n${lines.join('\n')}` };
+  } catch (err) {
+    context?.log?.(`[Schedule] 动态查询异常: ${err.message}`);
+    return { error: err.message };
+  }
+}
+
 function extractChaoxingScheduleUrl(rawMsg = '') {
   if (!rawMsg) return null;
   const urls = [...rawMsg.matchAll(/https?:\/\/[^\s\]]+/g)].map(m => m[0]);
@@ -803,10 +1018,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
     const queryType = detectScheduleQueryType(msg);
 
-    // 课表查询（不带文件/图片/学习通链接）：从 Cosmos 读取已保存的 schedule_profile 并回答
+    // 课表查询（不带文件/图片/学习通链接）：动态请求学习通API获取对应周次数据
     if ((hasKeyword || queryType) && !extractChaoxingScheduleUrl(msg) && (!fileLinks || fileLinks.length === 0) && (!imageUrls || imageUrls.length === 0)) {
       const profile = await readScheduleProfileFromCosmos(cosmosContainer, senderId, context);
-      if (!profile) {
+      if (!profile || !profile.curriculumUuid) {
         return {
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -818,10 +1033,34 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
 
       let replyText = '';
-      if (queryType === 'tomorrow') replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
-      else if (queryType === 'today') replyText = formatTomorrowAnswerFromProfile(profile, 'today');
-      else if (queryType === 'next_week') replyText = formatWeekScheduleAnswerFromProfile(profile, 'next_week');
-      else replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+      // 本周/下周课表：动态请求学习通API获取对应周次数据
+      if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
+        const dynamicResult = await fetchWeekScheduleFromChaoxing(profile.curriculumUuid, queryType || 'this_week', context);
+        if (dynamicResult.error) {
+          // API失败时降级到静态profile
+          context?.log?.(`[Schedule] 动态查询失败,降级到静态profile: ${dynamicResult.error}`);
+          replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
+        } else {
+          replyText = dynamicResult.text;
+        }
+      } else if (queryType === 'tomorrow') {
+        // 明天有课吗：动态请求
+        const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'tomorrow', context);
+        if (dynamicResult.error) {
+          replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
+        } else {
+          replyText = dynamicResult.text;
+        }
+      } else if (queryType === 'today') {
+        const dynamicResult = await fetchDayScheduleFromChaoxing(profile.curriculumUuid, 'today', context);
+        if (dynamicResult.error) {
+          replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+        } else {
+          replyText = dynamicResult.text;
+        }
+      } else {
+        replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
+      }
 
       const sessionKey = `${dbKey}:${senderId}`;
       await updateLastBotReply?.(cosmosContainer, dbKey, sessionKey, context);
