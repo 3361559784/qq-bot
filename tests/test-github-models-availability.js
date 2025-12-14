@@ -36,12 +36,20 @@ const BASE_URL = 'https://models.inference.ai.azure.com';
 
 const MODELS = [
   // Perception/Intent
+  'gpt-4.1-nano',
+  'gpt-4.1-mini',
   'gpt-4o-mini',
   'gpt-4o',
+  // 兼容你项目里的旧命名
   'Llama-3.3-70B-Instruct',
-  // Response
-  'Mistral-large-2407',
-  'Cohere-command-r-plus'
+  // GitHub Models 新命名（带 publisher 前缀）
+  'meta/llama-3.3-70b-instruct',
+  'microsoft/phi-4-mini-instruct',
+  'microsoft/phi-4',
+  'mistral-ai/mistral-small-2503',
+  'deepseek/deepseek-v3-0324',
+  // Vision（若你要测图像理解，可先测模型是否存在）
+  'Llama-3.2-11B-Vision-Instruct'
 ];
 
 function uniq(arr) {
