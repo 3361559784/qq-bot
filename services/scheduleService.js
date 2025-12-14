@@ -1271,6 +1271,8 @@ module.exports = {
   SCHEDULE_KEYWORDS,
   extractChaoxingScheduleUrl,
   extractScheduleFileLinks,
+  readScheduleProfileFromCosmos,
+  fetchDayScheduleFromChaoxing,
   createScheduleHandler,
   formatScheduleSummary
 };
