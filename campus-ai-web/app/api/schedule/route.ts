@@ -108,12 +108,15 @@ async function fetchChaoxingSchedule(curriculumUuid: string): Promise<CourseItem
 
 /**
  * POST /api/schedule - 导入课表
- * Body: { url: string } 或 { imageUrl: string }
+ * Body: { url: string } 或 { imageUrl: string } 或 { manualSchedule: CourseItem[] } 或 { schedule: CourseItem[] }
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { url, imageUrl, schedule: manualSchedule } = body;
+    const { url, imageUrl, schedule, manualSchedule } = body;
+    
+    // 同时支持 schedule 和 manualSchedule 字段名
+    const inputSchedule = manualSchedule || schedule;
 
     let courses: CourseItem[] = [];
     let source = 'unknown';
@@ -156,13 +159,14 @@ export async function POST(req: NextRequest) {
       source = 'ocr';
       console.log(`[Schedule API] OCR解析 ${courses.length} 条课程, 置信度: ${ocrData.confidence}`);
     }
-    // 方式3: 手动输入
-    else if (manualSchedule && Array.isArray(manualSchedule)) {
-      courses = manualSchedule;
+    // 方式3: 手动输入 (支持 manualSchedule 或 schedule 字段名)
+    else if (inputSchedule && Array.isArray(inputSchedule)) {
+      courses = inputSchedule;
       source = 'manual';
+      console.log(`[Schedule API] 手动输入 ${courses.length} 条课程`);
     }
     else {
-      return NextResponse.json({ error: '请提供 url, imageUrl 或 schedule' }, { status: 400 });
+      return NextResponse.json({ error: '请提供 url, imageUrl 或 manualSchedule' }, { status: 400 });
     }
 
     // 返回解析结果

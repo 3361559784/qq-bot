@@ -10,7 +10,7 @@ import ThinkingAnimation from "../components/ThinkingAnimation";
 import { sendMessage, sendPoke } from "../services/chat";
 import Sidebar from "../components/Sidebar";
 import RightPanel from "../components/RightPanel";
-import ScheduleImport from "../components/ScheduleImport";
+import ScheduleImportEnhanced from "../components/ScheduleImportEnhanced";
 import PlanCard, { parsePlanText, type DayPlan } from "../components/PlanCard";
 import DemoPreset, { DEMO_SCHEDULE } from "../components/DemoPreset";
 
@@ -825,6 +825,7 @@ export default function Home() {
         isOpen={isRightPanelOpen}
         onToggle={() => setIsRightPanelOpen(!isRightPanelOpen)}
         currentMode={currentMode}
+        onOpenImport={() => setShowScheduleImport(true)}
       />
 
       {/* 爱丽丝 Avatar (固定在右下角) */}
@@ -944,8 +945,8 @@ export default function Home() {
 
       {/* 课表导入模态框 */}
       {showScheduleImport && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <ScheduleImport
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <ScheduleImportEnhanced
             onScheduleImported={(newSchedule) => {
               setSchedule(newSchedule);
               setShowScheduleImport(false);

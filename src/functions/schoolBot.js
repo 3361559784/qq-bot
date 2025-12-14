@@ -118,7 +118,7 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 // ==========================================
 // 1. 全局初始化
 // ==========================================
-const token = process.env["GITHUB_TOKEN"];
+let token = process.env["GITHUB_TOKEN"];
 const cosmosString = process.env["COSMOS_DB_STRING"];
 
 // 本地联调兜底：ARIS_MOCK_CHAT=true 时，不要求外部 Token
@@ -3816,8 +3816,13 @@ app.http('schoolBot', {
     authLevel: 'anonymous',
     handler: async (request, context) => {
         try {
+            // 每次请求刷新 token，避免启动时环境变量尚未注入导致缓存为 undefined
+            token = process.env["GITHUB_TOKEN"];
+
             // 启动/联调诊断：只打印开关状态，不打印任何密钥
-            context.log(`[ENV] ARIS_MOCK_CHAT=${process.env["ARIS_MOCK_CHAT"]} MOCK_CHAT_ENABLED=${MOCK_CHAT_ENABLED} token_present=${!!token}`);
+            const ghHasKey = Object.prototype.hasOwnProperty.call(process.env, 'GITHUB_TOKEN');
+            const ghLen = String(process.env["GITHUB_TOKEN"] || '').length;
+            context.log(`[ENV] ARIS_MOCK_CHAT=${process.env["ARIS_MOCK_CHAT"]} MOCK_CHAT_ENABLED=${MOCK_CHAT_ENABLED} gh_hasKey=${ghHasKey} gh_len=${ghLen} token_present=${!!token}`);
             let msg = request.query.get('msg'); 
             let senderId = "unknown";
             let userNickname = "Sensei"; 
@@ -5239,9 +5244,79 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         // Search模式：客观、结果导向 (⭐⭐)
         // Ask/Chat模式：完整Aris人格 (⭐⭐⭐⭐)
         let modeStyleOverride = '';
-        const isCopilotMode = webMode === 'Class' || webMode === 'Plan' || webMode === 'Search';
+        const inferredMode = (() => {
+            // 前端显式指定优先
+            if (webMode) return webMode;
+
+            const msgLower = String(msg || '').toLowerCase();
+            const includesAny = (keywords) => keywords.some(k => msgLower.includes(String(k).toLowerCase()));
+            const findHit = (keywords) => keywords.find(k => msgLower.includes(String(k).toLowerCase())) || null;
+
+            // 明确关键词（强规则）
+            const strongScheduleHit = findHit(['课表', '课程表', '有课', '下一节课', '下节课', '接下来有什么课', '明天有课吗', '今天有课吗', '下周课表', '本周课表', '这周课表']);
+            const planKeywordHit = findHit(['计划', '规划', '安排', '拆解', '拆任务', '任务拆解', '学习计划', '复习计划', '时间表', '待办', 'todo']);
+            const searchKeywordHit = findHit(['搜索', '查一下', '查一查', '帮我查', '检索', '百科']);
+
+            // 1) 明确课表查询优先
+            if (strongScheduleHit) {
+                context?.log?.(`[模式推断] strong=Class hit=${strongScheduleHit}`);
+                return 'Class';
+            }
+
+            // 2) 明确计划类优先（防止 intent router 误判为 schedule）
+            if (planKeywordHit) {
+                context?.log?.(`[模式推断] strong=Plan hit=${planKeywordHit}`);
+                return 'Plan';
+            }
+
+            // 3) 再看搜索
+            if (searchKeywordHit) {
+                context?.log?.(`[模式推断] strong=Search hit=${searchKeywordHit}`);
+                return 'Search';
+            }
+
+            // 4) 关键词没命中时，优先相信意图路由
+            if (intentResult?.tool === 'schedule' || intentResult?.needsSchedule) return 'Class';
+            if (intentResult?.tool === 'plan' || intentResult?.needsPlan) return 'Plan';
+            if (intentResult?.tool === 'search' || intentResult?.needsSearch) return 'Search';
+
+            // 兜底：弱规则（包含任意课表关键词）
+            const scheduleKeywordHit = findHit(SCHEDULE_KEYWORDS);
+
+            if (scheduleKeywordHit) {
+                context?.log?.(`[模式推断] fallback=Class hit=${scheduleKeywordHit}`);
+                return 'Class';
+            }
+
+            return 'Chat';
+        })();
+
+        const isCopilotMode = inferredMode === 'Class' || inferredMode === 'Plan' || inferredMode === 'Search';
+
+    // 专业模式：使用去人设的系统提示词，避免被 ARIS_PROMPT 的强人设要求带偏
+    const COPILOT_PROMPT_ZH = `
+你是校园 AI 助手 Aris。
+
+【总目标】
+- 解决用户的课程查询、计划制定、信息搜索等需求。
+
+【强约束】
+- 专业、克制、直接给结论；优先用条目/表格呈现。
+- 不要使用二次元口癖（如“邦邦咔邦/勇者任务/Boss战”）。
+- 不要使用颜文字/Emoji；不要输出情绪标签（例如 [happy]）。
+- 不要称呼用户为 “Sensei”。
+- 涉及课表/课程：没有数据就明确说明，并提示用户导入；严禁编造。
+
+【计划类回答规范】
+- 若信息不足：先问 1-3 个关键澄清问题（目标/截止时间/可用时间）。
+- 给出可执行的时间块安排与任务拆解。
+`;
+
+    if (isCopilotMode) {
+        basePrompt = COPILOT_PROMPT_ZH;
+    }
         
-        if (webMode === 'Class') {
+        if (inferredMode === 'Class') {
             modeStyleOverride = `
 【⚠️ 课程助手模式 - 专业信息优先】
 当前是"课程查询"场景，用户需要的是准确、清晰的课程信息。
@@ -5261,12 +5336,12 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - "爱丽丝好想念您" 等过度亲昵的表达
 
 📝 回复示例：
-"(查看课表) 明天周三有3门课：
+(查看课表) 明天周三有3门课：
 - 08:00-09:50 高等数学 @教学楼A101
 - 10:10-11:50 英语听力 @语言中心
 - 14:00-15:50 体育 @体育馆
-记得早点休息，明天课比较多。"`;
-        } else if (webMode === 'Plan') {
+记得早点休息，明天课比较多。`;
+    } else if (inferredMode === 'Plan') {
             modeStyleOverride = `
 【⚠️ 计划助手模式 - 简洁实用优先】
 当前是"智能计划"场景，用户需要实用的建议和规划。
@@ -5286,12 +5361,12 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 长篇大论的修辞
 
 📝 回复示例：
-"(整理日程) 根据您的课表，建议这样安排：
+(整理日程) 根据您的课表，建议这样安排：
 1. 09:00-11:00 复习高数第三章
 2. 下午可以去图书馆自习
 3. 记得周五前完成作业
-劳逸结合，加油！"`;
-        } else if (webMode === 'Search') {
+劳逸结合，加油！`;
+    } else if (inferredMode === 'Search') {
             modeStyleOverride = `
 【⚠️ 搜索助手模式 - 客观结果优先】
 当前是"搜索问答"场景，用户需要准确的信息。
@@ -5309,7 +5384,7 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 主观臆断
 - 无关信息
 - 游戏化表达`;
-        } else if (!webMode || webMode === 'Chat') {
+    } else if (inferredMode === 'Chat') {
             // 🆕 纯闲聊模式 - 保持可爱风格
             modeStyleOverride = `
 【🌸 闲聊模式 - 可爱活泼风格】
@@ -5434,12 +5509,14 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         const combinedToolContext = scheduleContextAddition + (toolContextPrompt || '');
 
         // 🆕 将模式风格覆盖插入到系统提示词的最前面（优先级最高）
-        let currentSystemPrompt = `${modeStyleOverride}${basePrompt.replace('{{CURRENT_USER_ID}}', senderId)}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}${combinedToolContext}`;
+        const basePromptRendered = basePrompt.replace('{{CURRENT_USER_ID}}', senderId);
+        const personaAdditions = isCopilotMode
+            ? ''
+            : `${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}`;
+        let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${personaAdditions}${combinedToolContext}`;
         
-        // 日志记录当前模式
-        if (webMode) {
-            context.log(`[模式感知] webMode=${webMode}, isCopilotMode=${isCopilotMode}, hasSchedule=${webSchedule && webSchedule.length > 0}`);
-        }
+        // 日志记录当前模式（webMode 可能为空：QQ 场景/GET 调试等）
+        context.log(`[模式感知] webMode=${webMode || 'null'} inferredMode=${inferredMode} isCopilotMode=${isCopilotMode} hasSchedule=${webSchedule && webSchedule.length > 0}`);
         
         // 调用 AI 封装函数
         const client = token
