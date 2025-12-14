@@ -200,13 +200,36 @@ async function fetchWeekScheduleFromChaoxing(curriculumUuid, which, context) {
   const { fetchChaoxingSchedule, transformLessonsToStandardFormat, getScheduleInfo } = require('./chaoxingSchedule');
   
   try {
-    // 先获取当前周次
+    // 先获取课表信息
     const info = await getScheduleInfo(curriculumUuid);
     if (!info.success) {
       return { error: info.error };
     }
     
-    const currentWeek = info.curriculum?.currentWeek || 1;
+    // 🆕 自己计算当前周次，不依赖 API 返回的 currentWeek（可能有延迟/不准确）
+    const firstWeekDate = info.curriculum?.firstWeekDate;
+    let currentWeek;
+    
+    if (firstWeekDate) {
+      // 使用 firstWeekDate 自行计算
+      const nowSh = getShanghaiNowUtcShifted();
+      const firstMonday = new Date(firstWeekDate);
+      
+      // 计算当前周的周一
+      const weekday = getShanghaiWeekdayNumber(nowSh); // 1=周一...7=周日
+      const thisMonday = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+      
+      // 计算周数差
+      const weeksDiff = Math.floor((thisMonday.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      currentWeek = weeksDiff + 1;
+      
+      context?.log?.(`[Schedule] 自计算周次: 第${currentWeek}周 (开学日=${new Date(firstWeekDate).toISOString().split('T')[0]}, API返回=${info.curriculum?.currentWeek})`);
+    } else {
+      // 回退到 API 值
+      currentWeek = info.curriculum?.currentWeek || 1;
+      context?.log?.(`[Schedule] 使用API周次: 第${currentWeek}周`);
+    }
+    
     const targetWeek = which === 'next_week' ? currentWeek + 1 : currentWeek;
     const maxWeek = info.curriculum?.maxWeek || 25;
     
@@ -356,8 +379,22 @@ async function fetchDayScheduleFromChaoxing(curriculumUuid, when, context) {
       return { error: info.error };
     }
     
-    const currentWeek = info.curriculum?.currentWeek || 1;
+    // 🆕 自己计算当前周次，不依赖 API 返回的 currentWeek
+    const firstWeekDate = info.curriculum?.firstWeekDate;
     const nowSh = getShanghaiNowUtcShifted();
+    let currentWeek;
+    
+    if (firstWeekDate) {
+      const firstMonday = new Date(firstWeekDate);
+      const weekday = getShanghaiWeekdayNumber(nowSh);
+      const thisMonday = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+      const weeksDiff = Math.floor((thisMonday.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      currentWeek = weeksDiff + 1;
+      context?.log?.(`[Schedule] 自计算周次: 第${currentWeek}周 (API返回=${info.curriculum?.currentWeek})`);
+    } else {
+      currentWeek = info.curriculum?.currentWeek || 1;
+    }
+    
     const targetDate = when === 'tomorrow'
       ? new Date(nowSh.getTime() + 24 * 60 * 60 * 1000)
       : nowSh;
