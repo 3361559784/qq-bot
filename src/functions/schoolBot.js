@@ -156,7 +156,7 @@ ${merged || '无'}`;
         const resp = await client.chat.completions.create({
             model: "gpt-4o-mini",
             temperature: 0.4,
-            max_tokens: 380,
+            max_tokens: 4096,       // 允许任意长度回复
             messages: [
                 { role: "system", content: "你是中文百科助手，简洁、客观，不胡编。" },
                 { role: "user", content: prompt }
@@ -295,6 +295,8 @@ const REPLY_CONFIG = {
     MIN_SENTENCES: Number(process.env["ARIS_MIN_SENTENCES"] || 3),     // 最少句数
     MAX_CHARS: Number(process.env["ARIS_MAX_CHARS"] || 150),           // 最大字数
     MIN_CHARS: Number(process.env["ARIS_MIN_CHARS"] || 120),           // 最小字数推荐
+    // 是否强制“短回复”裁剪（默认关闭；如需开启设置 ARIS_ENFORCE_SHORT_REPLY=true）
+    ENFORCE_SHORT_REPLY: String(process.env["ARIS_ENFORCE_SHORT_REPLY"] || "").toLowerCase() === "true",
     ENABLE_SMART_SPLIT: process.env["ARIS_SMART_SPLIT"] !== "false",  // 智能分段
     EMOJI_TO_KAOMOJI: process.env["ARIS_EMOJI_CONVERT"] !== "false"   // Emoji转颜文字
 };
@@ -1434,7 +1436,7 @@ async function callGitHubModelWithImage(systemPrompt, userText, imgUrl, context)
             
             // 【关键参数调整】
             temperature: 0.6,       // 稍微调低，让它稳一点，不要太发散
-            max_tokens: 150,        // 强制缩短回复长度，配合系统提示实现"内敛版"爱丽丝
+            max_tokens: 4096,       // 允许任意长度回复
             top_p: 0.9,             // 保持一定的逻辑性
             frequency_penalty: 1.2, // 重中之重：强力惩罚重复词，解决复读机问题！
             presence_penalty: 0.6   // 鼓励它说点新词
@@ -4337,18 +4339,8 @@ ${scheduleInfo}
         
         // 【优化5】动态回复长度评估函数
         function getOptimalLength(message) {
-            const longFormTriggers = [
-                "讲个故事", "说说", "介绍一下", "怎么玩", "解释",
-                "什么意思", "详细", "具体", "分析"
-            ];
-            const briefTriggers = ["快速", "简单", "简要", "一句话"];
-            
-            if (briefTriggers.some(t => message.includes(t))) {
-                return { maxTokens: 100, style: "brief" };
-            } else if (longFormTriggers.some(t => message.includes(t))) {
-                return { maxTokens: 300, style: "detailed" };
-            }
-            return { maxTokens: 150, style: "normal" };  // 默认
+            // 取消 token 限制：统一允许最大输出
+            return { maxTokens: 4096, style: "unlimited" };
         }
 
         // 统一短回复约束：限制句子数与长度，避免长篇被截断
@@ -5207,7 +5199,7 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             const {
                 useHistory = true,
                 temperature = 1.1,
-                maxTokens = 1500,
+                maxTokens = 4096,  // 取消限制：允许任意长度
             } = opts;
 
             // 压缩历史，避免过长上下文导致啰嗦或截断
@@ -5302,7 +5294,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
             }
 
-            // 【优化5】动态调整回复长度
+            // 【优化5】动态调整回复长度 → 取消限制
             const lengthConfig = getOptimalLength(msg);
             context.log(`[回复长度] 风格: ${lengthConfig.style}, maxTokens: ${lengthConfig.maxTokens}`);
             
@@ -5325,7 +5317,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             try {
                 response = await callAI([userMessage], currentSystemPrompt, { 
                     useHistory: true,
-                    maxTokens: lengthConfig.maxTokens  // 应用动态长度
+                    maxTokens: lengthConfig.maxTokens  // 无限制：返回任意长度内容
                 });
             } catch (err) {
                 // 智能降级策略 (Content Filter 兜底)
@@ -5358,8 +5350,10 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
             }
 
-            // ⏱️ 强制压缩长度：使用 REPLY_CONFIG，避免“日志很长但前端只显示第一句”的困惑
-            aiReply = enforceShortReply(aiReply, REPLY_CONFIG.MAX_CHARS, REPLY_CONFIG.MAX_SENTENCES);
+            // ⏱️ 可选短回复裁剪（默认关闭）。若开启可避免单条消息过长。
+            if (REPLY_CONFIG.ENFORCE_SHORT_REPLY) {
+                aiReply = enforceShortReply(aiReply, REPLY_CONFIG.MAX_CHARS, REPLY_CONFIG.MAX_SENTENCES);
+            }
             
             // 🎭 检测并替换生硬的拒绝为拟人化回复
             aiReply = replaceRobotRefusal(aiReply, affectionLevel);

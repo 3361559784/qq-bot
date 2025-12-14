@@ -41,7 +41,7 @@ function ChatMessage({ role, content }: { role: string, content: string }) {
           loading="lazy"
         />
       )}
-      <div className={`max-w-[85%] ${
+      <div className={`max-w-[85%] break-words ${
         isUser 
           ? "bg-blue-100 dark:bg-blue-900/30 text-gray-800 dark:text-gray-100 px-5 py-3 rounded-2xl rounded-tr-sm" 
           : "text-gray-800 dark:text-gray-100 leading-7 pt-1"
