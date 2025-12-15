@@ -66,12 +66,15 @@ export async function POST(req: Request) {
 
     const safeSessionId = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : 'web_unknown';
     
-    const isDev = process.env.NODE_ENV !== 'production';
-    const azureFunctionUrl =
-      process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
-      (isDev
-        ? 'http://127.0.0.1:7071/api/schoolBot'
-        : 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot');
+    // 直接使用 Azure Functions URL，不走本地后端
+    // const isDev = process.env.NODE_ENV !== 'production';
+    // const azureFunctionUrl =
+    //   process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
+    //   (isDev
+    //     ? 'http://127.0.0.1:7071/api/schoolBot'
+    //     : 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot');
+    
+    const azureFunctionUrl = 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot';
     
     const response = await fetch(azureFunctionUrl, {
       method: 'POST',
