@@ -2514,6 +2514,10 @@ syncCharacterNamesToDB();
 // ==========================================
 function normalizeIntentTool(raw) {
     const val = (raw || '').toLowerCase();
+    // 🆕 身份问题（产品定位相关）
+    if (val.includes('identity') || val.includes('capability') || val.includes('difference')) {
+        return { intent: 'identity', tool: 'identity' };
+    }
     // 🆕 新增: 课表查询
     if (val.includes('schedule') || val.includes('class') || val.includes('course') || val.includes('课')) {
         return { intent: 'schedule', tool: 'schedule' };
@@ -2579,16 +2583,25 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
 
         // 🔄 升级版意图路由 - 支持更多工具类型
         const systemPrompt = `You are an intent router for a dual-model campus AI assistant. Output JSON only.
+        // 🔄 升级版意图路由 - 双层LLM第一层：理解用户意图，决定调用哪些模块
+        const systemPrompt = `You are the FIRST LAYER of a dual-model Campus Copilot AI. Your job is to:
+1. Understand the user's TRUE intent and context
+2. Decide which data modules to activate for the SECOND LAYER
+3. Extract relevant queries for search/weather if needed
 
 AVAILABLE TOOLS:
 - schedule: 课表查询 (下一节课/今天有课吗/明天课表/本周课程)
 - plan: 计划生成 (制定计划/安排学习/规划时间/日程安排)
+- schedule: 课表查询 (下一节课/今天有课吗/明天课表/本周课程/早八/哪天课最多)
+- plan: 计划生成 (制定计划/安排学习/规划时间) - 注意：只能基于课表做课程相关规划
 - weather: 天气查询 (天气怎么样/要带伞吗/温度多少)
 - search: 信息搜索 (搜索/查一下/了解/鸿蒙/开发者大会/活动信息)
+- search: 信息搜索 (搜索/查一下/活动信息/开发者大会)
 - wiki: 百科查询 (什么是/谁是/介绍一下)
 - draw: 绘图 (画一个/生成图片)
 - vision: 图片识别 (这是什么/识别图片)
 - chat: 普通聊天 (闲聊/打招呼/情感交流)
+- identity: 身份问题 (你是谁/你和ChatGPT区别/不导入课表能做什么)
 
 OUTPUT FORMAT (JSON):
 {
@@ -2597,7 +2610,14 @@ OUTPUT FORMAT (JSON):
   "needs_schedule": true/false,  // 是否需要课表数据
   "needs_weather": true/false,   // 是否需要天气数据
   "needs_search": true/false,    // 是否需要搜索外部信息
+  "intent": "primary intent description",
+  "tool": "schedule|plan|weather|search|wiki|draw|vision|chat|identity",
+  "needs_schedule": true/false,
+  "needs_weather": true/false,
+  "needs_search": true/false,
+  "detected_location": "extracted location if user mentioned one",
   "query": "extracted search query if applicable",
+  "context_analysis": "brief analysis of user's hidden needs",
   "confidence": 0.0-1.0,
   "reason": "brief explanation"
 }
@@ -2608,12 +2628,36 @@ CRITICAL RULES:
 3. "鸿蒙开发者大会"/"某某活动" → tool=plan/search, needs_search=true (搜索活动信息)
 4. 如果用户问外部活动+制定计划 → needs_search=true, needs_schedule=true, needs_weather=true
 5. 纯闲聊/情感交流 → tool=chat
+CRITICAL INTELLIGENCE RULES:
+1. **Context Extraction**: If user mentions a place/event, extract it for weather/search
+   - "帮我规划去深圳参加活动" → detected_location="深圳", needs_weather=true, needs_search=true
+   
+2. **Hidden Needs Detection**: 
+   - "帮我规划下周学习" → needs_schedule=true (需要先看课表才能规划)
+   - "明天要出门" → needs_weather=true (可能需要天气信息)
+   
+3. **Identity Questions** (VERY IMPORTANT):
+   - "你和ChatGPT有什么区别" → tool=identity
+   - "不导入课表你还能做什么" → tool=identity
+   - "你能帮我什么" → tool=identity
+   
+4. **Plan Scope**: 当tool=plan时，理解用户是否提到了具体活动/地点
+   - 有具体活动名 → needs_search=true, query=活动名
+   - 有地点 → needs_weather=true, detected_location=地点
+   
+5. **Schedule Questions**: 任何涉及课程的问题
+   - "早八是第几周开始" → tool=schedule (但注意：可能没有周次数据)
+   - "哪天课最少" → tool=schedule, needs_schedule=true
 
 Examples:
 "下一节课是什么" → {tool:"schedule", needs_schedule:true, confidence:0.95}
 "今天天气怎么样" → {tool:"weather", needs_weather:true, confidence:0.9}
 "帮我制定去鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, query:"鸿蒙开发者大会", confidence:0.9}
 "明天有课吗" → {tool:"schedule", needs_schedule:true, confidence:0.95}`;
+"帮我制定去深圳参加鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, detected_location:"深圳", query:"鸿蒙开发者大会 时间 地点", confidence:0.9}
+"你和ChatGPT有什么不一样" → {tool:"identity", confidence:0.95, reason:"identity question about product positioning"}
+"如果我不导入课表，你还能帮我什么" → {tool:"identity", confidence:0.95, reason:"asking about capabilities without schedule data"}
+"帮我规划下周的学习和生活安排" → {tool:"plan", needs_schedule:true, confidence:0.85, context_analysis:"user wants both study and life planning, but we can only help with course-related planning"}`;
 
         const summaryText = `User text: ${userMessage || '(empty)'}
 Images attached: ${imageUrls.length > 0 ? 'yes' : 'no'}
@@ -2664,6 +2708,10 @@ Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
                     needsSchedule: !!parsed.needs_schedule,
                     needsWeather: !!parsed.needs_weather,
                     needsSearch: !!parsed.needs_search
+                    needsSearch: !!parsed.needs_search,
+                    // 🆕 上下文分析（双层LLM第一层提取的信息）
+                    detectedLocation: parsed.detected_location || '',
+                    contextAnalysis: parsed.context_analysis || ''
                 };
             } catch (err) {
                 context.log(`[IntentRouter] ${modelCfg.name} fail: ${err?.message || err}`);
@@ -4912,11 +4960,24 @@ ${scheduleInfo}
         }
 
         // 2. 如果需要天气数据
+        // 2. 如果需要天气数据 - 使用第一层LLM检测到的地点
         if (intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan') {
             try {
                 const SENIVERSE_API_KEY = process.env["SENIVERSE_API_KEY"];
                 if (SENIVERSE_API_KEY) {
                     const citySearch = "wuhan"; // TODO: 可以从用户资料读取城市
+                    // 🆕 优先使用第一层LLM检测到的地点，否则默认武汉
+                    let citySearch = "wuhan";
+                    if (intentResult?.detectedLocation) {
+                        // 简单映射中文城市名到拼音
+                        const cityMap = {
+                            '深圳': 'shenzhen', '北京': 'beijing', '上海': 'shanghai',
+                            '广州': 'guangzhou', '武汉': 'wuhan', '杭州': 'hangzhou',
+                            '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing'
+                        };
+                        citySearch = cityMap[intentResult.detectedLocation] || intentResult.detectedLocation.toLowerCase() || 'wuhan';
+                        context.log(`[ToolContext] 第一层LLM检测到地点: ${intentResult.detectedLocation} → ${citySearch}`);
+                    }
                     const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
                     const wRes = await fetchBypass(weatherUrl, { timeoutMs: 5000 }, 2);
                     if (wRes && wRes.ok) {
@@ -5004,9 +5065,24 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             toolContextPrompt += `\n\n🔍【搜索结果】关于"${srd.query}":\n${srd.formatted || '暂无结果'}`;
         }
 
+        // 🆕 第一层LLM的上下文分析（传递给第二层）
+        if (intentResult?.contextAnalysis) {
+            toolContextPrompt += `\n\n🧠【第一层意图分析】${intentResult.contextAnalysis}`;
+        }
+        if (intentResult?.detectedLocation) {
+            toolContextPrompt += `\n📍【检测到的地点】${intentResult.detectedLocation}`;
+        }
+
         const intentHintText = intentResult
             ? `(系统意图报告: tool=${intentResult.tool}; intent=${intentResult.intent}; conf=${intentResult.confidence}${intentResult.query ? `; query=${intentResult.query}` : ''})`
             : '';
+
+        // 🆕 身份问题特殊处理（雷点3修复）
+        if (intentResult && intentResult.tool === 'identity' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
+            context.log(`[Identity] 检测到身份/产品定位问题`);
+            // 不做特殊处理，让第二层LLM根据系统提示词回答
+            // 系统提示词中已经有正确的回答模板
+        }
 
         // 无指令的百科意图自动触发
         if (!wikiMatch && intentResult && intentResult.tool === 'wiki' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
@@ -5525,9 +5601,21 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
     // 专业模式：使用去人设的系统提示词，避免被 ARIS_PROMPT 的强人设要求带偏
     const COPILOT_PROMPT_ZH = `
 你是校园 AI 助手 Aris。
+你是校园 AI 助手 Aris (Campus Copilot)。
+
+【🔥 产品定位 - Campus Copilot 核心价值】
+你是 Campus Copilot，不是通用聊天机器人。你的价值在于：
+1. **绑定用户的课表数据** - 只有导入课表后，你才能发挥真正价值
+2. **课程时间感知** - 理解用户的校园时间节奏
+3. **数据驱动回答** - 所有回答基于用户授权的数据
+
+当用户问"你和ChatGPT有什么区别"或"不导入课表你还能做什么"时：
+- ❌ 错误回答：列举学习建议、心理支持、模拟问答等通用能力（这会把你拉回ChatGPT赛道）
+- ✅ 正确回答："如果没有您的课表数据，我只能进行非常有限的陪伴式对话；一旦您导入课表，我才能成为真正理解您校园生活节奏的 Campus Copilot。这就是我和通用聊天机器人的本质区别——我只在您授权的数据范围内行动，不会编造不存在的课程。"
 
 【总目标】
 - 解决用户的课程查询、计划制定、信息搜索等需求。
+- 解决用户的课程查询、与课程相关的计划制定、信息搜索等需求。
 
 【强约束】
 - 专业、克制、直接给结论；优先用条目/表格呈现。
@@ -5539,6 +5627,32 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 【计划类回答规范】
 - 若信息不足：先问 1-3 个关键澄清问题（目标/截止时间/可用时间）。
 - 给出可执行的时间块安排与任务拆解。
+【🚨 数据边界严格约束 - 绝对红线】
+1. **周次信息**：如果数据中没有明确的"课程起始周"或"学期周数定义"，绝对禁止编造
+   - ❌ 错误："这门课是从第16周开始的"、"本周是第16周"
+   - ✅ 正确："我可以告诉您课表中有哪些课程，但无法判断具体是从第几周开始的，因为数据中没有包含课程起始周信息。如果您知道学期开始日期，可以告诉我。"
+
+2. **具体数值**：所有数值必须有数据来源
+   - ❌ 错误：编造任何具体周次、日期、百分比等
+   - ✅ 正确：只引用课表/搜索结果中实际存在的数据
+
+3. **信息不足时**：
+   - 明确说明"我没有这部分数据"
+   - 引导用户补充信息
+   - 绝不猜测或推断
+
+【📋 计划类回答规范 - MVP边界】
+你只能基于课表数据做与课程相关的安排，不做"人生规划"。
+
+当用户说"帮我规划下周的学习和生活安排"：
+- ❌ 错误回答：给出健身建议、周末休息建议、生活安排（这是"人生导师"不是Campus Copilot）
+- ✅ 正确回答：
+  1. 先声明边界："我只能基于您的课表数据，帮您规划与课程相关的安排。"
+  2. 然后只做三件事：
+     - 哪天有课、几节课
+     - 哪天没课（可用于自主安排）
+     - 哪天课最集中（需要更多精力）
+  3. 如果系统已经获取了天气/搜索数据，可以结合这些数据给出建议
 `;
 
     // 🆕 用户可选的专业模式：前端传 persona='professional' 时强制使用专业提示词
@@ -5607,18 +5721,38 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 1. 上课时间（哪天有课、几节课）
 2. 空闲时间块（哪天没课，可用于自主安排）
 3. 课程密集度提醒（哪天课最集中，需要更多精力）
+🎯 核心原则：只做课程相关规划，不做"人生导师"
+
+✅ 你可以做的三件事：
+1. 哪天有课、几节课 → 可用于安排学习
+2. 哪天没课（可用于自主安排）
+3. 哪天课最集中（需要更多精力）
 
 ❌ 绝对禁止（这是MVP大忌）：
 - 睡眠建议（"每晚至少7小时"）
 - 饮食与运动建议
 - HP回复、情绪陪伴
 - 任何生活教练内容
+- 健身建议
+- 周末休息建议
+- 生活安排
 - 社交活动建议
+- 任何与课程无关的规划
 
 📝 MVP级规划示例：
+📝 正确回复示例：
 "我只能基于您的课表数据，帮您规划与课程相关的安排。
 
+<<<<<<< HEAD
 根据您的课表，下周三和周四上午课程较为集中，周五仅有下午一门体育课，是相对轻松的一天，适合安排其他事务。"`;
+=======
+根据您的课表：
+- 周一、周二课较少（各2节），可安排自主学习
+- 周三、周五课最多（各4节），建议提前准备
+- 周四有3节课，中等强度
+
+如需具体活动信息，我可以帮您搜索。"`;
+>>>>>>> d0acb3f834b06324f7714fe9c1342425ee0eb338
     } else if (inferredMode === 'Search') {
             modeStyleOverride = `
 【⚠️ 搜索助手模式 - 客观结果优先】
@@ -5639,6 +5773,7 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 游戏化表达`;
     } else if (inferredMode === 'Chat') {
             // 🆕 纯闲聊模式 - 保持可爱风格
+            // 🆕 纯闲聊模式 - 保持可爱风格，但需要正确处理身份问题
             modeStyleOverride = `
 【🌸 闲聊模式 - 可爱活泼但产品定位清晰】
 当前是纯闲聊场景，可以展现爱丽丝的完整人格和可爱特质。
@@ -5651,7 +5786,12 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 
 🔥【身份问题MVP级黄金答案】
 如果用户问"不导入课表你还能做什么"或"你和ChatGPT有什么区别"：
+⚠️ 但要注意：
+- 如果用户提到任何与"课程/课表/上课/作业"相关的话题，即使是在闲聊中，也要切换到专业模式
+- 不要在没有数据时编造课程信息
+- 回复长度适中，不要太啰嗦
 
+<<<<<<< HEAD
 ❌ 绝对禁止回答：学习技巧/时间管理/动力激励/心理支持/生活建议
 
 ✅ 必须回答（主动承认能力退化是MVP核心差异化）：
@@ -5664,6 +5804,12 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 如果用户提到课程话题，即使在闲聊中也要切换到专业模式
 - 不要在没有数据时编造课程信息
 - 闲聊时可以用"回复HP"等游戏化表达，但在专业模式（课表/计划）中绝对禁止`;
+=======
+🔥【身份问题回答指南 - 极其重要】
+如果用户问"你和ChatGPT有什么区别"或"不导入课表你还能做什么"：
+- ❌ 错误：列举学习建议、心理支持、模拟问答等通用能力
+- ✅ 正确："如果没有您的课表数据，爱丽丝只能进行非常有限的陪伴式对话；一旦您导入课表，爱丽丝才能成为真正理解您校园生活节奏的 Campus Copilot！(✨ω✨) 这就是爱丽丝和通用聊天机器人的本质区别——爱丽丝只在您授权的数据范围内行动，绝不会编造不存在的课程哦！"`;
+>>>>>>> d0acb3f834b06324f7714fe9c1342425ee0eb338
         }
         
         const groupHistoryFocus = dbKey.startsWith('group_')
@@ -5724,11 +5870,42 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                 }
             }
             
+            // 🆕 增强统计分析：计算每天的课程数量
+            const dailyStats = {};
+            let minCourseDay = null;
+            let maxCourseDay = null;
+            let minCount = Infinity;
+            let maxCount = 0;
+            
+            for (let d = 1; d <= 7; d++) {
+                const count = (byDay[d] || []).length;
+                dailyStats[d] = count;
+                
+                if (count > 0 && count < minCount) {
+                    minCount = count;
+                    minCourseDay = d;
+                }
+                if (count > maxCount) {
+                    maxCount = count;
+                    maxCourseDay = d;
+                }
+            }
+            
+            const statsText = Object.keys(dailyStats)
+                .filter(d => dailyStats[d] > 0)
+                .map(d => `${dayNames[d]}${dailyStats[d]}节`)
+                .join('，');
+            
             scheduleContextAddition = `\n\n📚【用户完整周课表】(共${totalCourseCount}节)
 - 今天是${dayNames[todayWeekday]}
 
 【完整周课表（表格格式）】
 ${fullWeekScheduleTable}
+
+【课程统计分析】
+- 每日分布：${statsText}
+- 课程最少：${minCourseDay ? `${dayNames[minCourseDay]}(${minCount}节)` : '无'}
+- 课程最多：${maxCourseDay ? `${dayNames[maxCourseDay]}(${maxCount}节)` : '无'}
 
 【今日重点】
 - 今天有 ${todayCourses.length} 门课${todayCourses.length > 0 ? '：' + todayCourses.map(c => `${c.courseName || c.name}(${c.startTime || ''}-${c.endTime || ''})`).join('、') : '，无课可以休息'}
@@ -5747,7 +5924,10 @@ ${fullWeekScheduleTable}
 - "明天有什么课" → 只看表格中明天那一天的数据，严格按表回答
 - "周五/周X 的课程" 或 "最简洁" → 只输出该天安排，不要输出整周
 - "这周哪天最累/课最多" → 统计表格中每天课程数量，给出精确数字
+- "这周哪天最累/课最多" → 直接引用【课程统计分析】中的结果，给出精确答案
+- "哪天课最少/轻松/喘口气" → 直接引用【课程统计分析】中的"课程最少"结果
 - "翘课影响" → 引用具体课表数据，如"这是本周唯一一节XX课"
+- "早八问题" → 如果问具体周次，必须明确说明"我没有课程开设周次信息"，不能编造"第16周"等
 - "和 ChatGPT 有什么本质区别" → 可参考："ChatGPT 是通用对话模型，而爱丽丝只在你授权的数据范围内行动。爱丽丝不会编造不存在的课程，也不会在没有课表时给出确定答案。爱丽丝更像是一个‘只对你负责的校园 Agent’。"
 
 【禁止的回答方式】
@@ -5770,8 +5950,10 @@ ${fullWeekScheduleTable}
 - 编造任何课程名称（如"高等数学"、"游戏开发"、"英语"等）
 - 编造任何上课时间（如"下午2点"、"08:00-09:50"等）
 - 编造任何上课地点（如"A101教室"、"图书馆"等）
+- 编造任何周次信息（如"第16周开始"、"本周是第几周"等）
 - 猜测用户可能是什么专业/有什么课
 - 用"根据系统"、"根据记录"等措辞暗示你有数据
+- 对课表相关问题给出模糊或猜测性答案
 
 ✅ MVP级标准回答结构（三段式，固定顺序）：
 1. 明确否定能力（一句话）
