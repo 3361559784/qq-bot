@@ -271,36 +271,41 @@ async function testManualInput() {
 }
 
 // ========== 6. 测试 QQ Bot 课表查询 ==========
-async function testQQBotQuery() {
-  console.log('\n🧪 测试 QQ Bot 课表查询...');
-  
+async function testChatApiQuery(schedule) {
+  console.log('\n🧪 测试 /api/chat 课表查询（真实演示链路）...');
+
   const fetch = (await import('node-fetch')).default;
-  
+
   const queries = [
-    "今天有什么课",
-    "明天有什么课",
-    "下一节课是什么",
-    "周六有什么课",
-    "高等数学什么时候上"
+    '下一节课是什么',
+    '本周课表',
+    '下周课表',
+    '今天有什么课',
+    '明天有什么课'
   ];
-  
+
   const results = [];
-  
+  const missingScheduleSignals = [
+    '目前没有检测到您的课表数据',
+    '我还没有你的课表数据',
+    '请先通过超星学习通导入课表',
+    '请先发送学习通课表链接'
+  ];
+
   for (const query of queries) {
     try {
-      const response = await fetch('http://localhost:7071/api/schoolBot', {
+      const response = await fetch('http://localhost:3000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          post_type: "message",
-          message_type: "private",
-          user_id: "yanle_test_user",
-          raw_message: query,
           message: query,
-          sender: { nickname: "严乐" }
+          mode: 'Ask',
+          sessionId: 'yanle_test_user',
+          persona: 'alice',
+          schedule: Array.isArray(schedule) ? schedule : undefined,
         })
       });
-      
+
       const text = await response.text();
       let data;
       try {
@@ -308,17 +313,30 @@ async function testQQBotQuery() {
       } catch {
         data = { reply: text };
       }
-      
+
       const reply = data.reply || data.message || text.substring(0, 200);
+      const hasMissingSignal = missingScheduleSignals.some(s => reply.includes(s));
+
+      // 基础断言：不应出现“没课表/需导入”的提示（因为我们会传 schedule）
+      let ok = !hasMissingSignal;
+      // 关键场景断言：周课表应有表格
+      if (query.includes('周课表')) {
+        ok = ok && reply.includes('| 时间 |') && reply.includes('| --- |');
+      }
+      // 关键场景断言：下一节课应有明确输出
+      if (query.includes('下一节课')) {
+        ok = ok && (reply.includes('下一节课') || reply.includes('第一节'));
+      }
+
       console.log(`   📝 "${query}"`);
       console.log(`      → ${reply.substring(0, 150)}${reply.length > 150 ? '...' : ''}`);
-      results.push({ query, success: true, reply });
+      results.push({ query, success: ok, reply });
     } catch (err) {
       console.log(`   ❌ "${query}" 失败: ${err.message}`);
       results.push({ query, success: false, error: err.message });
     }
   }
-  
+
   return results;
 }
 
@@ -335,7 +353,7 @@ async function main() {
     excel: null,
     ics: null,
     manual: null,
-    qqBot: null
+    chatApi: null
   };
   
   // Step 1: 生成测试文件
@@ -355,12 +373,18 @@ async function main() {
   results.ics = await testICSUpload(icsPath);
   results.manual = await testManualInput();
   
-  // Step 3: 测试 QQ Bot
+  // Step 3: 测试 /api/chat（真实演示链路）
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🤖 Step 3: 测试 QQ Bot 课表查询');
+  console.log('🤖 Step 3: 测试 /api/chat 课表查询');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  
-  results.qqBot = await testQQBotQuery();
+
+  // 优先使用上传返回的 schedule（更贴近真实“导入后查询”）
+  const scheduleFromUpload =
+    (results.excel?.success && Array.isArray(results.excel?.data?.schedule) ? results.excel.data.schedule : null) ||
+    (results.ics?.success && Array.isArray(results.ics?.data?.schedule) ? results.ics.data.schedule : null) ||
+    UNIQUE_SCHEDULE;
+
+  results.chatApi = await testChatApiQuery(scheduleFromUpload);
   
   // 汇总
   console.log('\n╔════════════════════════════════════════════════════════════════╗');
@@ -374,8 +398,8 @@ async function main() {
   if (results.ics?.success) passed.push('ICS 上传'); else failed.push('ICS 上传');
   if (results.manual?.success) passed.push('手动输入'); else failed.push('手动输入');
   
-  const qqBotPassed = results.qqBot?.filter(r => r.success).length || 0;
-  const qqBotTotal = results.qqBot?.length || 0;
+  const chatApiPassed = results.chatApi?.filter(r => r.success).length || 0;
+  const chatApiTotal = results.chatApi?.length || 0;
   
   console.log(`\n   ✅ 通过: ${passed.length} / 3`);
   passed.forEach(p => console.log(`      • ${p}`));
@@ -385,9 +409,9 @@ async function main() {
     failed.forEach(f => console.log(`      • ${f}`));
   }
   
-  console.log(`\n   🤖 QQ Bot 查询: ${qqBotPassed} / ${qqBotTotal} 成功`);
+  console.log(`\n   🤖 /api/chat 查询: ${chatApiPassed} / ${chatApiTotal} 成功`);
   
-  const allPassed = passed.length === 3 && qqBotPassed === qqBotTotal;
+  const allPassed = passed.length === 3 && chatApiPassed === chatApiTotal;
   
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   if (allPassed) {

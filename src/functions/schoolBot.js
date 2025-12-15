@@ -2,7 +2,7 @@ const { app } = require('@azure/functions');
 const { OpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
 const { hybridSearch } = require('../../services/hybridSearch');
-const { createScheduleHandler, SCHEDULE_KEYWORDS, extractScheduleFileLinks } = require('../../services/scheduleService');
+const { createScheduleHandler, SCHEDULE_KEYWORDS, extractScheduleFileLinks, detectScheduleQueryType } = require('../../services/scheduleService');
 const { toPinyinCityName, getWeatherDesc } = require('../../services/weatherService');
 const { checkAnimeDB, checkCustomVision, checkComputerVision } = require('../../services/visionService');
 const { getAudioSource, checkKeywordAudio } = require('../../services/voiceService');
@@ -268,39 +268,22 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 // 意图路由配置（Perception→Action 双模型）
 const INTENT_ROUTER_ENABLED = process.env["ARIS_INTENT_ROUTER"] !== "false";
 // 优先选一个便宜、限额更宽松的模型做意图路由；如不支持会自动 fallback。
-const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4.1-nano";
+const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4o-mini";
 const INTENT_CONFIDENCE_THRESHOLD = Number(process.env["ARIS_INTENT_CONFIDENCE"] || 0.35);
+
+// 统一模型路由：纯文本不消耗 gpt-4o，把 gpt-4o 留给图像专用
+const {
+    getPerceptionModelCfgs,
+    getResponseModelCfgs,
+    getVisionModels
+} = require('../../services/modelRouter');
 
 // 模型池 (4+4) - GitHub Models 兼容优先
 // 说明：意图路由是纯文本 JSON 输出，不需要 vision 模型，避免使用可能不存在的 *-Vision-Instruct 名称。
-const PERCEPTION_MODELS = [
-    { name: INTENT_ROUTER_MODEL, temp: 0.1 },
-    // GitHub Models 备用池（避免单模型日限额打爆）
-    { name: "gpt-4.1-mini", temp: 0.1 },
-    { name: "gpt-4o-mini", temp: 0.1 },
-    { name: "gpt-4o", temp: 0.1 },
-    { name: "microsoft/phi-4-mini-instruct", temp: 0.1 },
-    { name: "meta/llama-3.3-70b-instruct", temp: 0.1 },
-    // 兼容旧命名（你项目里原本就在用）
-    { name: "Llama-3.3-70B-Instruct", temp: 0.1 }
-].filter((m, idx, arr) => m?.name && arr.findIndex(x => x.name === m.name) === idx);
+const PERCEPTION_MODELS = getPerceptionModelCfgs().filter((m, idx, arr) => m?.name && arr.findIndex(x => x.name === m.name) === idx);
 
-const RESPONSE_MODELS = [
-    // 低延迟/高可用优先
-    { name: "gpt-4.1-mini", temp: 0.9 },
-    { name: "gpt-4o-mini", temp: 0.9 },
-    // 质量/稳健备选
-    { name: "mistral-ai/mistral-small-2503", temp: 0.9 },
-    { name: "deepseek/deepseek-v3-0324", temp: 0.9 },
-    { name: "meta/llama-3.3-70b-instruct", temp: 1.0 },
-    // 你当前项目已验证可用的兜底
-    { name: "Phi-4", temp: 1.0 },
-    { name: "microsoft/phi-4", temp: 1.0 },
-    { name: "microsoft/phi-4-mini-instruct", temp: 1.0 },
-    { name: "gpt-4o", temp: 1.0 },
-    // 兼容旧命名
-    { name: "Llama-3.3-70B-Instruct", temp: 1.0 }
-];
+// 纯文本回复链路默认只用 gpt-4o-mini（可用 ARIS_TEXT_MODELS 覆盖），避免消耗 gpt-4o 配额。
+const RESPONSE_MODELS = getResponseModelCfgs();
 
 // =====================================================
 // GitHub Models 兼容性：不支持模型自动降级（进程级缓存）
@@ -1162,7 +1145,6 @@ async function getDrawPromptFromAI(userText, context) {
             client,
             [
                 "gpt-4.1-mini",
-                "gpt-4o",
                 "gpt-4o-mini",
                 "microsoft/phi-4",
                 "Phi-4",
@@ -1541,12 +1523,8 @@ async function callGitHubModelWithImage(systemPrompt, userText, imgUrl, context)
             presence_penalty: 0.6
         };
 
-        const visionModels = [
-            "Llama-3.2-11B-Vision-Instruct",
-            "gpt-4o",
-            "gpt-4.1",
-            "gpt-4.1-mini"
-        ];
+        // 视觉链路：默认只用 gpt-4o（可用 ARIS_VISION_MODELS 覆盖；可选 ARIS_VISION_ALLOW_MINI_FALLBACK=true）
+        const visionModels = getVisionModels();
 
         context.log(`[GitHub Models] Vision fallback: ${visionModels.join(' -> ')}`);
         const { resp, model } = await chatCompletionWithFallback(client, visionModels, request, context, 'vision');
@@ -4676,7 +4654,11 @@ ${scheduleInfo}
         // 优先处理课表/日程导入：官方导出 > OCR 截图 > 学习通URL
         const msgLower = (msg || "").toLowerCase();
         const rawMsg = body?.raw_message || msg || "";
-        const scheduleIntent = (scheduleFileLinks && scheduleFileLinks.length > 0) || SCHEDULE_KEYWORDS.some(k => msgLower.includes(k));
+        const scheduleQueryType = detectScheduleQueryType(rawMsg);
+        const scheduleIntent =
+            (scheduleFileLinks && scheduleFileLinks.length > 0) ||
+            SCHEDULE_KEYWORDS.some(k => msgLower.includes(k)) ||
+            !!scheduleQueryType;
         if (scheduleIntent) {
             const scheduleResp = await handleScheduleRequest({
                 fileLinks: scheduleFileLinks,
@@ -4956,8 +4938,15 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - 明天有 ${sd.tomorrowCourses?.length || 0} 节课`;
             }
 
-            // 课表类回答统一要求：保持工具感，避免角色扮演化口癖
-            toolContextPrompt += `\n\n【回答要求】当用户询问课表/日程时：保持冷静工具风格；不要使用“Sensei”等称呼；不要添加表情/拟声词/夸张感叹；直接给出结论与列表。`;
+            // 🆕 课表类回答严格要求：根据问题类型决定回答内容
+            toolContextPrompt += `
+
+【🔴 关键回答规则】
+1. 用户问"下一节课"/"下节课"/"接下来"：只回答下一节课信息（时间、课程名、地点），不要输出整周课表
+2. 用户问"今天有什么课"：只列出今天的课程  
+3. 用户问"明天有什么课"：只列出明天的课程
+4. 用户问"课表"/"本周课表"/"下周课表"：才输出完整周课表（用表格格式）
+5. 保持简洁工具风格，不要添加过多情感表达`;
         }
         if (toolContext.weatherData) {
             const wd = toolContext.weatherData;
@@ -5660,33 +5649,39 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                 (a.startTime || '').localeCompare(b.startTime || '')
             );
             
-            // 🆕 格式化完整周课表
-            let fullWeekSchedule = '';
+            // 🆕 格式化完整周课表（Markdown表格格式）
+            let fullWeekScheduleTable = '\n| 星期 | 时间 | 课程 | 地点 |\n|:----:|:----:|:----:|:----:|\n';
+            let totalCourseCount = 0;
             for (let d = 1; d <= 7; d++) {
                 const dayCourses = (byDay[d] || []).sort((a, b) => 
                     (a.startTime || '').localeCompare(b.startTime || '')
                 );
                 if (dayCourses.length > 0) {
-                    const isToday = d === todayWeekday;
-                    const isTomorrow = d === tomorrowWeekday;
-                    const dayMark = isToday ? '(今天)' : isTomorrow ? '(明天)' : '';
-                    fullWeekSchedule += `\n  ${dayNames[d]}${dayMark}: ${dayCourses.map(c => 
-                        `${c.courseName || c.name}(${c.startTime || '?'}-${c.endTime || '?'}${c.location ? '@' + c.location : ''})`
-                    ).join('、')}`;
+                    for (let i = 0; i < dayCourses.length; i++) {
+                        const c = dayCourses[i];
+                        const dayLabel = i === 0 ? dayNames[d] : '';
+                        const time = `${c.startTime || '?'}-${c.endTime || '?'}`;
+                        const name = c.courseName || c.name || '未知课程';
+                        const loc = c.location || '-';
+                        fullWeekScheduleTable += `| ${dayLabel} | ${time} | ${name} | ${loc} |\n`;
+                        totalCourseCount++;
+                    }
                 }
             }
             
-            scheduleContextAddition = `\n\n📚【用户完整周课表】
-- 今天是${dayNames[todayWeekday]}，当前周课程总数：${webSchedule.length} 节
-- 完整一周课程安排:${fullWeekSchedule}
+            scheduleContextAddition = `\n\n📚【用户完整周课表】(共${totalCourseCount}节)
+- 今天是${dayNames[todayWeekday]}
+
+【完整周课表（表格格式）】
+${fullWeekScheduleTable}
 
 【今日重点】
 - 今天有 ${todayCourses.length} 门课${todayCourses.length > 0 ? '：' + todayCourses.map(c => `${c.courseName || c.name}(${c.startTime || ''}-${c.endTime || ''})`).join('、') : '，无课可以休息'}
 - 明天(${dayNames[tomorrowWeekday]})有 ${tomorrowCourses.length} 门课${tomorrowCourses.length > 0 ? '：' + tomorrowCourses.map(c => `${c.courseName || c.name}`).join('、') : '，无课'}
 
 【回答指南】
-- 用户问"下周课表"/"下个星期课程"时，展示完整一周课程（因为课表每周循环）
-- 用户问"本周课表"时，也展示完整一周课程
+- 用户问"课表"/"下周课表"/"本周课表"时，使用上面的表格格式输出
+- 用户问"下一节课"时，只回答下一节课的信息，不要输出整周课表
 - 用户问具体某天（如"周三有什么课"）时，只展示该天课程
 - 如果用户问非课程问题，请正常聊天，不要强行关联课表`;
             

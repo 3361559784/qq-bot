@@ -110,8 +110,11 @@ ${text}
 
 如果无法识别某个字段,请使用 null。`;
 
+  const { getOcrParseModel } = require('./modelRouter');
+  const OCR_PARSE_MODEL = getOcrParseModel();
+
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: OCR_PARSE_MODEL,
     messages: [
       { role: "system", content: "你是一个精确的课表解析助手,只返回 JSON 格式的数据。" },
       { role: "user", content: prompt }

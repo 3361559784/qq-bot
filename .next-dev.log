@@ -1,0 +1,43 @@
+
+> campus-ai@0.1.0 dev
+> next dev --port 3000
+
+ ⚠ turbopack.root should be absolute, using: /Users/liuziheng/qq-bot-aris-clean/campus-ai-web
+   ▲ Next.js 16.0.8 (Turbopack)
+   - Local:         http://localhost:3000
+   - Network:       http://172.20.10.10:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 503ms
+ GET / 200 in 1609ms (compile: 1508ms, render: 101ms)
+ POST /api/chat 200 in 3.4s (compile: 158ms, render: 3.3s)
+ POST /api/chat 200 in 1334ms (compile: 3ms, render: 1330ms)
+ POST /api/chat 200 in 1591ms (compile: 2ms, render: 1588ms)
+[Excel Parse] 表头: [
+  '课程名称', '星期',
+  '开始时间', '结束时间',
+  '教室',     '教师',
+  '周次'
+]
+[Excel Parse] 列映射: {
+  name: 0,
+  weekday: 1,
+  startTime: 2,
+  endTime: 3,
+  location: 4,
+  instructor: 5,
+  weeks: 6
+}
+[Schedule Upload] Excel解析 27 条课程
+ POST /api/schedule/upload 200 in 308ms (compile: 286ms, render: 22ms)
+[Schedule Upload] ICS解析 27 条课程
+ POST /api/schedule/upload 200 in 7ms (compile: 2ms, render: 5ms)
+[Schedule API] 手动输入 3 条课程
+ POST /api/schedule 200 in 49ms (compile: 47ms, render: 3ms)
+ POST /api/chat 200 in 1505ms (compile: 732µs, render: 1505ms)
+ POST /api/chat 200 in 1640ms (compile: 3ms, render: 1637ms)
+ POST /api/chat 200 in 2.1s (compile: 2ms, render: 2.1s)
+ POST /api/chat 200 in 1674ms (compile: 3ms, render: 1671ms)
+ POST /api/chat 200 in 1591ms (compile: 1092µs, render: 1590ms)
+   Reload env: .env.local

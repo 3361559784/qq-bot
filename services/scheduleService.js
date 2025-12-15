@@ -26,6 +26,14 @@ function getShanghaiWeekdayNumber(dateUtcShifted) {
 function detectScheduleQueryType(msg = '') {
   const lower = String(msg || '').toLowerCase();
   if (!lower) return null;
+  
+  // "下一节课"优先级最高
+  if (lower.includes('下一节课') || lower.includes('下节课') || 
+      (lower.includes('下一') && lower.includes('课')) ||
+      lower.includes('接下来的课') || lower.includes('接下来上什么课')) {
+    return 'next_course';
+  }
+  
   if (lower.includes('明天') && lower.includes('课')) return 'tomorrow';
   if (lower.includes('今天') && lower.includes('课')) return 'today';
   if ((lower.includes('下周') || lower.includes('下星期') || lower.includes('下个星期') || lower.includes('下礼拜')) && lower.includes('课表')) return 'next_week';
@@ -125,7 +133,7 @@ function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
 
 /**
  * 🆕 根据前端传入的 webSchedule 数组格式化回复
- * webSchedule 格式: { courseName, weekday, startTime, endTime, location, ... }
+ * webSchedule 格式: { courseName, weekday, startTime, endTime, location, weeks, ... }
  * @param {Array} webSchedule - 前端传入的课表数组
  * @param {string} queryType - 查询类型: 'today' | 'tomorrow' | 'this_week' | 'next_week' | null
  * @param {Object} context - 日志上下文
@@ -145,6 +153,95 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
   };
   const normalizeLocation = (c) => c?.location || '';
   
+  // 🆕 计算当前学期周次（假设开学第一周周一为 2025-09-01）
+  const SEMESTER_START = new Date(Date.UTC(2025, 8, 1)); // 2025-09-01 周一
+  const thisMonday = new Date(nowSh.getTime() - (todayWeekday - 1) * 24 * 60 * 60 * 1000);
+  const weeksDiff = Math.floor((thisMonday.getTime() - SEMESTER_START.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  const currentWeek = weeksDiff + 1; // 当前是第几周
+  
+  context?.log?.(`[Schedule] 当前周次: 第${currentWeek}周`);
+  
+  // 🆕 解析 weeks 字段，判断课程是否在指定周次上课
+  const isCourseInWeek = (course, targetWeek) => {
+    const weeks = course?.weeks;
+    if (!weeks) return true; // 没有 weeks 字段，默认每周都上
+    
+    const weeksStrRaw = String(weeks).trim();
+    if (!weeksStrRaw) return true;
+
+    // 兼容格式示例:
+    // - "7-16周" / "7-16" / "第7-16周"
+    // - "8-14周(双)" / "8-14周(单周)"
+    // - "7周,10-15周" / "7周，10-15周" / "7周、10-15周"
+    // - "单周" / "双周"
+    const normalizeSeparators = (s) =>
+      s
+        .replace(/\s+/g, '')
+        .replace(/[，、；;]+/g, ',')
+        .replace(/第/g, '');
+
+    const extractParity = (token) => {
+      if (/单/.test(token)) return 'odd';
+      if (/双/.test(token)) return 'even';
+      return null;
+    };
+
+    const stripParityMarkers = (token) =>
+      token
+        // 去掉括号里的单双周标记: (双)、（单周） 等
+        .replace(/[（(]?(单|双)(周)?[)）]?/g, '')
+        // 去掉裸露的 单周/双周
+        .replace(/(单周|双周)/g, '');
+
+    const weeksStr = normalizeSeparators(weeksStrRaw);
+    if (weeksStr === '单周') return targetWeek % 2 === 1;
+    if (weeksStr === '双周') return targetWeek % 2 === 0;
+
+    const tokens = weeksStr
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    for (const tokenRaw of tokens) {
+      const parity = extractParity(tokenRaw);
+      let token = stripParityMarkers(tokenRaw);
+      token = token.replace(/周/g, '');
+
+      // 仅 parity（例如被清洗后为空）：当作全周单双周
+      if (!token) {
+        if (parity === 'odd' && targetWeek % 2 === 1) return true;
+        if (parity === 'even' && targetWeek % 2 === 0) return true;
+        continue;
+      }
+
+      const rangeMatch = token.match(/^(\d+)-(\d+)$/) || token.match(/(\d+)\s*-\s*(\d+)/);
+      if (rangeMatch) {
+        const start = parseInt(rangeMatch[1], 10);
+        const end = parseInt(rangeMatch[2], 10);
+        if (Number.isFinite(start) && Number.isFinite(end)) {
+          const inRange = targetWeek >= start && targetWeek <= end;
+          if (!inRange) continue;
+          if (parity === 'odd' && targetWeek % 2 !== 1) continue;
+          if (parity === 'even' && targetWeek % 2 !== 0) continue;
+          return true;
+        }
+        continue;
+      }
+
+      const singleMatch = token.match(/(\d+)/);
+      if (singleMatch) {
+        const num = parseInt(singleMatch[1], 10);
+        if (!Number.isFinite(num)) continue;
+        if (num !== targetWeek) continue;
+        if (parity === 'odd' && targetWeek % 2 !== 1) continue;
+        if (parity === 'even' && targetWeek % 2 !== 0) continue;
+        return true;
+      }
+    }
+
+    return false;
+  };
+  
   // 计算日期
   const fmtYmd = (d) => {
     const y = d.getUTCFullYear();
@@ -154,6 +251,45 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
   };
   
   // === 查询类型处理 ===
+  
+  // 🆕 下一节课查询
+  if (queryType === 'next_course') {
+    const nowHour = nowSh.getUTCHours();
+    const nowMin = nowSh.getUTCMinutes();
+    const nowTimeStr = `${String(nowHour).padStart(2,'0')}:${String(nowMin).padStart(2,'0')}`;
+    
+    // 今天剩余的课
+    const todayCourses = webSchedule
+      .filter(c => normalizeWeekday(c) === todayWeekday)
+      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+    
+    const nextCourse = todayCourses.find(c => (c.startTime || '') > nowTimeStr);
+    
+    if (nextCourse) {
+      const name = normalizeName(nextCourse);
+      const time = normalizeTime(nextCourse);
+      const loc = normalizeLocation(nextCourse);
+      return `📚 下一节课是《${name}》，时间 ${time}${loc ? `，地点 ${loc}` : ''}。`;
+    }
+    
+    // 今天没课了，看明天
+    const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
+    const tomorrowCourses = webSchedule
+      .filter(c => normalizeWeekday(c) === tomorrowWeekday)
+      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+    
+    if (tomorrowCourses.length > 0) {
+      const first = tomorrowCourses[0];
+      const name = normalizeName(first);
+      const time = normalizeTime(first);
+      const loc = normalizeLocation(first);
+      const dayLabel = dayNames[tomorrowWeekday];
+      return `✅ 今天没有剩余课程了。明天(${dayLabel})第一节是《${name}》，时间 ${time}${loc ? `，地点 ${loc}` : ''}。`;
+    }
+    
+    return '✅ 今天和明天都没有课，好好休息吧！';
+  }
+  
   if (queryType === 'today') {
     const todayCourses = webSchedule
       .filter(c => normalizeWeekday(c) === todayWeekday)
@@ -209,9 +345,16 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
   const rangeLine = `${fmtYmd(weekStart)} ~ ${fmtYmd(weekEnd)}`;
   const title = queryType === 'next_week' ? '下周课表' : '本周课表';
   
+  // 🆕 计算目标周次
+  const targetWeek = queryType === 'next_week' ? currentWeek + 1 : currentWeek;
+  context?.log?.(`[Schedule] 查询${title}: 第${targetWeek}周`);
+  
+  // 🆕 过滤出在目标周次上课的课程
+  const filteredSchedule = webSchedule.filter(c => isCourseInWeek(c, targetWeek));
+  
   // 按天分组
   const byDay = new Map();
-  for (const c of webSchedule) {
+  for (const c of filteredSchedule) {
     const day = normalizeWeekday(c);
     if (day < 1 || day > 7) continue;
     if (!byDay.has(day)) byDay.set(day, []);
@@ -564,6 +707,136 @@ async function fetchDayScheduleFromChaoxing(curriculumUuid, when, context) {
     context?.log?.(`[Schedule] 动态查询异常: ${err.message}`);
     return { error: err.message };
   }
+}
+
+/**
+ * 🆕 获取下一节课
+ */
+async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
+  const { fetchChaoxingSchedule, transformLessonsToStandardFormat, getScheduleInfo } = require('./chaoxingSchedule');
+  
+  try {
+    const info = await getScheduleInfo(curriculumUuid);
+    if (!info.success) {
+      return { error: info.error };
+    }
+    
+    const firstWeekDate = info.curriculum?.firstWeekDate;
+    const nowSh = getShanghaiNowUtcShifted();
+    let currentWeek;
+    
+    if (firstWeekDate) {
+      const firstMonday = new Date(firstWeekDate);
+      const weekday = getShanghaiWeekdayNumber(nowSh);
+      const thisMonday = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+      const weeksDiff = Math.floor((thisMonday.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      currentWeek = weeksDiff + 1;
+    } else {
+      currentWeek = info.curriculum?.currentWeek || 1;
+    }
+    
+    const todayWeekday = getShanghaiWeekdayNumber(nowSh);
+    const nowTimeStr = String(nowSh.getHours()).padStart(2, '0') + ':' + String(nowSh.getMinutes()).padStart(2, '0');
+    
+    context?.log?.(`[Schedule] 查询下一节课: 第${currentWeek}周 周${todayWeekday} 当前时间${nowTimeStr}`);
+    
+    // 先查今天
+    const todayResult = await fetchChaoxingSchedule(curriculumUuid, currentWeek);
+    if (!todayResult.success) {
+      return { error: todayResult.error };
+    }
+    
+    const lessons = transformLessonsToStandardFormat(todayResult.data.lessons, todayResult.data.curriculum);
+    const todayCourses = lessons.filter(c => Number(c?.day) === todayWeekday);
+    
+    // 排序
+    todayCourses.sort((a, b) => {
+      const aBegin = Number(a?.raw?.beginNumber) || 0;
+      const bBegin = Number(b?.raw?.beginNumber) || 0;
+      return aBegin - bBegin;
+    });
+    
+    // 查找今天剩余的下一节课
+    for (const c of todayCourses) {
+      const startTime = c.startTime || c.timeRange?.split('-')[0]?.trim() || '';
+      if (startTime > nowTimeStr) {
+        const loc = c.location ? `，地点 ${c.location}` : '';
+        return { text: `📚 下一节课是《${c.name}》，时间 ${c.timeRange || startTime}${loc}。` };
+      }
+    }
+    
+    // 今天没有更多课了，查明天
+    const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
+    const tomorrowWeek = todayWeekday === 7 ? currentWeek + 1 : currentWeek;
+    
+    let tomorrowLessons = lessons;
+    if (tomorrowWeek !== currentWeek) {
+      const tomorrowResult = await fetchChaoxingSchedule(curriculumUuid, tomorrowWeek);
+      if (tomorrowResult.success) {
+        tomorrowLessons = transformLessonsToStandardFormat(tomorrowResult.data.lessons, tomorrowResult.data.curriculum);
+      }
+    }
+    
+    const tomorrowCourses = tomorrowLessons.filter(c => Number(c?.day) === tomorrowWeekday);
+    tomorrowCourses.sort((a, b) => {
+      const aBegin = Number(a?.raw?.beginNumber) || 0;
+      const bBegin = Number(b?.raw?.beginNumber) || 0;
+      return aBegin - bBegin;
+    });
+    
+    if (tomorrowCourses.length > 0) {
+      const c = tomorrowCourses[0];
+      const loc = c.location ? `，地点 ${c.location}` : '';
+      return { text: `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${c.timeRange || c.startTime}${loc}。` };
+    }
+    
+    return { text: '✅ 今天和明天都没有课了，好好休息吧！' };
+  } catch (err) {
+    context?.log?.(`[Schedule] 查询下一节课异常: ${err.message}`);
+    return { error: err.message };
+  }
+}
+
+/**
+ * 🆕 从 profile 静态数据获取下一节课
+ */
+function formatNextCourseFromProfile(profile, context) {
+  if (!profile?.weekly_schedule) {
+    return '⚠️ 没有课表数据。';
+  }
+  
+  const nowSh = getShanghaiNowUtcShifted();
+  const todayWeekday = getShanghaiWeekdayNumber(nowSh);
+  const nowTimeStr = String(nowSh.getHours()).padStart(2, '0') + ':' + String(nowSh.getMinutes()).padStart(2, '0');
+  
+  const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+  const dayKey = dayNames[todayWeekday];
+  
+  // 今天的课
+  const todayCourses = profile.weekly_schedule[dayKey] || [];
+  todayCourses.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  
+  for (const c of todayCourses) {
+    const startTime = (c.time || '').split('-')[0]?.trim() || '';
+    if (startTime > nowTimeStr) {
+      const loc = c.location ? `，地点 ${c.location}` : '';
+      return `📚 下一节课是《${c.name}》，时间 ${c.time}${loc}。`;
+    }
+  }
+  
+  // 查明天
+  const tomorrowWeekday = todayWeekday === 7 ? 1 : todayWeekday + 1;
+  const tomorrowKey = dayNames[tomorrowWeekday];
+  const tomorrowCourses = profile.weekly_schedule[tomorrowKey] || [];
+  tomorrowCourses.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+  
+  if (tomorrowCourses.length > 0) {
+    const c = tomorrowCourses[0];
+    const loc = c.location ? `，地点 ${c.location}` : '';
+    return `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${c.time}${loc}。`;
+  }
+  
+  return '✅ 今天和明天都没有课了，好好休息吧！';
 }
 
 function extractChaoxingScheduleUrl(rawMsg = '') {
@@ -1008,6 +1281,8 @@ function extractOcrText(cvSummary) {
 async function parseScheduleFromOcrText(ocrText, context, token) {
   if (!ocrText || !token) return { events: [], summary: ocrText || '' };
   const client = new OpenAI({ baseURL: 'https://models.inference.ai.azure.com', apiKey: token });
+  const { getOcrParseModel } = require('./modelRouter');
+  const OCR_PARSE_MODEL = getOcrParseModel();
 
   const prompt = `你是一名专业的大学课表识别助手。下面是从学习通App课表截图中提取的OCR文本。
 
@@ -1034,7 +1309,7 @@ ${ocrText}`;
 
   try {
     const resp = await client.chat.completions.create({
-      model: 'gpt-4o',
+      model: OCR_PARSE_MODEL,
       temperature: 0.1,
       max_tokens: 2000,
       messages: [
@@ -1475,6 +1750,18 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           } else {
             replyText = dynamicResult.text;
           }
+        } else if (queryType === 'next_course') {
+          // 下一节课：查询今天剩余的课，找到下一节
+          const dynamicResult = await fetchNextCourseFromChaoxing(effectiveUuid, context);
+          if (dynamicResult.error) {
+            if (profile?.weekly_schedule) {
+              replyText = formatNextCourseFromProfile(profile, context);
+            } else {
+              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+            }
+          } else {
+            replyText = dynamicResult.text;
+          }
         } else {
           if (profile?.weekly_schedule) {
             replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
@@ -1491,6 +1778,8 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
         } else if (queryType === 'today') {
           replyText = formatTomorrowAnswerFromProfile(profile, 'today');
+        } else if (queryType === 'next_course') {
+          replyText = formatNextCourseFromProfile(profile, context);
         } else {
           replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
         }
@@ -1669,6 +1958,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
 
 module.exports = {
   SCHEDULE_KEYWORDS,
+  detectScheduleQueryType,
   extractChaoxingScheduleUrl,
   extractScheduleFileLinks,
   readScheduleProfileFromCosmos,

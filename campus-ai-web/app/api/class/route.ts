@@ -12,6 +12,9 @@ interface CourseItem {
   weeks: string | null;
 }
 
+// 开学日期（第1周周一）
+const SEMESTER_START = new Date('2025-09-01');
+
 // 获取上海时间
 function getShanghaiTime(): Date {
   return new Date(Date.now() + 8 * 60 * 60 * 1000);
@@ -21,6 +24,51 @@ function getShanghaiTime(): Date {
 function getWeekday(date: Date): number {
   const d = date.getUTCDay();
   return d === 0 ? 7 : d;
+}
+
+// 计算当前是第几周
+function getCurrentWeek(): number {
+  const now = getShanghaiTime();
+  const weekday = now.getUTCDay();
+  // 找到本周一
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const daysToSubtract = weekday === 0 ? 6 : weekday - 1;
+  const thisMonday = new Date(todayStart.getTime() - daysToSubtract * 24 * 60 * 60 * 1000);
+  
+  // 计算距离开学周一的天数
+  const semesterStart = new Date(Date.UTC(SEMESTER_START.getFullYear(), SEMESTER_START.getMonth(), SEMESTER_START.getDate()));
+  const daysDiff = Math.floor((thisMonday.getTime() - semesterStart.getTime()) / (24 * 60 * 60 * 1000));
+  
+  return Math.floor(daysDiff / 7) + 1;
+}
+
+// 解析 weeks 字段，判断课程是否在指定周有效
+// 支持格式: "7-16周", "7周,9周,11周,13周", "6-7周,9-17周", "7周,10-15周"
+function isCourseInWeek(weeks: string | null, targetWeek: number): boolean {
+  if (!weeks) return true; // 没有周次信息，默认所有周都有
+  
+  // 移除"周"字
+  const cleaned = weeks.replace(/周/g, '');
+  const parts = cleaned.split(',');
+  
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed.includes('-')) {
+      // 范围格式: "7-16"
+      const [start, end] = trimmed.split('-').map(Number);
+      if (targetWeek >= start && targetWeek <= end) {
+        return true;
+      }
+    } else {
+      // 单周格式: "7"
+      const week = parseInt(trimmed);
+      if (week === targetWeek) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 }
 
 // 时间字符串转分钟数
@@ -34,11 +82,23 @@ function formatTimeRange(start: string, end: string): string {
   return `${start} - ${end}`;
 }
 
-function formatWeeklyOverview(schedule: CourseItem[]): string {
+function formatWeeklyOverview(schedule: CourseItem[], isNextWeek: boolean = true): string {
   const weekdays = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  
+  // 计算目标周次
+  const currentWeek = getCurrentWeek();
+  const targetWeek = isNextWeek ? currentWeek + 1 : currentWeek;
+  const weekLabel = isNextWeek ? '下周' : '本周';
+
+  // 过滤该周有效的课程
+  const validCourses = schedule.filter(c => isCourseInWeek(c.weeks, targetWeek));
+  
+  if (validCourses.length === 0) {
+    return `📅 **第${targetWeek}周${weekLabel.slice(1)}**暂无课程安排，可以好好休息哦！`;
+  }
 
   const grouped: Record<number, CourseItem[]> = {};
-  for (const c of schedule) {
+  for (const c of validCourses) {
     if (!grouped[c.weekday]) grouped[c.weekday] = [];
     grouped[c.weekday].push(c);
   }
@@ -46,8 +106,9 @@ function formatWeeklyOverview(schedule: CourseItem[]): string {
   // 按表格形式输出
   const rows: string[] = [];
   rows.push('| 星期 | 时间 | 课程 | 地点 |');
-  rows.push('|------|------|------|------|');
+  rows.push('|:----:|:----:|:----:|:----:|');
 
+  let totalCourses = 0;
   for (let d = 1; d <= 7; d++) {
     const courses = (grouped[d] || []).sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
     if (courses.length === 0) continue;
@@ -57,14 +118,15 @@ function formatWeeklyOverview(schedule: CourseItem[]): string {
       const dayLabel = i === 0 ? weekdays[d] : '';
       const loc = c.location || '-';
       rows.push(`| ${dayLabel} | ${c.startTime}-${c.endTime} | ${c.courseName} | ${loc} |`);
+      totalCourses++;
     }
   }
 
-  if (rows.length <= 2) {
-    return '课表是空的，先导入课表再试一次。';
+  if (totalCourses === 0) {
+    return `📅 **第${targetWeek}周${weekLabel.slice(1)}**暂无课程安排，可以好好休息哦！`;
   }
 
-  return `📅 **下周课表**\n\n${rows.join('\n')}\n\n✨ 合理安排时间，加油！`;
+  return `📅 **第${targetWeek}周（${weekLabel}）课表** (共${totalCourses}节)\n\n${rows.join('\n')}\n\n✨ 合理安排时间，加油！`;
 }
 
 /**
@@ -74,31 +136,23 @@ function answerClassQuestion(question: string, schedule: CourseItem[]): string {
   const now = getShanghaiTime();
   const currentWeekday = getWeekday(now);
   const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const currentWeek = getCurrentWeek();
   
   const lowerQ = question.toLowerCase();
 
-  // “下周/下个星期/下星期/课表”
-  if (
-    lowerQ.includes('下周') ||
-    lowerQ.includes('下个星期') ||
-    lowerQ.includes('下星期') ||
-    lowerQ.includes('课表')
-  ) {
-    return formatWeeklyOverview(schedule);
-  }
-
-  // 今天的课程
+  // 今天的课程（过滤本周有效的）
   const todayCourses = schedule
-    .filter(c => c.weekday === currentWeekday)
+    .filter(c => c.weekday === currentWeekday && isCourseInWeek(c.weeks, currentWeek))
     .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
-  // 明天的课程
+  // 明天的课程（如果今天是周日，明天是下一周的周一）
   const tomorrowWeekday = currentWeekday === 7 ? 1 : currentWeekday + 1;
+  const tomorrowWeek = currentWeekday === 7 ? currentWeek + 1 : currentWeek;
   const tomorrowCourses = schedule
-    .filter(c => c.weekday === tomorrowWeekday)
+    .filter(c => c.weekday === tomorrowWeekday && isCourseInWeek(c.weeks, tomorrowWeek))
     .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
-  // "下一节课是什么"
+  // 🔥 优先级1："下一节课是什么"（最高优先级）
   if (lowerQ.includes('下一节') || lowerQ.includes('下节课') || lowerQ.includes('接下来')) {
     // 找今天剩余的课
     const nextCourse = todayCourses.find(c => timeToMinutes(c.startTime) > currentMinutes);
@@ -146,33 +200,23 @@ function answerClassQuestion(question: string, schedule: CourseItem[]): string {
     return `明天的课程安排：\n${lines.join('\n')}`;
   }
 
-  // "本周/这周课表"
-  if (lowerQ.includes('本周') || lowerQ.includes('这周') || lowerQ.includes('周课表')) {
-    const weekdays = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-    const grouped: Record<number, CourseItem[]> = {};
-    
-    schedule.forEach(c => {
-      if (!grouped[c.weekday]) grouped[c.weekday] = [];
-      grouped[c.weekday].push(c);
-    });
+  // "下周/下个星期/下星期"
+  if (
+    lowerQ.includes('下周') ||
+    lowerQ.includes('下个星期') ||
+    lowerQ.includes('下星期')
+  ) {
+    return formatWeeklyOverview(schedule, true); // 下周
+  }
 
-    const lines: string[] = [];
-    for (let d = 1; d <= 7; d++) {
-      const courses = grouped[d];
-      if (courses && courses.length > 0) {
-        lines.push(`【${weekdays[d]}】`);
-        courses
-          .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime))
-          .forEach(c => {
-            const loc = c.location ? ` @ ${c.location}` : '';
-            lines.push(`  ${c.startTime}-${c.endTime} ${c.courseName}${loc}`);
-          });
-      }
-    }
-
-    return lines.length > 0 
-      ? `本周课表：\n${lines.join('\n')}`
-      : '本周没有课程安排。';
+  // "本周/这周/周课表/课表"
+  if (
+    lowerQ.includes('本周') ||
+    lowerQ.includes('这周') ||
+    lowerQ.includes('周课表') ||
+    lowerQ.includes('课表')
+  ) {
+    return formatWeeklyOverview(schedule, false); // 本周
   }
 
   // 默认：显示今天剩余课程
