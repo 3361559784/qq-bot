@@ -5677,13 +5677,28 @@ ${fullWeekScheduleTable}
 
 【今日重点】
 - 今天有 ${todayCourses.length} 门课${todayCourses.length > 0 ? '：' + todayCourses.map(c => `${c.courseName || c.name}(${c.startTime || ''}-${c.endTime || ''})`).join('、') : '，无课可以休息'}
-- 明天(${dayNames[tomorrowWeekday]})有 ${tomorrowCourses.length} 门课${tomorrowCourses.length > 0 ? '：' + tomorrowCourses.map(c => `${c.courseName || c.name}`).join('、') : '，无课'}
+- 明天(${dayNames[tomorrowWeekday]})有 ${tomorrowCourses.length} 门课${tomorrowCourses.length > 0 ? '：' + tomorrowCourses.map(c => `${c.courseName || c.name}(${c.startTime}-${c.endTime})`).join('、') : '，无课'}
 
-【回答指南】
-- 用户问"课表"/"下周课表"/"本周课表"时，使用上面的表格格式输出
-- 用户问"下一节课"时，只回答下一节课的信息，不要输出整周课表
-- 用户问具体某天（如"周三有什么课"）时，只展示该天课程
-- 如果用户问非课程问题，请正常聊天，不要强行关联课表`;
+【🚨 回答指南 - 决赛级精度要求】
+1. **时间精度**：必须使用表格中的精确时间（如 08:00-09:40），禁止概括为 08:00-08:45 等不准确时间
+2. **课程归属**：只回答表格中确实存在的课程，绝对禁止编造或混淆课程日期
+3. **数据边界意识**：
+   - 只有"课表数据"，没有"考试数据"、"作业数据"、"活动数据"
+   - 用户问考试/作业时：回答"当前数据源只包含课程安排，不包含考试信息"
+   - 不要说"没有考试"（这是无法验证的断言），而是"我没有考试数据"
+
+【回答场景指南】
+- "下一节课" → 根据当前时间，查表格找当天剩余课程中最早一节
+- "明天有什么课" → 只看表格中明天那一天的数据，严格按表回答
+- "这周哪天最累/课最多" → 统计表格中每天课程数量，给出精确数字
+- "翘课影响" → 引用具体课表数据，如"这是本周唯一一节XX课"
+- "和ChatGPT有什么区别" → 回答"我只在你授权的数据范围内行动，不会编造不存在的课程，也不会在没有课表时给出确定答案"
+
+【禁止的回答方式】
+- ❌ 概括时间（08:00-08:45 而非精确的 08:00-09:40）
+- ❌ 混淆日期（把周一的课说成明天周三的）
+- ❌ 断言无数据（"没有考试" → 应该说 "我没有考试数据"）
+- ❌ 泛泛而谈（"翘课会影响进度" → 应该说 "这是本周唯一一节高数"）`;
             
             context.log(`[WebSchedule] 前端传入 ${webSchedule.length} 条课程，今日${todayCourses.length}节，明日${tomorrowCourses.length}节`);
         } else {

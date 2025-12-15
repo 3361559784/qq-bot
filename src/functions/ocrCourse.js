@@ -5,6 +5,9 @@ const {
     token
 } = require('./schoolBot');
 
+// 引入新的 GPT-4o 视觉 OCR 流程
+const { ocrScheduleWorkflow } = require('../../services/ocrSchedule');
+
 // HTTP API: /api/ocrCourse
 // 用于外部直接上传官方导出(ICS/Excel)或截图进行课表解析
 app.http('ocrCourse', {
@@ -28,11 +31,57 @@ app.http('ocrCourse', {
             if (!userId) {
                 return {
                     status: 400,
-                    body: 'Missing userId'
+                    jsonBody: { error: 'Missing userId' }
                 };
             }
 
-            // 归一化 fileLinks -> [{url, name}]
+            // 处理图片 OCR (优先使用新的 GPT-4o 视觉流程)
+            const imageUrls = Array.isArray(body.imageUrls || body.images) ? (body.imageUrls || body.images) : [];
+            
+            if (imageUrls.length > 0) {
+                context.log(`[ocrCourse] 使用 GPT-4o 视觉处理 ${imageUrls.length} 张图片`);
+                
+                const ocrToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_MODELS_TOKEN;
+                if (!ocrToken) {
+                    return {
+                        status: 500,
+                        jsonBody: { error: 'OCR 需要 GITHUB_TOKEN 环境变量' }
+                    };
+                }
+
+                try {
+                    // 使用新的 GPT-4o 视觉 OCR 流程
+                    const { schedule, confidence, text } = await ocrScheduleWorkflow(imageUrls[0], ocrToken);
+                    
+                    context.log(`[ocrCourse] OCR 成功: ${schedule.length} 门课程, 置信度 ${(confidence * 100).toFixed(1)}%`);
+                    
+                    // 返回前端期望的格式
+                    return {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                        jsonBody: {
+                            success: true,
+                            schedule: schedule,
+                            confidence: confidence,
+                            ocrText: text,
+                            count: schedule.length
+                        }
+                    };
+                } catch (ocrErr) {
+                    context.error(`[ocrCourse] GPT-4o OCR 失败: ${ocrErr.message}`);
+                    return {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                        jsonBody: {
+                            success: false,
+                            error: `OCR解析失败: ${ocrErr.message}`,
+                            schedule: null
+                        }
+                    };
+                }
+            }
+
+            // 如果没有图片，回退到原有的 handleScheduleRequest 处理文件等
             const normalizeLinks = (links) => {
                 if (!links) return [];
                 if (typeof links === 'string') return [{ url: links }];
@@ -46,13 +95,11 @@ app.http('ocrCourse', {
             };
 
             const fileLinks = normalizeLinks(body.fileLinks || body.files);
-            const imageUrls = Array.isArray(body.imageUrls || body.images) ? (body.imageUrls || body.images) : [];
-
             const dbKey = groupId ? `group_${groupId}` : String(userId);
 
             const resp = await handleScheduleRequest({
                 fileLinks,
-                imageUrls,
+                imageUrls: [],
                 msg: rawMsg || '',
                 senderId: String(userId),
                 dbKey,
@@ -61,65 +108,76 @@ app.http('ocrCourse', {
                 token
             });
 
-            // handleScheduleRequest 已返回 HTTP 响应结构（或 null），把它转换为标准化 JSON 输出
-            // resp 可能为 null（未识别），或为{status, headers, body}
-            let parsedResult = {
-                ok: false,
-                parsed: false,
-                events: [],
-                summary: '',
-                needsConfirmation: false,
-                rawReply: null
-            };
-
+            // handleScheduleRequest 已返回 HTTP 响应结构（或 null）
             if (!resp) {
-                parsedResult.ok = true;
-                parsedResult.parsed = false;
-                parsedResult.summary = 'No schedule detected';
-                return { status: 200, jsonBody: parsedResult };
+                return { 
+                    status: 200, 
+                    jsonBody: { 
+                        success: false, 
+                        error: '未检测到可解析的课表文件',
+                        schedule: null 
+                    } 
+                };
             }
 
-            // If handleScheduleRequest returns an http-like response with JSON string in body
+            // 解析 handleScheduleRequest 返回的内容
             try {
                 const bodyContent = typeof resp.body === 'string' ? resp.body : (resp.body && JSON.stringify(resp.body)) || '';
-                parsedResult.rawReply = bodyContent;
-                // 尝试解析 JSON 字符串(若 handleScheduleRequest 返回 JSON.stringify 内容)
                 let maybe = null;
                 try {
                     maybe = JSON.parse(bodyContent);
                 } catch (e) {
-                    // 不做处理，使用原始 reply
+                    // 不是 JSON
                 }
 
-                if (maybe) {
-                    // 由 handleScheduleRequest 返回的结构体，检查常用字段
-                    parsedResult.ok = true;
-                    // 约定: 如果存在 events 字段则认为解析成功
-                    parsedResult.parsed = Boolean(maybe.events && maybe.events.length > 0) || maybe.reply?.includes && !maybe.reply?.includes('未找到');
-                    parsedResult.events = maybe.events || [];
-                    parsedResult.summary = maybe.summary || (typeof maybe.reply === 'string' ? maybe.reply : '');
-                    parsedResult.needsConfirmation = maybe.needsConfirmation || false;
-                } else {
-                    // 不是 JSON: 尝试从字符串中提取 summary，保底封装
-                    parsedResult.ok = true;
-                    parsedResult.parsed = resp.status === 200 && !!bodyContent && !bodyContent.includes('无法识别') && !bodyContent.includes('未找到');
-                    parsedResult.summary = bodyContent;
+                if (maybe && maybe.events && maybe.events.length > 0) {
+                    // 转换 events 为 schedule 格式
+                    const schedule = maybe.events.map(e => ({
+                        courseName: e.title || '未知课程',
+                        instructor: null,
+                        location: e.location || null,
+                        weekday: e.start ? new Date(e.start).getDay() || 7 : null,
+                        startTime: e.start ? new Date(e.start).toTimeString().slice(0, 5) : null,
+                        endTime: e.end ? new Date(e.end).toTimeString().slice(0, 5) : null,
+                        weeks: null
+                    }));
+                    
+                    return {
+                        status: 200,
+                        jsonBody: {
+                            success: true,
+                            schedule: schedule,
+                            confidence: 0.8,
+                            count: schedule.length
+                        }
+                    };
                 }
+
+                return {
+                    status: 200,
+                    jsonBody: {
+                        success: false,
+                        error: maybe?.reply || '解析失败',
+                        schedule: null
+                    }
+                };
             } catch (err) {
                 context.log(`[ocrCourse] parse response error: ${err.message}`);
-                parsedResult.ok = false;
-                parsedResult.summary = 'Error parsing internal response';
+                return {
+                    status: 200,
+                    jsonBody: {
+                        success: false,
+                        error: '解析响应失败',
+                        schedule: null
+                    }
+                };
             }
-
-            // 明确返回 JSON，避免被序列化为 "[object Object]"
-            return {
-                status: 200,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                jsonBody: parsedResult
-            };
         } catch (err) {
             context.error(`[ocrCourse] Error: ${err.message}`);
-            return { status: 500, body: err.message || 'Internal error' };
+            return { 
+                status: 500, 
+                jsonBody: { error: err.message || 'Internal error' } 
+            };
         }
     }
 });

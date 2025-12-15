@@ -27,19 +27,30 @@ interface ChaoxingLesson {
   weeks?: string;
 }
 
-// 节次对应时间
+// 节次对应时间（标准高校时间表，1-2节连上为一大节）
 const PERIOD_TIMES: Record<number, { start: string; end: string }> = {
   1: { start: "08:00", end: "08:45" },
   2: { start: "08:55", end: "09:40" },
   3: { start: "10:00", end: "10:45" },
   4: { start: "10:55", end: "11:40" },
   5: { start: "14:00", end: "14:45" },
-  6: { start: "14:55", end: "15:35" },
+  6: { start: "14:55", end: "15:40" },
   7: { start: "15:55", end: "16:40" },
-  8: { start: "16:50", end: "17:30" },
+  8: { start: "16:50", end: "17:35" },
   9: { start: "19:00", end: "19:45" },
   10: { start: "19:55", end: "20:40" },
 };
+
+/**
+ * 根据 beginNumber 和 length 获取精确的时间范围
+ * 例: beginNumber=1, length=2 → 08:00-09:40 (第1-2节)
+ */
+function getPeriodTimeRange(beginNumber: number, length: number): { start: string; end: string } {
+  const startTime = PERIOD_TIMES[beginNumber]?.start || "08:00";
+  const endPeriod = beginNumber + length - 1;
+  const endTime = PERIOD_TIMES[endPeriod]?.end || PERIOD_TIMES[beginNumber]?.end || "09:40";
+  return { start: startTime, end: endTime };
+}
 
 /**
  * 从学习通URL提取课表UUID
@@ -73,10 +84,10 @@ async function fetchChaoxingSchedule(curriculumUuid: string): Promise<CourseItem
   // 转换为标准格式
   const courses: CourseItem[] = lessons.map(lesson => {
     const beginPeriod = lesson.beginNumber || 1;
-    const endPeriod = beginPeriod + (lesson.length || 1) - 1;
+    const lessonLength = lesson.length || 2; // 默认连续2节
     
-    const startTime = PERIOD_TIMES[beginPeriod]?.start || "08:00";
-    const endTime = PERIOD_TIMES[endPeriod]?.end || "09:40";
+    // 使用新的时间范围计算函数
+    const { start: startTime, end: endTime } = getPeriodTimeRange(beginPeriod, lessonLength);
     
     // 课程名: 优先用 name, 其次 courseName
     const courseName = lesson.name || lesson.courseName || "未知课程";
@@ -160,7 +171,7 @@ export async function POST(req: NextRequest) {
 
       const ocrData = await ocrResponse.json();
       
-      if (!ocrResponse.ok || !ocrData.schedule) {
+      if (!ocrResponse.ok || !ocrData.success || !ocrData.schedule) {
         throw new Error(ocrData.error || 'OCR解析失败');
       }
 
