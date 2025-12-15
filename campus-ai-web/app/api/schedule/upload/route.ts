@@ -84,12 +84,6 @@ function parseTimeRange(timeStr: string): { start: string; end: string } | null 
   return null;
 }
 
-// 保持旧签名兼容
-function parseTime(timeStr: string): string | null {
-  const range = parseTimeRange(timeStr);
-  return range?.start || null;
-}
-
 /**
  * 解析星期
  */
@@ -193,8 +187,8 @@ function parseExcel(buffer: ArrayBuffer): CourseItem[] {
     const startRange = parseTimeRange(startStr);
     const endRange = parseTimeRange(endStr);
     
-    let startTime = startRange?.start || '08:00';
-    let endTime = endRange?.end || startRange?.end || '09:40';
+    const startTime = startRange?.start || '08:00';
+    const endTime = endRange?.end || startRange?.end || '09:40';
     
     courses.push({
       courseName,
