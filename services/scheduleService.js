@@ -26,6 +26,12 @@ function getShanghaiWeekdayNumber(dateUtcShifted) {
 function detectScheduleQueryType(msg = '') {
   const lower = String(msg || '').toLowerCase();
   if (!lower) return null;
+
+  // 🎯 考试/测验类问题：我们没有考试数据，必须走“数据边界”固定答复（避免模型编造）
+  if (/(考试|期末|测验|补考|考核)/.test(lower)) return 'exam';
+
+  // 🎯 早八问题：属于课表查询口语，不一定包含“课表/明天/今天”关键词
+  if (lower.includes('早八') || lower.includes('早8')) return 'early_eight';
   
   // "下一节课"优先级最高
   if (lower.includes('下一节课') || lower.includes('下节课') || 
@@ -602,13 +608,18 @@ function mergeConsecutiveLessons(lessons) {
   
   for (const lesson of lessons) {
     const beginNum = Number(lesson?.raw?.beginNumber) || 0;
+    const span = Math.max(1, Number(lesson?.raw?.length) || 1);
     const name = lesson?.name || '';
     const location = lesson?.location || '';
+    const startTime = lesson?.start || lesson?.startTime || '';
+    const endTime = lesson?.end || lesson?.endTime || '';
+    const lessonEndNum = beginNum > 0 ? (beginNum + span - 1) : beginNum;
     
     if (current && current.name === name && current.location === location && beginNum === current.endNum + 1) {
       // 合并：扩展结束节次
-      current.endNum = beginNum;
-      current.endTime = lesson.start; // HH:MM
+      current.endNum = Math.max(current.endNum, lessonEndNum);
+      // ✅ 结束时间必须使用该节的 end（而不是下一节的 start）
+      current.endTime = endTime || current.endTime;
     } else {
       // 新课程
       if (current) result.push(finalizeMerged(current));
@@ -616,9 +627,9 @@ function mergeConsecutiveLessons(lessons) {
         name,
         location,
         startNum: beginNum,
-        endNum: beginNum,
-        startTime: lesson.start,
-        endTime: lesson.start,
+        endNum: lessonEndNum,
+        startTime: startTime,
+        endTime: endTime,
         raw: lesson.raw
       };
     }
@@ -629,9 +640,12 @@ function mergeConsecutiveLessons(lessons) {
 }
 
 function finalizeMerged(c) {
+  const hasRange = Boolean(c.startTime && c.endTime && c.startTime !== c.endTime);
   const timeRange = c.startNum === c.endNum
-    ? `第${c.startNum}节 ${c.startTime || ''}`
-    : `第${c.startNum}-${c.endNum}节 ${c.startTime || ''}-${c.endTime || ''}`;
+    ? (hasRange ? `第${c.startNum}节 ${c.startTime}-${c.endTime}` : `第${c.startNum}节 ${c.startTime || c.endTime || ''}`)
+    : (c.startTime && c.endTime
+      ? `第${c.startNum}-${c.endNum}节 ${(c.startTime || '').trim()}-${(c.endTime || '').trim()}`
+      : `第${c.startNum}-${c.endNum}节 ${(c.startTime || c.endTime || '').trim()}`);
   return {
     name: c.name,
     location: c.location,
@@ -639,6 +653,91 @@ function finalizeMerged(c) {
     start: c.startTime,
     raw: c.raw
   };
+}
+
+function formatEarliestFromLessons(lessons, weekNumber) {
+  const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+  const items = (Array.isArray(lessons) ? lessons : [])
+    .map((l) => {
+      const day = Number(l?.day) || 0;
+      const start = String(l?.start || l?.startTime || '').trim();
+      const end = String(l?.end || l?.endTime || '').trim();
+      const startMin = parseTimeToMinutes(start);
+      return {
+        day,
+        start,
+        end,
+        startMin: startMin == null ? 999999 : startMin,
+        name: String(l?.name || '课程'),
+        location: String(l?.location || ''),
+        begin: Number(l?.raw?.beginNumber) || 0,
+        length: Math.max(1, Number(l?.raw?.length) || 1)
+      };
+    })
+    .filter((x) => x.day >= 1 && x.day <= 7 && x.startMin !== 999999);
+
+  if (!items.length) {
+    return '⚠️ 我从课表里没拿到可用的上课时间字段，无法统计“最早的早八”。你可以把课表截图/Excel 再发我一次。';
+  }
+
+  const earliestMin = Math.min(...items.map((x) => x.startMin));
+  const earliestHHMM = items.find((x) => x.startMin === earliestMin)?.start || '';
+  const earliestItems = items
+    .filter((x) => x.startMin === earliestMin)
+    .sort((a, b) => a.day - b.day);
+
+  const lines = earliestItems.map((x) => {
+    const dayLabel = dayNames[x.day] || `周${x.day}`;
+    const endNum = x.begin > 0 ? (x.begin + x.length - 1) : 0;
+    const periodLabel = x.begin > 0
+      ? (x.length > 1 ? `第${x.begin}-${endNum}节` : `第${x.begin}节`)
+      : '';
+    const timeLabel = x.end ? `${x.start}-${x.end}` : x.start;
+    const loc = x.location ? ` @ ${x.location}` : '';
+    return `- ${dayLabel} ${periodLabel} ${timeLabel}${loc} ${x.name}`.replace(/\s+/g, ' ').trim();
+  });
+
+  const weekPart = Number.isFinite(Number(weekNumber)) ? `（第${weekNumber}周）` : '';
+  return `本周最早开始的一节课是 ${earliestHHMM}${weekPart}，共有 ${earliestItems.length} 节在这个时间开始：\n${lines.join('\n')}`;
+}
+
+function findEarliestClassesInWebSchedule(webSchedule) {
+  const dayNames = { 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五', 6: '周六', 7: '周日' };
+  const items = (Array.isArray(webSchedule) ? webSchedule : [])
+    .map((c) => {
+      const day = Number(c?.weekday || c?.day) || 0;
+      const start = String(c?.startTime || '').trim();
+      const end = String(c?.endTime || '').trim();
+      const startMin = parseTimeToMinutes(start);
+      return {
+        day,
+        start,
+        end,
+        startMin: startMin == null ? 999999 : startMin,
+        name: String(c?.courseName || c?.name || '课程'),
+        location: String(c?.location || ''),
+      };
+    })
+    .filter((x) => x.day >= 1 && x.day <= 7 && x.startMin !== 999999);
+
+  if (!items.length) {
+    return '⚠️ 我没有可用于统计的课表时间信息。';
+  }
+
+  const earliestMin = Math.min(...items.map((x) => x.startMin));
+  const earliestHHMM = items.find((x) => x.startMin === earliestMin)?.start || '';
+  const earliestItems = items
+    .filter((x) => x.startMin === earliestMin)
+    .sort((a, b) => a.day - b.day);
+
+  const lines = earliestItems.map((x) => {
+    const dayLabel = dayNames[x.day] || `周${x.day}`;
+    const timeLabel = x.end ? `${x.start}-${x.end}` : x.start;
+    const loc = x.location ? ` @ ${x.location}` : '';
+    return `- ${dayLabel} ${timeLabel}${loc} ${x.name}`.replace(/\s+/g, ' ').trim();
+  });
+
+  return `本周最早开始的一节课是 ${earliestHHMM}，共有 ${earliestItems.length} 节在这个时间开始：\n${lines.join('\n')}`;
 }
 
 /**
@@ -1738,6 +1837,18 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
     const queryType = detectScheduleQueryType(msg);
 
+    // ✅ 数据边界：考试/测验类问题一律固定答复（我们没有考试数据源）
+    if (queryType === 'exam') {
+      return {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          reply: '当前数据源只包含课程安排（课表），不包含考试信息/考场/准考证等数据，所以我无法判断“下周三有什么考试”。\n\n如果你把考试安排（截图/文字/文件）发我，我可以帮你整理成时间表。',
+          auto_escape: false
+        })
+      };
+    }
+
     // 🆕 补全课表（文本恢复通道）：优先级必须高于“课表查询”分支
     if (msg && String(msg).includes('补全课表')) {
       const recoveredEvents = parseManualScheduleLines(msg, context);
@@ -1794,8 +1905,49 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
 
       // ✅ 优先使用 curriculumUuid 走学习通动态接口（避免 webSchedule 依赖固定开学周导致周次误差）
       if (effectiveUuid) {
+        // 🆕 早八：直接用“本周课表”动态数据做确定性统计（避免模型误把一节课当作全部）
+        if (queryType === 'early_eight') {
+          const weekResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, 'this_week', context);
+          if (weekResult.error) {
+            // 动态失败时降级到 webSchedule/profile
+            if (hasWebSchedule) {
+              const early = findEarliestClassesInWebSchedule(webSchedule);
+              replyText = early;
+            } else if (profile?.weekly_schedule) {
+              replyText = '⚠️ 我现在只能访问到课表课程数据（不含考试/作业）。要回答早八统计，需要本周完整课表数据；请先刷新课表或重新导入。';
+            } else {
+              replyText = `⚠️ 查询失败: ${weekResult.error}`;
+            }
+          } else {
+            // weekResult.text 是格式化后的表格文本，解析结构不稳定；改为再拉一次结构化 lessons 统计更稳。
+            const { fetchChaoxingSchedule, transformLessonsToStandardFormat } = require('./chaoxingSchedule');
+            const nowSh = getShanghaiNowUtcShifted();
+            const info = await require('./chaoxingSchedule').getScheduleInfo(effectiveUuid);
+            if (!info || info.success === false) {
+              replyText = `⚠️ 查询失败: ${info?.error || '无法获取课表信息'}`;
+            } else {
+              const firstWeekDate = info.curriculum?.firstWeekDate;
+              let currentWeek = info.curriculum?.currentWeek || 1;
+            if (firstWeekDate) {
+              const firstMonday = new Date(firstWeekDate);
+              const weekday = getShanghaiWeekdayNumber(nowSh);
+              const thisMonday = new Date(nowSh.getTime() - (weekday - 1) * 24 * 60 * 60 * 1000);
+              const weeksDiff = Math.floor((thisMonday.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+              currentWeek = weeksDiff + 1;
+            }
+            const raw = await fetchChaoxingSchedule(effectiveUuid, currentWeek);
+            if (!raw.success) {
+              replyText = `⚠️ 查询失败: ${raw.error}`;
+            } else {
+              const lessons = transformLessonsToStandardFormat(raw.data.lessons, raw.data.curriculum);
+              replyText = formatEarliestFromLessons(lessons, currentWeek);
+            }
+            }
+          }
+        }
+
         // 本周/下周课表：动态请求学习通API获取对应周次数据
-        if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
+        else if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
           const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, queryType || 'this_week', context);
           if (dynamicResult.error) {
             // API失败时降级到静态profile（如果存在）

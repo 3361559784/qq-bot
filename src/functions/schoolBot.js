@@ -3903,6 +3903,8 @@ app.http('schoolBot', {
     authLevel: 'anonymous',
     handler: async (request, context) => {
         try {
+            const requestStartTs = Date.now();
+
             // 每次请求刷新 token，避免启动时环境变量尚未注入导致缓存为 undefined
             token = process.env["GITHUB_TOKEN"];
 
@@ -3920,16 +3922,30 @@ app.http('schoolBot', {
             let webSchedule = null;  // 🆕 前端传入的课表数据
             let webMode = null;      // 🆕 前端模式 (Ask/Plan/Class/Search)
 
+            // 端到端追踪：优先取 header，其次取 body.requestId
+            const headerRid = (() => {
+                try {
+                    return request?.headers?.get('x-request-id') || request?.headers?.get('x-correlation-id') || null;
+                } catch {
+                    return null;
+                }
+            })();
+            let requestId = headerRid;
+
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
                 const bodyText = await request.text();
             if (bodyText) {
                 body = JSON.parse(bodyText);
+
+                if (!requestId && body?.requestId) requestId = String(body.requestId);
+                if (!requestId) requestId = `rid_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+                context.log(`[RID ${requestId}] recv post_type=${body.post_type || 'N/A'} message_type=${body.message_type || 'N/A'} mode=${body.mode || 'N/A'} hasSchedule=${Array.isArray(body.schedule) ? body.schedule.length : 0} hasUuid=${!!body.curriculumUuid}`);
                 
                 // 🔍 调试日志：记录所有收到的事件
                 const msgType = body.msg_type ?? body.msgType;
                 const subMsgType = body.sub_msg_type ?? body.subMsgType;
-                context.log(`[事件接收] post_type=${body.post_type}, notice_type=${body.notice_type || 'N/A'}, sub_type=${body.sub_type || 'N/A'}, message_type=${body.message_type || 'N/A'}, msg_type=${msgType || 'N/A'}, sub_msg_type=${subMsgType || 'N/A'}`);
+                context.log(`[RID ${requestId}] 事件接收 post_type=${body.post_type}, notice_type=${body.notice_type || 'N/A'}, sub_type=${body.sub_type || 'N/A'}, message_type=${body.message_type || 'N/A'}, msg_type=${msgType || 'N/A'}, sub_msg_type=${subMsgType || 'N/A'}`);
                 
                 const selfId = body.self_id; // 机器人的 QQ 号
 
@@ -4660,6 +4676,9 @@ ${scheduleInfo}
             SCHEDULE_KEYWORDS.some(k => msgLower.includes(k)) ||
             !!scheduleQueryType;
         if (scheduleIntent) {
+                const scheduleStartTs = Date.now();
+                const wsLen = Array.isArray(webSchedule) ? webSchedule.length : 0;
+                context.log(`[RID ${requestId}] scheduleIntent=true queryType=${scheduleQueryType || 'null'} files=${scheduleFileLinks?.length || 0} images=${imageUrls.length} webSchedule=${wsLen} uuid=${body?.curriculumUuid ? 'yes' : 'no'}`);
             const scheduleResp = await handleScheduleRequest({
                 fileLinks: scheduleFileLinks,
                 imageUrls,
@@ -4672,7 +4691,10 @@ ${scheduleInfo}
                 curriculumUuid: body?.curriculumUuid || null,  // 🆕 从前端传入 curriculumUuid
                 webSchedule  // 🆕 从前端传入的课表数组
             });
-            if (scheduleResp) return scheduleResp;
+                if (scheduleResp) {
+                    context.log(`[RID ${requestId}] scheduleHandled=true elapsedMs=${Date.now() - scheduleStartTs} (LLM may be skipped for纯查询; OCR路径会调用LLM)`);
+                    return scheduleResp;
+                }
             if ((!scheduleFileLinks || scheduleFileLinks.length === 0) && imageUrls.length === 0) {
                 if (cosmosContainer) {
                     const sessionKey = `${dbKey}:${senderId}`;
@@ -4692,11 +4714,13 @@ ${scheduleInfo}
         // 感知层意图路由 (Model A)
         let intentResult = null;
         if (INTENT_ROUTER_ENABLED) {
+                const t0 = Date.now();
             intentResult = await analyzeIntentRouter(msg, imageUrls, { 
                 userId: senderId, 
                 nickname: userNickname,
                 hasSchedule: !!(webSchedule && webSchedule.length > 0)
             }, context);
+                context.log(`[RID ${requestId}] intentRouter elapsedMs=${Date.now() - t0} enabled=${INTENT_ROUTER_ENABLED}`);
             if (intentResult) {
                 context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} needsSchedule=${intentResult.needsSchedule} needsWeather=${intentResult.needsWeather} needsSearch=${intentResult.needsSearch}`);
             }
@@ -5808,6 +5832,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
                 try {
                     context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name}`);
+                    const tModel = Date.now();
                     
                     const response = await client.chat.completions.create({
                         messages: finalMessages,
@@ -5817,7 +5842,9 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                         presence_penalty: 0.6
                     });
 
-                    context.log(`[多脑] ✅ 成功! 使用: ${model.name}`);
+                    const elapsed = Date.now() - tModel;
+                    const preview = String(response?.choices?.[0]?.message?.content || '').slice(0, 160).replace(/\s+/g, ' ');
+                    context.log(`[多脑] ✅ 成功! 使用: ${model.name} elapsedMs=${elapsed} preview=${preview}`);
                     return response;
 
                 } catch (err) {

@@ -2,6 +2,8 @@
 // (Edge runtime can be restrictive for localhost/network access in dev.)
 export const runtime = 'nodejs';
 
+import crypto from 'crypto';
+
 // 戳一戳回复 - 根据心情状态返回不同回复
 const POKE_REPLIES_BY_MOOD: Record<string, Array<{ reply: string; emotion: string }>> = {
   happy: [
@@ -33,6 +35,8 @@ const POKE_REPLIES_BY_MOOD: Record<string, Array<{ reply: string; emotion: strin
 export async function POST(req: Request) {
   try {
     const { message, sessionId, mode = 'Ask', schedule, isPoke, mood, curriculumUuid, persona } = await req.json();
+
+    const requestId = crypto.randomUUID();
 
     // 戳一戳快速本地响应 - 根据心情返回不同回复
     if (isPoke || message === '[poke]') {
@@ -73,6 +77,7 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
+        'x-request-id': requestId,
       },
       body: JSON.stringify({
         // 兼容 schoolBot 的 NapCat/CQHTTP 消息事件路由
@@ -93,6 +98,9 @@ export async function POST(req: Request) {
         curriculumUuid: typeof curriculumUuid === 'string' ? curriculumUuid : undefined,
         // 🆕 用户可选的人格模式：'alice' (默认) | 'professional' (专业模式)
         persona: persona === 'professional' ? 'professional' : undefined,
+
+        // 🆕 端到端追踪：让 Azure Function 日志可按 requestId 关联
+        requestId,
       })
     });
 
@@ -128,11 +136,13 @@ export async function POST(req: Request) {
       '';
     
     return new Response(
-      JSON.stringify({ reply: reply || '抱歉,我现在无法回答 (｡•́︿•̀｡)' }),
+      JSON.stringify({ reply: reply || '抱歉,我现在无法回答 (｡•́︿•̀｡)', requestId }),
       {
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache'
+          'Cache-Control': 'no-cache',
+          'x-request-id': requestId,
+          'x-azure-backend-url': azureFunctionUrl,
         }
       }
     );
