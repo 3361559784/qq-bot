@@ -108,7 +108,7 @@ function ChatInput({
   setIsAttachmentMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
   toggleModeMenu: () => void;
   toggleAttachmentMenu: () => void;
-  handleSend: () => void;
+  handleSend: (overrideMessage?: string | React.MouseEvent) => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   inputAreaRef: React.RefObject<HTMLDivElement | null>;
   onOpenScheduleImport?: () => void;
@@ -411,8 +411,9 @@ export default function Home() {
     }
   }, [theme]);
 
-  const handleSend = async (overrideMessage?: string) => {
-    const messageToSend = overrideMessage || input.trim();
+  const handleSend = async (overrideMessage?: string | React.MouseEvent) => {
+    // 如果是事件对象，忽略它，使用 input
+    const messageToSend = (typeof overrideMessage === 'string' ? overrideMessage : null) || input.trim();
     if (!messageToSend || isLoading) return;
 
     const userMessage = messageToSend;

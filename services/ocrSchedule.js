@@ -3,6 +3,21 @@ const { OpenAI } = require('openai');
 // GitHub Models GPT-4o 视觉 OCR（不再依赖 Azure Computer Vision）
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_MODELS_TOKEN;
 
+// OCR 请求超时时间（60秒，GPT-4o 视觉处理较慢）
+const OCR_TIMEOUT_MS = 60000;
+
+/**
+ * 带超时的 Promise 包装
+ */
+function withTimeout(promise, ms, errorMsg) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(errorMsg || `请求超时 (${ms/1000}秒)`)), ms)
+    )
+  ]);
+}
+
 /**
  * 从图片 URL 或 Base64 提取文本 (使用 GPT-4o 视觉能力)
  * @param {string} urlOrBase64 - 图片 URL 或 data:image/xxx;base64,... 格式
@@ -28,23 +43,27 @@ async function extractTextFromImage(urlOrBase64) {
     imageContent = { type: "image_url", image_url: { url: urlOrBase64 } };
   }
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "请提取这张图片中的所有文字内容。只返回文字，不要添加任何解释或格式化。保持原始布局和换行。"
-          },
-          imageContent
-        ]
-      }
-    ],
-    max_tokens: 4000,
-    temperature: 0.1
-  });
+  const response = await withTimeout(
+    openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "请提取这张图片中的所有文字内容。只返回文字，不要添加任何解释或格式化。保持原始布局和换行。"
+            },
+            imageContent
+          ]
+        }
+      ],
+      max_tokens: 4000,
+      temperature: 0.1
+    }),
+    OCR_TIMEOUT_MS,
+    '图片识别超时，请稍后重试或使用较小的图片'
+  );
 
   const text = response.choices[0]?.message?.content?.trim() || '';
   return text;
@@ -119,15 +138,19 @@ ${text}
   const { getOcrParseModel } = require('./modelRouter');
   const OCR_PARSE_MODEL = getOcrParseModel();
 
-  const response = await openai.chat.completions.create({
-    model: OCR_PARSE_MODEL,
-    messages: [
-      { role: "system", content: "你是一个精确的课表解析助手,只返回 JSON 格式的数据。" },
-      { role: "user", content: prompt }
-    ],
-    temperature: 0.1,
-    max_tokens: 2000
-  });
+  const response = await withTimeout(
+    openai.chat.completions.create({
+      model: OCR_PARSE_MODEL,
+      messages: [
+        { role: "system", content: "你是一个精确的课表解析助手,只返回 JSON 格式的数据。" },
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.1,
+      max_tokens: 2000
+    }),
+    30000, // 30秒超时，解析步骤通常较快
+    '课表解析超时，请稍后重试'
+  );
 
   const content = response.choices[0].message.content.trim();
   

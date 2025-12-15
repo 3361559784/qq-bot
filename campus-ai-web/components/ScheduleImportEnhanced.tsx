@@ -684,18 +684,31 @@ export default function ScheduleImportEnhanced({
         </div>
       )}
 
+      {/* 已有课表时的提示 */}
+      {schedule && schedule.length > 0 && !importSuccess && (
+        <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-600 dark:text-amber-400 text-sm flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          已有 {schedule.length} 门课程。如需重新导入，请先点击"清除"按钮。
+        </div>
+      )}
+
       {/* 操作按钮 */}
       <div className="flex gap-2 mb-6">
         {activeTab !== "file" && (
           <button
             onClick={handleImport}
-            disabled={isLoading}
-            className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+            disabled={isLoading || (schedule && schedule.length > 0)}
+            className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
           >
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 解析中...
+              </>
+            ) : schedule && schedule.length > 0 ? (
+              <>
+                <AlertCircle className="w-4 h-4" />
+                已有课表
               </>
             ) : (
               <>
