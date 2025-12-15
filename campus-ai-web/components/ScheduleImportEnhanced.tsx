@@ -697,7 +697,7 @@ export default function ScheduleImportEnhanced({
         {activeTab !== "file" && (
           <button
             onClick={handleImport}
-            disabled={isLoading || (schedule && schedule.length > 0)}
+            disabled={isLoading || !!schedule?.length}
             className="flex-1 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
           >
             {isLoading ? (
@@ -705,7 +705,7 @@ export default function ScheduleImportEnhanced({
                 <Loader2 className="w-4 h-4 animate-spin" />
                 解析中...
               </>
-            ) : schedule && schedule.length > 0 ? (
+            ) : schedule?.length ? (
               <>
                 <AlertCircle className="w-4 h-4" />
                 已有课表

@@ -206,6 +206,21 @@ function transformLessonsToStandardFormat(lessons, curriculum) {
   const events = [];
   const timeConfigArray = curriculum.lessonTimeConfigArray || [];
 
+  // 标准节次时间表（兜底用，避免某些学校未返回结束时间导致 08:00-08:55 这种错误范围）
+  // 说明：这是常见高校作息；如果 lessonTimeConfigArray 提供了更精确的范围，会优先使用其解析结果。
+  const DEFAULT_PERIOD_TIMES = {
+    1: { start: '08:00', end: '08:45' },
+    2: { start: '08:55', end: '09:40' },
+    3: { start: '10:00', end: '10:45' },
+    4: { start: '10:55', end: '11:40' },
+    5: { start: '14:00', end: '14:45' },
+    6: { start: '14:55', end: '15:40' },
+    7: { start: '15:55', end: '16:40' },
+    8: { start: '16:50', end: '17:35' },
+    9: { start: '19:00', end: '19:45' },
+    10: { start: '19:55', end: '20:40' },
+  };
+
   // lessonTimeConfigArray 在不同学校可能是 0/1 基索引，这里做容错
   const pickTimeConfig = (idx) => {
     if (!Array.isArray(timeConfigArray)) return '';
@@ -216,11 +231,29 @@ function transformLessonsToStandardFormat(lessons, curriculum) {
     return String(timeConfigArray[i] || timeConfigArray[i - 1] || '');
   };
 
-  const extractHHMM = (s) => {
-    const m = String(s || '').match(/(\d{1,2}:\d{2})/);
+  const normalizeHHMM = (hhmm) => {
+    const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/);
     if (!m) return '';
-    const [hh, mm] = m[1].split(':');
-    return `${String(Number(hh)).padStart(2, '0')}:${mm}`;
+    const hh = String(Number(m[1])).padStart(2, '0');
+    return `${hh}:${m[2]}`;
+  };
+
+  // 解析如 "08:00-08:45" / "第1节 08:00" / "08:00" 等
+  // - start: 取第一个时间
+  // - end:   取最后一个时间（若只有一个时间则为空）
+  const extractTimeRangeFromConfig = (s) => {
+    const str = String(s || '');
+    const matches = Array.from(str.matchAll(/(\d{1,2}:\d{2})/g)).map((m) => normalizeHHMM(m[1]));
+    if (!matches.length) return { start: '', end: '' };
+    if (matches.length === 1) return { start: matches[0], end: '' };
+    return { start: matches[0], end: matches[matches.length - 1] };
+  };
+
+  const getDefaultPeriodTimeRange = (beginNumber, length) => {
+    const start = DEFAULT_PERIOD_TIMES[beginNumber]?.start || '';
+    const endPeriod = beginNumber + length - 1;
+    const end = DEFAULT_PERIOD_TIMES[endPeriod]?.end || DEFAULT_PERIOD_TIMES[beginNumber]?.end || '';
+    return { start, end };
   };
 
   for (const lesson of lessons) {
@@ -231,16 +264,24 @@ function transformLessonsToStandardFormat(lessons, curriculum) {
       const endNumber = beginNumber + length - 1;
 
       const startTimeConfig = pickTimeConfig(beginNumber);
-      // 结束时间通常在“下一节开始”或“本节结束”，做多路兜底
-      const endTimeConfig = pickTimeConfig(endNumber + 1) || pickTimeConfig(endNumber);
+      const endTimeConfig = pickTimeConfig(endNumber);
 
-      // 提取开始和结束时间 (HH:MM 格式)
-      let startTime = extractHHMM(startTimeConfig);
-      let endTime = extractHHMM(endTimeConfig);
+      // 优先从 timeConfigArray 解析范围（大多数学校这里会带“开始-结束”）
+      let startTime = extractTimeRangeFromConfig(startTimeConfig).start;
+      let endTime = extractTimeRangeFromConfig(endTimeConfig).end;
 
-      // 某些返回里 lesson 自带时间字段（优先补齐）
-      if (!startTime) startTime = extractHHMM(lesson.startTime || lesson.beginTime || lesson.timeStart || '');
-      if (!endTime) endTime = extractHHMM(lesson.endTime || lesson.finishTime || lesson.timeEnd || '');
+      // 某些返回里 lesson 自带时间字段（用于补齐）
+      const lessonStart = extractTimeRangeFromConfig(lesson.startTime || lesson.beginTime || lesson.timeStart || '').start;
+      const lessonEnd = extractTimeRangeFromConfig(lesson.endTime || lesson.finishTime || lesson.timeEnd || '').end;
+      if (!startTime) startTime = lessonStart;
+      if (!endTime) endTime = lessonEnd;
+
+      // 仍缺失时：用默认节次表兜底，保证 beginNumber/length 的范围能正确显示
+      if (!startTime || !endTime) {
+        const fallback = getDefaultPeriodTimeRange(beginNumber, length);
+        if (!startTime) startTime = fallback.start;
+        if (!endTime) endTime = fallback.end;
+      }
 
       // 计算时长(分钟)
       let duration = 0;
