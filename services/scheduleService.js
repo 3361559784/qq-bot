@@ -51,6 +51,76 @@ function parseTimeToMinutes(timeStr) {
   return hh * 60 + mm;
 }
 
+// 解析 weeks 字段，判断 targetWeek 是否匹配
+// 支持: "7-16周" / "第7-16周" / "7周,9周,11周" / "6-7周,9-14周" / "8-14周(双)" / "单周" / "双周"
+function isWeeksMatch(weeks, targetWeek) {
+  if (!weeks) return true;
+  const weeksStrRaw = String(weeks).trim();
+  if (!weeksStrRaw) return true;
+
+  const normalizeSeparators = (s) =>
+    s
+      .replace(/\s+/g, '')
+      .replace(/[，、；;]+/g, ',')
+      .replace(/第/g, '');
+
+  const extractParity = (token) => {
+    if (/单/.test(token)) return 'odd';
+    if (/双/.test(token)) return 'even';
+    return null;
+  };
+
+  const stripParityMarkers = (token) =>
+    token
+      .replace(/[（(]?(单|双)(周)?[)）]?/g, '')
+      .replace(/(单周|双周)/g, '');
+
+  const weeksStr = normalizeSeparators(weeksStrRaw);
+  if (weeksStr === '单周') return targetWeek % 2 === 1;
+  if (weeksStr === '双周') return targetWeek % 2 === 0;
+
+  const tokens = weeksStr
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  for (const tokenRaw of tokens) {
+    const parity = extractParity(tokenRaw);
+    let token = stripParityMarkers(tokenRaw);
+    token = token.replace(/周/g, '');
+
+    if (!token) {
+      if (parity === 'odd' && targetWeek % 2 === 1) return true;
+      if (parity === 'even' && targetWeek % 2 === 0) return true;
+      continue;
+    }
+
+    const rangeMatch = token.match(/^(\d+)-(\d+)$/) || token.match(/(\d+)\s*-\s*(\d+)/);
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1], 10);
+      const end = parseInt(rangeMatch[2], 10);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      const inRange = targetWeek >= start && targetWeek <= end;
+      if (!inRange) continue;
+      if (parity === 'odd' && targetWeek % 2 !== 1) continue;
+      if (parity === 'even' && targetWeek % 2 !== 0) continue;
+      return true;
+    }
+
+    const singleMatch = token.match(/(\d+)/);
+    if (singleMatch) {
+      const num = parseInt(singleMatch[1], 10);
+      if (!Number.isFinite(num)) continue;
+      if (num !== targetWeek) continue;
+      if (parity === 'odd' && targetWeek % 2 !== 1) continue;
+      if (parity === 'even' && targetWeek % 2 !== 0) continue;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function readScheduleProfileFromCosmos(cosmosContainer, userId, context) {
   if (!cosmosContainer || !userId) return null;
 
@@ -161,86 +231,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
   
   context?.log?.(`[Schedule] 当前周次: 第${currentWeek}周`);
   
-  // 🆕 解析 weeks 字段，判断课程是否在指定周次上课
-  const isCourseInWeek = (course, targetWeek) => {
-    const weeks = course?.weeks;
-    if (!weeks) return true; // 没有 weeks 字段，默认每周都上
-    
-    const weeksStrRaw = String(weeks).trim();
-    if (!weeksStrRaw) return true;
-
-    // 兼容格式示例:
-    // - "7-16周" / "7-16" / "第7-16周"
-    // - "8-14周(双)" / "8-14周(单周)"
-    // - "7周,10-15周" / "7周，10-15周" / "7周、10-15周"
-    // - "单周" / "双周"
-    const normalizeSeparators = (s) =>
-      s
-        .replace(/\s+/g, '')
-        .replace(/[，、；;]+/g, ',')
-        .replace(/第/g, '');
-
-    const extractParity = (token) => {
-      if (/单/.test(token)) return 'odd';
-      if (/双/.test(token)) return 'even';
-      return null;
-    };
-
-    const stripParityMarkers = (token) =>
-      token
-        // 去掉括号里的单双周标记: (双)、（单周） 等
-        .replace(/[（(]?(单|双)(周)?[)）]?/g, '')
-        // 去掉裸露的 单周/双周
-        .replace(/(单周|双周)/g, '');
-
-    const weeksStr = normalizeSeparators(weeksStrRaw);
-    if (weeksStr === '单周') return targetWeek % 2 === 1;
-    if (weeksStr === '双周') return targetWeek % 2 === 0;
-
-    const tokens = weeksStr
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-
-    for (const tokenRaw of tokens) {
-      const parity = extractParity(tokenRaw);
-      let token = stripParityMarkers(tokenRaw);
-      token = token.replace(/周/g, '');
-
-      // 仅 parity（例如被清洗后为空）：当作全周单双周
-      if (!token) {
-        if (parity === 'odd' && targetWeek % 2 === 1) return true;
-        if (parity === 'even' && targetWeek % 2 === 0) return true;
-        continue;
-      }
-
-      const rangeMatch = token.match(/^(\d+)-(\d+)$/) || token.match(/(\d+)\s*-\s*(\d+)/);
-      if (rangeMatch) {
-        const start = parseInt(rangeMatch[1], 10);
-        const end = parseInt(rangeMatch[2], 10);
-        if (Number.isFinite(start) && Number.isFinite(end)) {
-          const inRange = targetWeek >= start && targetWeek <= end;
-          if (!inRange) continue;
-          if (parity === 'odd' && targetWeek % 2 !== 1) continue;
-          if (parity === 'even' && targetWeek % 2 !== 0) continue;
-          return true;
-        }
-        continue;
-      }
-
-      const singleMatch = token.match(/(\d+)/);
-      if (singleMatch) {
-        const num = parseInt(singleMatch[1], 10);
-        if (!Number.isFinite(num)) continue;
-        if (num !== targetWeek) continue;
-        if (parity === 'odd' && targetWeek % 2 !== 1) continue;
-        if (parity === 'even' && targetWeek % 2 !== 0) continue;
-        return true;
-      }
-    }
-
-    return false;
-  };
+  const isCourseInWeek = (course, targetWeek) => isWeeksMatch(course?.weeks, targetWeek);
   
   // 计算日期
   const fmtYmd = (d) => {
@@ -413,10 +404,26 @@ function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
   };
   const rangeLine = `${fmtYmd(weekStart)} ~ ${fmtYmd(weekEnd)}`;
 
+  // 如果 weekly_schedule 里带 weeks,则按当前周/下周过滤; 没有 weeks 的旧数据则不过滤
+  let targetWeek = null;
+  try {
+    const semStartStr = profile?.semesterStartDate || profile?.schedule_config?.semester_start || null;
+    if (semStartStr) {
+      const semStart = new Date(`${String(semStartStr).slice(0, 10)}T00:00:00Z`);
+      const weeksDiff = Math.floor((weekStart.getTime() - semStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+      targetWeek = weeksDiff + 1;
+    }
+  } catch {
+    targetWeek = null;
+  }
+
   const byDay = new Map();
   for (const c of weekly) {
     const day = Number(c?.day) || 0;
     if (day < 1 || day > 7) continue;
+    if (targetWeek != null && c?.weeks != null && String(c.weeks).trim() !== '') {
+      if (!isWeeksMatch(c.weeks, targetWeek)) continue;
+    }
     if (!byDay.has(day)) byDay.set(day, []);
     byDay.get(day).push(c);
   }
@@ -736,7 +743,29 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
     }
     
     const todayWeekday = getShanghaiWeekdayNumber(nowSh);
-    const nowTimeStr = String(nowSh.getHours()).padStart(2, '0') + ':' + String(nowSh.getMinutes()).padStart(2, '0');
+    const nowTimeStr = String(nowSh.getUTCHours()).padStart(2, '0') + ':' + String(nowSh.getUTCMinutes()).padStart(2, '0');
+
+    const pickStart = (c) => String(c?.startTime || c?.start || '').trim();
+    const pickEnd = (c) => String(c?.endTime || c?.end || '').trim();
+    const fmtMinutesToHHMM = (mins) => {
+      if (!Number.isFinite(mins)) return '';
+      const m = ((mins % (24 * 60)) + (24 * 60)) % (24 * 60);
+      const hh = String(Math.floor(m / 60)).padStart(2, '0');
+      const mm = String(m % 60).padStart(2, '0');
+      return `${hh}:${mm}`;
+    };
+    const computeTimeRange = (c) => {
+      const start = pickStart(c);
+      const end = pickEnd(c);
+      if (start && end) return `${start}-${end}`;
+      const startM = parseTimeToMinutes(start);
+      const dur = Number(c?.duration) || 0;
+      if (startM != null && dur > 0) {
+        const computedEnd = fmtMinutesToHHMM(startM + dur);
+        if (computedEnd) return `${start}-${computedEnd}`;
+      }
+      return start || end || '';
+    };
     
     context?.log?.(`[Schedule] 查询下一节课: 第${currentWeek}周 周${todayWeekday} 当前时间${nowTimeStr}`);
     
@@ -758,10 +787,11 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
     
     // 查找今天剩余的下一节课
     for (const c of todayCourses) {
-      const startTime = c.startTime || c.timeRange?.split('-')[0]?.trim() || '';
-      if (startTime > nowTimeStr) {
+      const startTime = pickStart(c);
+      if (startTime && startTime > nowTimeStr) {
         const loc = c.location ? `，地点 ${c.location}` : '';
-        return { text: `📚 下一节课是《${c.name}》，时间 ${c.timeRange || startTime}${loc}。` };
+        const timeRange = c.timeRange || computeTimeRange(c) || startTime;
+        return { text: `📚 下一节课是《${c.name}》，时间 ${timeRange}${loc}。` };
       }
     }
     
@@ -787,7 +817,8 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
     if (tomorrowCourses.length > 0) {
       const c = tomorrowCourses[0];
       const loc = c.location ? `，地点 ${c.location}` : '';
-      return { text: `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${c.timeRange || c.startTime}${loc}。` };
+      const timeRange = c.timeRange || computeTimeRange(c) || pickStart(c);
+      return { text: `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${timeRange}${loc}。` };
     }
     
     return { text: '✅ 今天和明天都没有课了，好好休息吧！' };
@@ -1250,6 +1281,59 @@ function formatScheduleSummary(events, limit = 5) {
     .join('\n');
 }
 
+async function saveUserScheduleProfileFromCourseItems(cosmosContainer, userId, courses, sourceUrl, context) {
+  if (!cosmosContainer) {
+    context?.log?.('[ScheduleProfile] Cosmos容器未初始化,跳过保存');
+    return;
+  }
+
+  const list = Array.isArray(courses) ? courses : [];
+  if (list.length === 0) return;
+
+  try {
+    const profileId = `schedule_${userId}`;
+    const weeklySchedule = list
+      .map((c) => ({
+        day: Number(c?.weekday || c?.day) || 0,
+        start: 0,
+        name: String(c?.courseName || c?.name || '课程'),
+        location: String(c?.location || ''),
+        timeStart: String(c?.startTime || c?.timeStart || ''),
+        timeEnd: String(c?.endTime || c?.timeEnd || ''),
+        teacher: String(c?.instructor || c?.teacher || ''),
+        weeks: c?.weeks == null ? null : String(c.weeks)
+      }))
+      .filter((c) => c.day > 0 && (c.timeStart || c.timeEnd));
+
+    const profile = {
+      id: profileId,
+      partitionKey: userId,
+      userId,
+      qq: userId,
+      curriculumUuid: null,
+      // 默认按 2025-09-01(秋季学期) 计算周次；如后续能从链接/配置获取再覆盖
+      semesterStartDate: '2025-09-01',
+      maxWeek: null,
+      schedule_config: {
+        source_url: sourceUrl || 'pdf',
+        last_updated: new Date().toISOString(),
+        semester: `${new Date().getFullYear()}-${new Date().getMonth() >= 8 ? 'Fall' : 'Spring'}`,
+        total_courses: weeklySchedule.length,
+        full_semester: true,
+        import_type: 'pdf'
+      },
+      weekly_schedule: weeklySchedule,
+      type: 'schedule_profile',
+      createdAt: new Date().toISOString()
+    };
+
+    await cosmosContainer.items.upsert(profile);
+    context?.log?.(`[ScheduleProfile] ✅ 已保存 ${userId} 的课表档案(PDF): ${weeklySchedule.length}门课程`);
+  } catch (err) {
+    context?.log?.(`[ScheduleProfile] ❌ 保存PDF课表失败: ${err.message}`);
+  }
+}
+
 async function saveScheduleToCosmos(cosmosContainer, dbKey, events, context) {
   if (!cosmosContainer) return;
   const docId = `schedule_${dbKey}`;
@@ -1707,18 +1791,19 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
 
       let replyText = '';
-      
-      // 🆕 优先使用前端传入的 webSchedule（Web 端直接传入的课表数组）
-      if (hasWebSchedule) {
-        context?.log?.(`[Schedule] 使用前端传入的 webSchedule (${webSchedule.length} 门课)`);
-        replyText = formatAnswerFromWebSchedule(webSchedule, queryType, context);
-      } else if (effectiveUuid) {
+
+      // ✅ 优先使用 curriculumUuid 走学习通动态接口（避免 webSchedule 依赖固定开学周导致周次误差）
+      if (effectiveUuid) {
         // 本周/下周课表：动态请求学习通API获取对应周次数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
           const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, queryType || 'this_week', context);
           if (dynamicResult.error) {
             // API失败时降级到静态profile（如果存在）
             context?.log?.(`[Schedule] 动态查询失败,降级到静态profile: ${dynamicResult.error}`);
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败,回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, queryType || 'this_week', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
             } else {
@@ -1731,6 +1816,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           // 明天有课吗：动态请求
           const dynamicResult = await fetchDayScheduleFromChaoxing(effectiveUuid, 'tomorrow', context);
           if (dynamicResult.error) {
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败(明天),回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, 'tomorrow', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
             } else {
@@ -1742,6 +1831,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
         } else if (queryType === 'today') {
           const dynamicResult = await fetchDayScheduleFromChaoxing(effectiveUuid, 'today', context);
           if (dynamicResult.error) {
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败(今天),回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, 'today', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatTomorrowAnswerFromProfile(profile, 'today');
             } else {
@@ -1754,6 +1847,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           // 下一节课：查询今天剩余的课，找到下一节
           const dynamicResult = await fetchNextCourseFromChaoxing(effectiveUuid, context);
           if (dynamicResult.error) {
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败(下一节课),回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, 'next_course', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatNextCourseFromProfile(profile, context);
             } else {
@@ -1770,6 +1867,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             replyText = dynamicResult.error ? `⚠️ 查询失败: ${dynamicResult.error}` : dynamicResult.text;
           }
         }
+      } else if (hasWebSchedule) {
+        // 🆕 无 curriculumUuid 时才使用前端传入的 webSchedule（Web 端直接传入的课表数组）
+        context?.log?.(`[Schedule] 使用前端传入的 webSchedule (${webSchedule.length} 门课)`);
+        replyText = formatAnswerFromWebSchedule(webSchedule, queryType, context);
       } else if (profile?.weekly_schedule) {
         // 无 curriculumUuid：直接使用 profile 中静态数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
@@ -1857,16 +1958,117 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
     for (const f of orderedFiles) {
       const lowerUrl = (f.url || '').toLowerCase();
 
-      // 🆕 PDF：给出可操作替代方案（当前仅支持 Excel/ICS 或截图 OCR）
+      // 🆕 PDF：渲染为图片→OCR→LLM结构化→保存 profile
       if (lowerUrl.endsWith('.pdf')) {
-        return {
-          status: 200,
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          body: JSON.stringify({
-            reply: '⚠️ 目前爱丽丝不能直接解析 PDF 课表文件。\n\n你可以选一个最快的方式：\n1) 从学校系统导出 Excel/ICS 再发我（最稳）\n2) 把 PDF 课表页面截图发我（我用 OCR 识别）\n3) 复制 PDF 里的课程文本，按“补全课表：”格式一行一门发我（我会导入）',
-            auto_escape: false
-          })
-        };
+        const pdfBuf = await downloadFileBuffer(f.url, context, fetchBypass);
+        if (!pdfBuf) {
+          return {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({ reply: '❌ 下载 PDF 失败，请稍后重试或换一个文件链接。', auto_escape: false })
+          };
+        }
+
+        try {
+          const PDFParse = require('pdf-parse');
+          const { readTextFromComputerVision } = require('./visionService');
+          const { parseScheduleFromOcrText: parseCourseItemsFromOcrText } = require('./ocrSchedule');
+
+          if (!process.env["COMPUTER_VISION_ENDPOINT"] || !process.env["COMPUTER_VISION_KEY"]) {
+            return {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({
+                reply: '❌ 解析 PDF 需要配置 OCR 服务：COMPUTER_VISION_ENDPOINT 和 COMPUTER_VISION_KEY。\n\n你也可以先把 PDF 页面截图发我（同样需要 OCR 配置，但更容易看出问题）。',
+                auto_escape: false
+              })
+            };
+          }
+
+          const parser = new PDFParse(pdfBuf);
+          const shots = await parser.getScreenshot({ scale: 2 });
+          const pages = Array.isArray(shots?.pages) ? shots.pages : [];
+          if (!pages.length) {
+            return {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({
+                reply: '⚠️ PDF 渲染失败：没有获取到可识别的页面。建议：改发课表截图或导出 ICS/Excel。',
+                auto_escape: false
+              })
+            };
+          }
+
+          let fullText = '';
+          for (let i = 0; i < pages.length; i++) {
+            const dataUrl = String(pages[i]?.dataUrl || '');
+            const m = dataUrl.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
+            if (!m) continue;
+            const imgBuf = Buffer.from(m[1], 'base64');
+            const pageText = await readTextFromComputerVision(imgBuf, context);
+            if (pageText && String(pageText).trim()) {
+              fullText += `\n\n[第${i + 1}页]\n${pageText}`;
+            }
+          }
+
+          if (!fullText.trim()) {
+            return {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({
+                reply: '⚠️ PDF OCR 未识别到有效文字。建议：提高 PDF 清晰度或改发截图。',
+                auto_escape: false
+              })
+            };
+          }
+
+          const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_MODELS_TOKEN;
+          if (!token) {
+            return {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({
+                reply: '❌ 解析 PDF 需要配置 GITHUB_TOKEN 才能调用模型做结构化解析。',
+                auto_escape: false
+              })
+            };
+          }
+
+          const { schedule, confidence } = await parseCourseItemsFromOcrText(fullText, token);
+
+          if (!Array.isArray(schedule) || schedule.length === 0) {
+            return {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({
+                reply: '⚠️ 已完成 OCR，但模型未能解析出结构化课表。建议：改发更清晰的截图或导出 ICS/Excel。',
+                auto_escape: false
+              })
+            };
+          }
+
+          await saveUserScheduleProfileFromCourseItems(cosmosContainer, senderId, schedule, f.url, context);
+
+          const pct = typeof confidence === 'number' ? `${(confidence * 100).toFixed(1)}%` : '未知';
+          return {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({
+              reply: `✅ 已从 PDF 导入课表！\n\n识别到课程: ${schedule.length} 门\n识别置信度(字段完整度): ${pct}\n\n你现在可以直接问我：\n- 本周课表 / 下周课表\n- 明天有课吗 / 下一节课是什么\n\n如需校验与学习通是否一致，请把学习通课表分享链接也发我。`,
+              auto_escape: false
+            })
+          };
+        } catch (err) {
+          context?.log?.(`[PDF] 解析失败: ${err.message}`);
+          return {
+            status: 200,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({
+              reply: `❌ PDF 解析失败：${err.message}\n\n建议：改发课表截图或导出 ICS/Excel。`,
+              auto_escape: false
+            })
+          };
+        }
       }
 
       const buf = await downloadFileBuffer(f.url, context, fetchBypass);
@@ -1966,5 +2168,7 @@ module.exports = {
   fetchWeekScheduleFromChaoxing,
   createScheduleHandler,
   formatScheduleSummary,
-  computeScheduleLoadStats
+  computeScheduleLoadStats,
+  formatAnswerFromWebSchedule, // 🆕 MVP 验证需要
+  isWeeksMatch                  // 🆕 周次匹配验证
 };

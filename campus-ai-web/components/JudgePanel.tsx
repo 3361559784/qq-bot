@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { 
   Sparkles, X, Calendar, FileSpreadsheet, FileText, 
   Image, Edit3, Link, CheckCircle,
-  Download, Eye
+  Download, Eye, MessageSquare, Ban
 } from "lucide-react";
 
 // 严乐的真实课表数据（完整版 - 27门课程）
@@ -48,15 +48,31 @@ const SUPPORTED_FORMATS = [
   { icon: Edit3, name: "手动输入", desc: "表单式逐条添加", status: "✅" },
 ];
 
+// 🎯 核心 3 问题（MVP 决战必验证）
+const CLASSIC_QUESTIONS = [
+  { text: "明天有什么课？", desc: "验证课表查询准确性" },
+  { text: "这周哪天课最多？", desc: "验证课表密度分析" },
+  { text: "下次早八是什么时候？", desc: "验证时间推理能力" },
+];
+
 interface JudgePanelProps {
   onLoadSchedule: (schedule: typeof JUDGE_DEMO_SCHEDULE) => void;
   onClearSchedule?: () => void;
+  onSendMessage?: (message: string) => void; // 🆕 一键发送消息
   currentSchedule: typeof JUDGE_DEMO_SCHEDULE;
 }
 
-export default function JudgePanel({ onLoadSchedule, onClearSchedule, currentSchedule }: JudgePanelProps) {
+export default function JudgePanel({ onLoadSchedule, onClearSchedule, onSendMessage, currentSchedule }: JudgePanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+
+  // 🆕 一键发送经典问题
+  const handleSendQuestion = (question: string) => {
+    if (onSendMessage) {
+      onSendMessage(question);
+      setIsOpen(false); // 关闭面板，看 AI 回答
+    }
+  };
 
   const handleLoadSchedule = () => {
     onLoadSchedule(JUDGE_DEMO_SCHEDULE);
@@ -106,6 +122,17 @@ export default function JudgePanel({ onLoadSchedule, onClearSchedule, currentSch
 
             {/* Content */}
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-200px)]">
+              {/* 项目理念声明 - 重要！让评委换视角看项目 */}
+              <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30 border-l-4 border-purple-500 rounded-r-xl">
+                <p className="text-purple-800 dark:text-purple-200 font-medium italic text-sm leading-relaxed">
+                  "This project is intentionally scoped for a single developer. 
+                  The goal is to prove <span className="font-bold">judgment</span>, not brute force."
+                </p>
+                <p className="text-purple-600 dark:text-purple-300 text-xs mt-2">
+                  这个项目是刻意控制在单人可完成范围内的，目的是验证<strong>判断力</strong>，而不是堆人力。
+                </p>
+              </div>
+
               {/* 支持的格式 */}
               <div className="mb-6">
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
@@ -275,6 +302,50 @@ export default function JudgePanel({ onLoadSchedule, onClearSchedule, currentSch
                     尚未导入课表，点击上方按钮一键导入
                   </div>
                 )}
+              </div>
+
+              {/* 🎯 一键经典问题（Time-to-Value < 10秒）*/}
+              {currentSchedule.length > 0 && onSendMessage && (
+                <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-xl">
+                  <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-3 flex items-center gap-2">
+                    <MessageSquare size={18} />
+                    一键验证核心问题
+                  </h3>
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400 mb-3">
+                    点击下方问题，立即发送给爱丽丝，验证 AI 是否基于真实数据回答（非幻觉）
+                  </p>
+                  <div className="grid gap-2">
+                    {CLASSIC_QUESTIONS.map((q, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleSendQuestion(q.text)}
+                        className="text-left p-3 bg-white dark:bg-gray-800 border border-yellow-200 dark:border-yellow-700 rounded-lg hover:bg-yellow-100 dark:hover:bg-yellow-900/40 transition-colors group"
+                      >
+                        <span className="font-medium text-yellow-800 dark:text-yellow-200 group-hover:text-yellow-900 dark:group-hover:text-yellow-100">
+                          {idx + 1}. 「{q.text}」
+                        </span>
+                        <span className="text-xs text-yellow-600 dark:text-yellow-400 ml-2">→ {q.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 🚫 刻意不做声明（成熟工程师信号）*/}
+              <div className="mt-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-xl">
+                <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <Ban size={18} />
+                  刻意不做（Out of Scope）
+                </h3>
+                <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-2">
+                  <li>❌ <strong>多用户协作</strong> — 会破坏单人系统的可控性和可维护性</li>
+                  <li>❌ <strong>全自动课表同步</strong> — 依赖第三方 API 稳定性，增加故障点</li>
+                  <li>❌ <strong>复杂的考试/作业提醒</strong> — 超出课表核心场景，增加认知负担</li>
+                  <li>❌ <strong>社交功能</strong> — 不是本产品的价值主张</li>
+                </ul>
+                <p className="text-xs text-gray-500 dark:text-gray-500 mt-3 italic">
+                  这些功能都「能做」，但「不该做」。判断力 &gt; 执行力。
+                </p>
               </div>
 
               {/* 下载示例文件 */}

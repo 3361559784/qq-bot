@@ -28,44 +28,66 @@ const PERIOD_TIMES: Record<number, { start: string; end: string }> = {
   10: { start: "19:55", end: "20:40" },
 };
 
-// 星期映射
+// 星期映射（含简写）
 const WEEKDAY_MAP: Record<string, number> = {
-  '周一': 1, '星期一': 1, 'monday': 1, 'mon': 1,
-  '周二': 2, '星期二': 2, 'tuesday': 2, 'tue': 2,
-  '周三': 3, '星期三': 3, 'wednesday': 3, 'wed': 3,
-  '周四': 4, '星期四': 4, 'thursday': 4, 'thu': 4,
-  '周五': 5, '星期五': 5, 'friday': 5, 'fri': 5,
-  '周六': 6, '星期六': 6, 'saturday': 6, 'sat': 6,
-  '周日': 7, '星期日': 7, '星期天': 7, 'sunday': 7, 'sun': 7,
+  '一': 1, '周一': 1, '星期一': 1, 'monday': 1, 'mon': 1,
+  '二': 2, '周二': 2, '星期二': 2, 'tuesday': 2, 'tue': 2,
+  '三': 3, '周三': 3, '星期三': 3, 'wednesday': 3, 'wed': 3,
+  '四': 4, '周四': 4, '星期四': 4, 'thursday': 4, 'thu': 4,
+  '五': 5, '周五': 5, '星期五': 5, 'friday': 5, 'fri': 5,
+  '六': 6, '周六': 6, '星期六': 6, 'saturday': 6, 'sat': 6,
+  '日': 7, '七': 7, '周日': 7, '星期日': 7, '星期天': 7, 'sunday': 7, 'sun': 7,
 };
 
 /**
  * 解析时间字符串，支持多种格式
+ * 返回 { start, end } 或 null
  */
-function parseTime(timeStr: string): string | null {
+function parseTimeRange(timeStr: string): { start: string; end: string } | null {
   if (!timeStr) return null;
   const str = String(timeStr).trim();
   
   // HH:MM 或 H:MM
   const match1 = str.match(/^(\d{1,2}):(\d{2})$/);
   if (match1) {
-    return `${match1[1].padStart(2, '0')}:${match1[2]}`;
+    const t = `${match1[1].padStart(2, '0')}:${match1[2]}`;
+    return { start: t, end: t };
   }
   
   // HHMM
   const match2 = str.match(/^(\d{2})(\d{2})$/);
   if (match2) {
-    return `${match2[1]}:${match2[2]}`;
+    const t = `${match2[1]}:${match2[2]}`;
+    return { start: t, end: t };
   }
   
   // 第X节
   const match3 = str.match(/第(\d+)节/);
   if (match3) {
     const period = parseInt(match3[1]);
-    return PERIOD_TIMES[period]?.start || null;
+    const p = PERIOD_TIMES[period];
+    if (p) return { start: p.start, end: p.end };
+  }
+  
+  // 节次范围 "1-2", "3-4", "5" 等（常见格式）
+  const rangeMatch = str.match(/^(\d+)(?:[-~](\d+))?$/);
+  if (rangeMatch) {
+    const p1 = parseInt(rangeMatch[1]);
+    const p2 = rangeMatch[2] ? parseInt(rangeMatch[2]) : p1;
+    const startPeriod = PERIOD_TIMES[p1];
+    const endPeriod = PERIOD_TIMES[p2];
+    if (startPeriod && endPeriod) {
+      return { start: startPeriod.start, end: endPeriod.end };
+    }
   }
   
   return null;
+}
+
+// 保持旧签名兼容
+function parseTime(timeStr: string): string | null {
+  const range = parseTimeRange(timeStr);
+  return range?.start || null;
 }
 
 /**
@@ -165,12 +187,14 @@ function parseExcel(buffer: ArrayBuffer): CourseItem[] {
     const weekday = parseWeekday(String(row[colMap.weekday] || ''));
     if (!weekday) continue;
     
-    let startTime = parseTime(String(row[colMap.startTime] || ''));
-    let endTime = parseTime(String(row[colMap.endTime] || ''));
+    // 支持节次范围格式（如 "1-2"）
+    const startStr = String(row[colMap.startTime] || '');
+    const endStr = String(row[colMap.endTime] || '');
+    const startRange = parseTimeRange(startStr);
+    const endRange = parseTimeRange(endStr);
     
-    // 默认时间
-    if (!startTime) startTime = '08:00';
-    if (!endTime) endTime = '09:40';
+    let startTime = startRange?.start || '08:00';
+    let endTime = endRange?.end || startRange?.end || '09:40';
     
     courses.push({
       courseName,

@@ -3,19 +3,9 @@
 import React from "react";
 import { Zap, Calendar, MessageCircle, Search, Sparkles } from "lucide-react";
 
-// 预设的 Demo 课表数据（评委作弊码）
-export const DEMO_SCHEDULE = [
-  { courseName: "高等数学（一）", instructor: "张教授", location: "A01-301", weekday: 1, startTime: "08:00", endTime: "09:35", weeks: "1-16" },
-  { courseName: "大学英语（一）", instructor: "汪玲", location: "E02-207", weekday: 1, startTime: "10:00", endTime: "11:35", weeks: "1-16" },
-  { courseName: "程序设计基础", instructor: "李老师", location: "B03-502", weekday: 2, startTime: "08:00", endTime: "09:35", weeks: "1-16" },
-  { courseName: "线性代数", instructor: "王教授", location: "A02-101", weekday: 2, startTime: "14:00", endTime: "15:35", weeks: "1-16" },
-  { courseName: "大学物理", instructor: "陈老师", location: "C01-201", weekday: 3, startTime: "10:00", endTime: "11:35", weeks: "1-16" },
-  { courseName: "思想政治理论", instructor: "刘教授", location: "D02-301", weekday: 3, startTime: "14:00", endTime: "15:35", weeks: "1-16" },
-  { courseName: "数据结构", instructor: "赵老师", location: "B03-401", weekday: 4, startTime: "08:00", endTime: "09:35", weeks: "1-16" },
-  { courseName: "大学英语（一）", instructor: "汪玲", location: "E02-207", weekday: 4, startTime: "10:00", endTime: "11:35", weeks: "1-16" },
-  { courseName: "高等数学（一）", instructor: "张教授", location: "A01-301", weekday: 5, startTime: "08:00", endTime: "09:35", weeks: "1-16" },
-  { courseName: "体育", instructor: "体育组", location: "操场", weekday: 5, startTime: "14:00", endTime: "15:35", weeks: "1-16" },
-];
+// 🎯 统一使用评委面板的真实课表数据（严乐 2024-2025学年第一学期）
+import { JUDGE_DEMO_SCHEDULE } from "./JudgePanel";
+export const DEMO_SCHEDULE = JUDGE_DEMO_SCHEDULE;
 
 // 预设的 Demo 问题
 export const DEMO_QUESTIONS = [
@@ -50,7 +40,7 @@ export default function DemoPreset({ onLoadSchedule, onSendQuestion, hasSchedule
           className="w-full mb-3 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg font-medium transition-all flex items-center justify-center gap-2 shadow-sm"
         >
           <Calendar size={16} />
-          一键导入示例课表（10门课）
+          一键导入课表（{DEMO_SCHEDULE.length}门课）
         </button>
       )}
 

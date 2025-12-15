@@ -256,7 +256,11 @@ function transformLessonsToStandardFormat(lessons, curriculum) {
         teacher: lesson.teacherName || lesson.instructor || '未知教师',
         location: lesson.location || lesson.classroom || '待定',
         day: lesson.dayOfWeek || lesson.weekday || 0, // 1-7 表示周一到周日
-        start: startTime, // HH:MM 格式
+        start: startTime, // HH:MM 格式（历史字段）
+        end: endTime, // HH:MM 格式（补齐，便于输出范围）
+        startTime: startTime, // 兼容 webSchedule 风格字段
+        endTime: endTime,
+        timeRange: (startTime && endTime) ? `${startTime}-${endTime}` : (startTime || endTime || ''),
         duration, // 时长(分钟)
         date: lesson.day || lesson.studyDate || '', // YYYY-MM-DD 格式(如果有)
         raw: lesson // 保留完整原始数据供调试/高级用途

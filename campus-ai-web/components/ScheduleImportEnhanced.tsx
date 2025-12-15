@@ -98,6 +98,8 @@ export default function ScheduleImportEnhanced({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const icsInputRef = useRef<HTMLInputElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // 从localStorage加载已有课表
   useEffect(() => {
@@ -209,12 +211,9 @@ export default function ScheduleImportEnhanced({
     reader.readAsDataURL(file);
   }, []);
 
-  // 文件上传处理 - Excel/ICS
-  const handleFileUpload = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
+  // 通用文件处理函数（供拖拽和点击共用）
+  const processFile = useCallback(
+    async (file: File) => {
       setIsLoading(true);
       setError(null);
       const stopProgress = simulateProgress();
@@ -243,7 +242,7 @@ export default function ScheduleImportEnhanced({
         console.log(`✅ 文件导入成功 (${file.name}):`, data.schedule);
       } catch (err) {
         const raw = err instanceof Error ? err.message : "文件解析失败";
-        console.error('Schedule file upload error:', err);
+        console.error("Schedule file upload error:", err);
         setError(formatAliceError(raw));
       } finally {
         stopProgress();
@@ -251,6 +250,59 @@ export default function ScheduleImportEnhanced({
       }
     },
     [onScheduleImported, simulateProgress]
+  );
+
+  // 文件上传处理 - Excel/ICS (点击)
+  const handleFileUpload = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      await processFile(file);
+    },
+    [processFile]
+  );
+
+  // 拖拽事件处理
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      const files = e.dataTransfer.files;
+      if (files.length === 0) return;
+
+      const file = files[0];
+      const ext = file.name.toLowerCase().split(".").pop();
+
+      // 判断文件类型并处理
+      if (ext === "xlsx" || ext === "xls" || ext === "ics") {
+        await processFile(file);
+      } else if (file.type.startsWith("image/")) {
+        // 图片文件
+        const reader = new FileReader();
+        reader.onload = () => {
+          setImageUrl(reader.result as string);
+          setActiveTab("image");
+        };
+        reader.readAsDataURL(file);
+      } else {
+        setError(formatAliceError(`不支持的文件格式: ${ext}`));
+      }
+    },
+    [processFile]
   );
 
   // 清除课表
@@ -318,7 +370,32 @@ export default function ScheduleImportEnhanced({
   ];
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 p-6 max-w-3xl mx-auto max-h-[90vh] overflow-y-auto">
+    <div
+      ref={dropZoneRef}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`bg-white dark:bg-gray-900 rounded-2xl shadow-xl border-2 ${
+        isDragging
+          ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+          : "border-gray-200 dark:border-gray-700"
+      } p-6 max-w-3xl mx-auto max-h-[90vh] overflow-y-auto transition-colors`}
+    >
+      {/* 拖拽提示遮罩 */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-blue-500/10 dark:bg-blue-500/20 rounded-2xl flex items-center justify-center z-10 pointer-events-none">
+          <div className="text-center">
+            <Upload className="w-12 h-12 text-blue-500 mx-auto mb-2" />
+            <p className="text-blue-600 dark:text-blue-400 font-medium">
+              松开鼠标导入文件
+            </p>
+            <p className="text-sm text-blue-500/80">
+              支持 Excel / ICS / 图片
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 标题 */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
@@ -407,6 +484,12 @@ export default function ScheduleImportEnhanced({
 
         {activeTab === "file" && (
           <div className="space-y-3">
+            {/* 拖拽区域提示 */}
+            <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 text-center">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                💡 可以直接拖拽文件到此窗口任意位置导入
+              </p>
+            </div>
             <div className="flex gap-2">
               <button
                 onClick={() => excelInputRef.current?.click()}

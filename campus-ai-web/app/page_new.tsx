@@ -411,10 +411,11 @@ export default function Home() {
     }
   }, [theme]);
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = async (overrideMessage?: string) => {
+    const messageToSend = overrideMessage || input.trim();
+    if (!messageToSend || isLoading) return;
 
-    const userMessage = input.trim();
+    const userMessage = messageToSend;
     setInput("");
     setMessages(prev => [...prev, { role: "user", content: userMessage }]);
     setIsLoading(true);
@@ -1088,6 +1089,14 @@ export default function Home() {
             role: "assistant",
             content: `🗑️ 课表已清除！现在可以测试 **红线意识** 功能。\n\n尝试问：「今天有什么课？」\n→ 爱丽丝将拒绝编造，引导你导入课表。`
           }]);
+        }}
+        onSendMessage={(message) => {
+          // 一键发送经典问题
+          setInput(message);
+          // 延迟触发发送，让用户看到输入框内容
+          setTimeout(() => {
+            handleSend(message);
+          }, 100);
         }}
       />
 

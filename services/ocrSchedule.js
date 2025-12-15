@@ -1,47 +1,53 @@
-const { ComputerVisionClient } = require('@azure/cognitiveservices-computervision');
-const { ApiKeyCredentials } = require('@azure/ms-rest-js');
 const { OpenAI } = require('openai');
 
-const subscriptionKey = process.env['AZURE_CV_KEY'];
-const endpoint = process.env['AZURE_CV_ENDPOINT'];
-
-const client = subscriptionKey && endpoint 
-  ? new ComputerVisionClient(
-      new ApiKeyCredentials({ inHeader: { 'Ocp-Apim-Subscription-Key': subscriptionKey } }),
-      endpoint
-    )
-  : null;
+// GitHub Models GPT-4o 视觉 OCR（不再依赖 Azure Computer Vision）
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_MODELS_TOKEN;
 
 /**
- * 从图片 URL 提取文本 (Azure Computer Vision OCR)
- * @param {string} url - 图片 URL
+ * 从图片 URL 或 Base64 提取文本 (使用 GPT-4o 视觉能力)
+ * @param {string} urlOrBase64 - 图片 URL 或 data:image/xxx;base64,... 格式
  * @returns {Promise<string>} 提取的文本内容
  */
-async function extractTextFromImage(url) {
-  if (!client) {
-    throw new Error('Azure Computer Vision 未配置。需要 AZURE_CV_KEY 和 AZURE_CV_ENDPOINT 环境变量');
+async function extractTextFromImage(urlOrBase64) {
+  if (!GITHUB_TOKEN) {
+    throw new Error('需要 GITHUB_TOKEN 环境变量来调用 GPT-4o 视觉');
   }
 
-  const result = await client.read(url);
-  const operationId = result.operationLocation.split('/').slice(-1)[0];
-  
-  // 等待 OCR 完成
-  let operation = await client.getReadResult(operationId);
-  while (operation.status === 'running' || operation.status === 'notStarted') {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    operation = await client.getReadResult(operationId);
+  const openai = new OpenAI({
+    baseURL: "https://models.inference.ai.azure.com",
+    apiKey: GITHUB_TOKEN
+  });
+
+  // 构建图片内容
+  let imageContent;
+  if (urlOrBase64.startsWith('data:image/')) {
+    // Base64 格式
+    imageContent = { type: "image_url", image_url: { url: urlOrBase64 } };
+  } else {
+    // URL 格式
+    imageContent = { type: "image_url", image_url: { url: urlOrBase64 } };
   }
 
-  if (operation.status !== 'succeeded') {
-    throw new Error(`OCR 失败: ${operation.status}`);
-  }
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "请提取这张图片中的所有文字内容。只返回文字，不要添加任何解释或格式化。保持原始布局和换行。"
+          },
+          imageContent
+        ]
+      }
+    ],
+    max_tokens: 4000,
+    temperature: 0.1
+  });
 
-  // 提取所有行的文本
-  const lines = operation.analyzeResult.readResults
-    .map(r => r.lines.map(l => l.text).join('\n'))
-    .join('\n');
-  
-  return lines;
+  const text = response.choices[0]?.message?.content?.trim() || '';
+  return text;
 }
 
 /**
