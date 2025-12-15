@@ -1,0 +1,180 @@
+'local.settings.json' found in root directory (/Users/liuziheng/qq-bot-aris-clean).
+Resolving worker runtime to 'node'.
+
+
+Azure Functions Core Tools
+Core Tools Version:       4.5.0+e74aae22c9630777c9f58354f290a6e214218546 (64-bit)
+Function Runtime Version: 4.1044.400.25520
+
+[2025-12-15T01:04:46.143Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:04:46.935Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:04:46.953Z] Worker process started and initialized.
+
+Functions:
+
+	ocrCourse: [GET,POST] http://localhost:7071/api/ocrCourse
+
+	schoolBot: [GET,POST] http://localhost:7071/api/schoolBot
+
+For detailed output, run func with --verbose flag.
+[2025-12-15T01:06:51.468Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:06:52.042Z] [Tag=''] Process reporting unhealthy: Unhealthy. Health check entries are azure.functions.web_host.lifecycle: {status: Healthy, description: }, azure.functions.script_host.lifecycle: {status: Unhealthy, description: No script host available}
+[2025-12-15T01:06:52.042Z] [Tag='azure.functions.readiness'] Process reporting unhealthy: Unhealthy. Health check entries are azure.functions.script_host.lifecycle: {status: Unhealthy, description: No script host available}
+[2025-12-15T01:06:52.542Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:06:52.543Z] Worker process started and initialized.
+[2025-12-15T01:06:53.048Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=172a7bbb-b509-4976-b216-5de98c86ba9b)
+[2025-12-15T01:06:53.069Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:06:53.076Z] Executed 'Functions.schoolBot' (Succeeded, Id=172a7bbb-b509-4976-b216-5de98c86ba9b, Duration=34ms)
+[2025-12-15T01:06:55.637Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:06:55.816Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:06:55.817Z] Worker process started and initialized.
+[2025-12-15T01:07:00.839Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=ea716c3b-9689-4f41-a202-37519686eed4)
+[2025-12-15T01:07:00.872Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:00.872Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:00.872Z] [QQ消息] 来自:Web(yanle_test_user) 内容:今天有什么课
+[2025-12-15T01:07:00.872Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:03.581Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:03.581Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:04.083Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:04.085Z] Executed 'Functions.schoolBot' (Succeeded, Id=ea716c3b-9689-4f41-a202-37519686eed4, Duration=3253ms)
+[2025-12-15T01:07:04.117Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=9df2e286-fa5f-4f94-9cf5-c72552d96211)
+[2025-12-15T01:07:04.121Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:04.121Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:04.121Z] [QQ消息] 来自:Web(yanle_test_user) 内容:明天有什么课
+[2025-12-15T01:07:04.121Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:05.089Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:05.089Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:05.435Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:05.436Z] Executed 'Functions.schoolBot' (Succeeded, Id=9df2e286-fa5f-4f94-9cf5-c72552d96211, Duration=1319ms)
+[2025-12-15T01:07:05.450Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=b02c35be-fe38-471e-8137-7e803c21385d)
+[2025-12-15T01:07:05.454Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:05.454Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:05.454Z] [QQ消息] 来自:Web(yanle_test_user) 内容:下一节课是什么
+[2025-12-15T01:07:05.454Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:06.708Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:06.708Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:07.029Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:07.030Z] Executed 'Functions.schoolBot' (Succeeded, Id=b02c35be-fe38-471e-8137-7e803c21385d, Duration=1579ms)
+[2025-12-15T01:07:11.469Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=d48f9e76-7892-49d5-b176-5d0bc375d8d3)
+[2025-12-15T01:07:11.475Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:11.475Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:11.475Z] [QQ消息] 来自:Web(yanle_test_user) 内容:下一节课是什么
+[2025-12-15T01:07:11.475Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:12.596Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:12.597Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:12.957Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:12.960Z] Executed 'Functions.schoolBot' (Succeeded, Id=d48f9e76-7892-49d5-b176-5d0bc375d8d3, Duration=1491ms)
+[2025-12-15T01:07:12.984Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=2d05ebb7-d606-4414-81f2-267e46560ad9)
+[2025-12-15T01:07:12.987Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:12.987Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:12.987Z] [QQ消息] 来自:Web(yanle_test_user) 内容:本周课表
+[2025-12-15T01:07:12.987Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:14.283Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:14.283Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:14.283Z] [Schedule] 查询本周课表: 第16周
+[2025-12-15T01:07:14.611Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:14.611Z] Executed 'Functions.schoolBot' (Succeeded, Id=2d05ebb7-d606-4414-81f2-267e46560ad9, Duration=1627ms)
+[2025-12-15T01:07:14.624Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=4fe18e78-3cb5-4fd5-97d2-dacc7c422e58)
+[2025-12-15T01:07:14.628Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:14.628Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:14.628Z] [QQ消息] 来自:Web(yanle_test_user) 内容:下周课表
+[2025-12-15T01:07:14.628Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:16.042Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:16.042Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:16.042Z] [Schedule] 查询下周课表: 第17周
+[2025-12-15T01:07:16.682Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:16.683Z] Executed 'Functions.schoolBot' (Succeeded, Id=4fe18e78-3cb5-4fd5-97d2-dacc7c422e58, Duration=2058ms)
+[2025-12-15T01:07:16.702Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=30d4b570-3feb-4d4a-89d9-e8ca52315e87)
+[2025-12-15T01:07:16.706Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:16.706Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:16.706Z] [QQ消息] 来自:Web(yanle_test_user) 内容:今天有什么课
+[2025-12-15T01:07:16.706Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:18.064Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:18.064Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:18.363Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:18.364Z] Executed 'Functions.schoolBot' (Succeeded, Id=30d4b570-3feb-4d4a-89d9-e8ca52315e87, Duration=1662ms)
+[2025-12-15T01:07:18.371Z] Executing 'Functions.schoolBot' (Reason='This function was programmatically called via the host APIs.', Id=758aac39-b3ec-4897-ad3a-5f8160e267e9)
+[2025-12-15T01:07:18.373Z] [ENV] ARIS_MOCK_CHAT=false MOCK_CHAT_ENABLED=false gh_hasKey=true gh_len=40 token_present=true
+[2025-12-15T01:07:18.373Z] [事件接收] post_type=message, notice_type=N/A, sub_type=N/A, message_type=private, msg_type=N/A, sub_msg_type=N/A
+[2025-12-15T01:07:18.373Z] [QQ消息] 来自:Web(yanle_test_user) 内容:明天有什么课
+[2025-12-15T01:07:18.373Z] [P0-语言] 检测到: zh
+[2025-12-15T01:07:19.631Z] [Schedule] 使用前端传入的 webSchedule (27 门课)
+[2025-12-15T01:07:19.631Z] [Schedule] 当前周次: 第16周
+[2025-12-15T01:07:19.954Z] [DB] lastBotReply 更新成功 (key=yanle_test_user:yanle_test_user, attempt=1)
+[2025-12-15T01:07:19.955Z] Executed 'Functions.schoolBot' (Succeeded, Id=758aac39-b3ec-4897-ad3a-5f8160e267e9, Duration=1583ms)
+[2025-12-15T01:12:54.706Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:12:56.030Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:12:56.032Z] Worker process started and initialized.
+[2025-12-15T01:13:35.665Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:13:36.055Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:13:36.057Z] Worker process started and initialized.
+[2025-12-15T01:13:42.679Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:13:43.255Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:13:43.256Z] Worker process started and initialized.
+[2025-12-15T01:13:56.678Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:13:57.048Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:13:57.049Z] Worker process started and initialized.
+[2025-12-15T01:13:59.340Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:13:59.856Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:13:59.859Z] Worker process started and initialized.
+[2025-12-15T01:14:04.406Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:14:04.772Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:14:04.774Z] Worker process started and initialized.
+[2025-12-15T01:14:06.603Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:14:06.950Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:14:06.951Z] Worker process started and initialized.
+[2025-12-15T01:14:15.965Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:14:16.327Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:14:16.328Z] Worker process started and initialized.
+[2025-12-15T01:14:17.572Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:14:17.990Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:14:17.990Z] Worker process started and initialized.
+[2025-12-15T01:14:57.596Z] Executing 'Functions.ocrCourse' (Reason='This function was programmatically called via the host APIs.', Id=60c386df-92bb-48d6-afde-866bd67382d8)
+[2025-12-15T01:14:57.605Z] Executed 'Functions.ocrCourse' (Succeeded, Id=60c386df-92bb-48d6-afde-866bd67382d8, Duration=9ms)
+[2025-12-15T01:15:07.314Z] Executing 'Functions.ocrCourse' (Reason='This function was programmatically called via the host APIs.', Id=00754824-602a-4bc7-a36c-38f9d845e2df)
+[2025-12-15T01:15:07.316Z] Executed 'Functions.ocrCourse' (Succeeded, Id=00754824-602a-4bc7-a36c-38f9d845e2df, Duration=1ms)
+[2025-12-15T01:16:31.595Z] Executing 'Functions.ocrCourse' (Reason='This function was programmatically called via the host APIs.', Id=e5c47aef-4fa0-4e33-8929-45767c290cb0)
+[2025-12-15T01:16:31.611Z] Executed 'Functions.ocrCourse' (Succeeded, Id=e5c47aef-4fa0-4e33-8929-45767c290cb0, Duration=22ms)
+[2025-12-15T01:16:58.837Z] Executing 'Functions.ocrCourse' (Reason='This function was programmatically called via the host APIs.', Id=bbdc1c04-0a68-4c4d-bcf7-2c94f984a074)
+[2025-12-15T01:16:58.886Z] [OCR] 置信度: 0.0%
+[2025-12-15T01:17:01.542Z] [DB] lastBotReply 更新成功 (key=test_yanle:test_yanle, attempt=1)
+[2025-12-15T01:17:01.543Z] Executed 'Functions.ocrCourse' (Succeeded, Id=bbdc1c04-0a68-4c4d-bcf7-2c94f984a074, Duration=2708ms)
+[2025-12-15T01:36:58.178Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:36:58.888Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:36:58.890Z] Worker process started and initialized.
+[2025-12-15T01:37:08.775Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:08.965Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:08.966Z] Worker process started and initialized.
+[2025-12-15T01:37:14.023Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:14.242Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:14.243Z] Worker process started and initialized.
+[2025-12-15T01:37:19.205Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:19.430Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:19.431Z] Worker process started and initialized.
+[2025-12-15T01:37:24.080Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:24.289Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:24.290Z] Worker process started and initialized.
+[2025-12-15T01:37:30.754Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:30.952Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:30.953Z] Worker process started and initialized.
+[2025-12-15T01:37:43.893Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:44.095Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:44.096Z] Worker process started and initialized.
+[2025-12-15T01:37:49.650Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:37:49.832Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:37:49.833Z] Worker process started and initialized.
+[2025-12-15T01:38:40.118Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:38:40.313Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:38:40.315Z] Worker process started and initialized.
+[2025-12-15T01:38:42.800Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:38:42.984Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:38:42.985Z] Worker process started and initialized.
+[2025-12-15T01:41:19.457Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:41:19.877Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:41:19.878Z] Worker process started and initialized.
+[2025-12-15T01:41:24.325Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:41:24.455Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:41:24.456Z] Worker process started and initialized.
+[2025-12-15T01:41:29.007Z] Node.js v20 will reach EOL on 2026-04. Consider upgrading: https://aka.ms/functions-nodejs-supported-versions
+[2025-12-15T01:41:29.109Z] [syncCharacterNamesToDB] parsed_character_data.json not found, skipping sync
+[2025-12-15T01:41:29.109Z] Worker process started and initialized.

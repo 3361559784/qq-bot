@@ -322,6 +322,20 @@ export default function Home() {
         }
       }
       
+      // 🆕 从 Demo 跳转过来时，清除 demo 保存的课表，让用户在完整版重新选择
+      if (isFromDemo) {
+        const parsed = saved ? JSON.parse(saved) : null;
+        // 如果是 demo 保存的课表（带 source: "demo"），清除它
+        if (parsed && !Array.isArray(parsed) && parsed.source === "demo") {
+          localStorage.removeItem("campus_schedule");
+          console.log("🧹 已清除 Demo 页面保存的临时课表");
+        }
+        // 清除 URL 参数
+        window.history.replaceState({}, '', window.location.pathname);
+        return; // 不加载任何课表，让用户在空状态选择
+      }
+      
+      // 非 demo 跳转：正常加载已保存的课表
       if (saved) {
         const parsed = JSON.parse(saved);
         // 兼容两种格式：数组 或 {schedule: [...], source: "demo"}
@@ -329,15 +343,7 @@ export default function Home() {
         if (scheduleData.length > 0) {
           setSchedule(scheduleData);
           console.log("📚 已加载课表:", scheduleData.length, "门课程");
-          
-          // 如果是从 Demo 跳转过来且已有课表，只清除 URL 参数，不显示消息
-          if (isFromDemo) {
-            window.history.replaceState({}, '', window.location.pathname);
-          }
         }
-      } else if (isFromDemo) {
-        // 从 Demo 跳转但没有课表，只清除 URL 参数，保持空状态欢迎页
-        window.history.replaceState({}, '', window.location.pathname);
       }
     } catch (e) {
       console.error("加载课表失败:", e);
@@ -780,31 +786,63 @@ export default function Home() {
               
               {/* 已有课表时显示快捷操作 */}
               {schedule.length > 0 && (
-                <div className="mb-6 flex flex-wrap justify-center gap-3">
-                  <button
-                    onClick={() => { setCurrentMode('Class'); setInput('下一节课是什么'); }}
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
-                  >
-                    📚 下一节课是什么
-                  </button>
-                  <button
-                    onClick={() => { setCurrentMode('Class'); setInput('下周课表是什么'); }}
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
-                  >
-                    📅 下周课表
-                  </button>
-                  <button
-                    onClick={() => { setCurrentMode('Plan'); setInput('帮我安排今天的学习计划'); }}
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
-                  >
-                    ✨ 生成学习计划
-                  </button>
-                  <button
-                    onClick={() => { setCurrentMode('Ask'); setInput(''); }}
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
-                  >
-                    💬 随便聊聊
-                  </button>
+                <div className="mb-6 flex flex-col items-center gap-4">
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <button
+                      onClick={() => { setCurrentMode('Class'); setInput('下一节课是什么'); }}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                    >
+                      📚 下一节课是什么
+                    </button>
+                    <button
+                      onClick={() => { setCurrentMode('Class'); setInput('下周课表是什么'); }}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                    >
+                      📅 下周课表
+                    </button>
+                    <button
+                      onClick={() => { setCurrentMode('Plan'); setInput('帮我安排今天的学习计划'); }}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                    >
+                      ✨ 生成学习计划
+                    </button>
+                    <button
+                      onClick={() => { setCurrentMode('Ask'); setInput(''); }}
+                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                    >
+                      💬 随便聊聊
+                    </button>
+                  </div>
+                  {/* 课表管理按钮 */}
+                  <div className="flex gap-2 text-xs">
+                    <button
+                      onClick={() => {
+                        setSchedule(JUDGE_DEMO_SCHEDULE);
+                        localStorage.setItem("campus_schedule", JSON.stringify(JUDGE_DEMO_SCHEDULE));
+                        setMessages([{ role: 'assistant', content: '📚 已加载演示课表（27门课程）！' }]);
+                      }}
+                      className="px-3 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors border border-blue-300 dark:border-blue-700"
+                    >
+                      🎯 加载演示课表
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSchedule([]);
+                        localStorage.removeItem("campus_schedule");
+                        localStorage.removeItem("campus_curriculum_uuid");
+                        setMessages([{ role: 'assistant', content: '🗑️ 课表已清除！你可以重新导入真实课表，或继续和爱丽丝聊天～' }]);
+                      }}
+                      className="px-3 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-red-300 dark:border-red-700"
+                    >
+                      🗑️ 取消绑定课表
+                    </button>
+                    <button
+                      onClick={() => setShowScheduleImport(true)}
+                      className="px-3 py-1 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors border border-green-300 dark:border-green-700"
+                    >
+                      📤 导入真实课表
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -831,7 +869,32 @@ export default function Home() {
           ) : (
             <div className="max-w-3xl mx-auto w-full py-8">
               {messages.map((msg, idx) => (
-                <ChatMessage key={idx} role={msg.role} content={msg.content} />
+                <div key={idx}>
+                  <ChatMessage role={msg.role} content={msg.content} />
+                  {/* 无课表时，在 assistant 回复后显示绑定提示 */}
+                  {msg.role === 'assistant' && schedule.length === 0 && idx === messages.length - 1 && (
+                    <div className="ml-12 mt-1 mb-4 flex items-center gap-2 text-xs text-gray-400">
+                      <span>💡</span>
+                      <span>还没有绑定课表？</span>
+                      <button
+                        onClick={() => setShowScheduleImport(true)}
+                        className="text-blue-500 hover:text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        导入课表
+                      </button>
+                      <span className="text-gray-300 dark:text-gray-600">|</span>
+                      <button
+                        onClick={() => {
+                          setSchedule(JUDGE_DEMO_SCHEDULE);
+                          localStorage.setItem("campus_schedule", JSON.stringify(JUDGE_DEMO_SCHEDULE));
+                        }}
+                        className="text-green-500 hover:text-green-600 dark:text-green-400 hover:underline"
+                      >
+                        快速体验
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
               {isLoading && (
                 <div className="flex w-full mb-8 justify-start items-start">
@@ -875,8 +938,8 @@ export default function Home() {
         onOpenImport={() => setShowScheduleImport(true)}
       />
 
-      {/* 爱丽丝 Avatar (固定在右下角) */}
-      <div className="fixed right-8 bottom-28 z-50 pointer-events-none">
+      {/* 爱丽丝 Avatar (固定在右下角，右侧面板打开时隐藏) */}
+      <div className={`fixed bottom-28 z-50 pointer-events-none transition-all duration-300 ${isRightPanelOpen ? 'right-96 opacity-80' : 'right-8'}`}>
         <div className="flex flex-col items-end gap-3 pointer-events-auto">
           {/* 3D 容器：使用 Framer Motion 实现流畅的弹簧动画 */}
           <AnimatePresence mode="wait">

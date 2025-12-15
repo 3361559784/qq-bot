@@ -270,7 +270,7 @@ export default function DemoPage() {
                 messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     {msg.role !== "user" && (
-                      <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="rounded-full mr-2 flex-shrink-0" />
+                      <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="w-8 h-8 rounded-full mr-2 flex-shrink-0 object-cover" />
                     )}
                     <div className={`max-w-[80%] rounded-2xl px-4 py-2 whitespace-pre-wrap ${
                       msg.role === "user" 
@@ -284,7 +284,7 @@ export default function DemoPage() {
               )}
               {isLoading && (
                 <div className="flex justify-start">
-                  <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="rounded-full mr-2" />
+                  <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="w-8 h-8 rounded-full mr-2 object-cover" />
                   <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm px-4 py-2">
                     <div className="flex gap-1">
                       <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />

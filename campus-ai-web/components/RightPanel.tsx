@@ -93,7 +93,8 @@ export default function RightPanel({ isOpen, onToggle, currentMode, onOpenImport
       const saved = localStorage.getItem('campus_schedule');
       if (saved) {
         const data = JSON.parse(saved);
-        const courses = data.schedule || [];
+        // 兼容两种格式：数组 或 {schedule: [...], source: "demo"}
+        const courses = Array.isArray(data) ? data : (data.schedule || []);
         setSchedule(courses);
         setHasSchedule(courses.length > 0);
         
@@ -161,7 +162,7 @@ export default function RightPanel({ isOpen, onToggle, currentMode, onOpenImport
       
       {/* 右侧面板主体 */}
       <div
-        className={`fixed right-0 top-0 h-full bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 transition-transform duration-300 z-50 w-80 shadow-xl ${
+        className={`fixed right-0 top-0 h-full bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 transition-transform duration-300 z-40 w-80 shadow-xl ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
