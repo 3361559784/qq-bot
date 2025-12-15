@@ -688,7 +688,7 @@ export default function ScheduleImportEnhanced({
       {schedule && schedule.length > 0 && !importSuccess && (
         <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg text-amber-600 dark:text-amber-400 text-sm flex items-center gap-2">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          已有 {schedule.length} 门课程。如需重新导入，请先点击"清除"按钮。
+          已有 {schedule.length} 门课程。如需重新导入，请先点击&ldquo;清除&rdquo;按钮。
         </div>
       )}
 

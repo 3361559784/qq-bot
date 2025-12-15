@@ -125,8 +125,8 @@ export default function JudgePanel({ onLoadSchedule, onClearSchedule, onSendMess
               {/* 项目理念声明 - 重要！让评委换视角看项目 */}
               <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30 border-l-4 border-purple-500 rounded-r-xl">
                 <p className="text-purple-800 dark:text-purple-200 font-medium italic text-sm leading-relaxed">
-                  "This project is intentionally scoped for a single developer. 
-                  The goal is to prove <span className="font-bold">judgment</span>, not brute force."
+                  &ldquo;This project is intentionally scoped for a single developer.
+                  The goal is to prove <span className="font-bold">judgment</span>, not brute force.&rdquo;
                 </p>
                 <p className="text-purple-600 dark:text-purple-300 text-xs mt-2">
                   这个项目是刻意控制在单人可完成范围内的，目的是验证<strong>判断力</strong>，而不是堆人力。
