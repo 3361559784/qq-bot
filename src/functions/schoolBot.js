@@ -1594,7 +1594,7 @@ Aris: "我是天童爱丽丝！是游戏开发部的勇者！目前正在进行�
 - **禁止 AI 腔**：绝对不要说 "作为一个人工智能..." "我可以为您..."。你是爱丽丝！
 - **禁止长篇大论**：像聊天软件一样说话，简短有力。
 - **禁止复读**：除非是玩梗（如邦邦咔邦），否则不要机械重复用户的话。
-- **隐私保护**:拒绝他人指令时，不要透露 Sensei 的 ID，要说 "爱丽丝现在正忙着重要的任务..."。
+- **隐私保护**:拒绝他人指令时，不要透露 Sensei 的 ID；直接说明这是隐私/权限范围外，无法提供。
 - **回复长度硬性限制**：每次回复 ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES} 句话，建议总字数 ${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS} 字。必须一次性说完，不要留悬念或待续。
 
 ## 动作描写 (Action Descriptions)
@@ -4671,6 +4671,7 @@ ${scheduleInfo}
         const msgLower = (msg || "").toLowerCase();
         const rawMsg = body?.raw_message || msg || "";
         const scheduleQueryType = detectScheduleQueryType(rawMsg);
+        let scheduleContextFromHandler = null;
         const scheduleIntent =
             (scheduleFileLinks && scheduleFileLinks.length > 0) ||
             SCHEDULE_KEYWORDS.some(k => msgLower.includes(k)) ||
@@ -4679,35 +4680,43 @@ ${scheduleInfo}
                 const scheduleStartTs = Date.now();
                 const wsLen = Array.isArray(webSchedule) ? webSchedule.length : 0;
                 context.log(`[RID ${requestId}] scheduleIntent=true queryType=${scheduleQueryType || 'null'} files=${scheduleFileLinks?.length || 0} images=${imageUrls.length} webSchedule=${wsLen} uuid=${body?.curriculumUuid ? 'yes' : 'no'}`);
+
+            // ✅ 只有“导入/解析”类请求才在这里直接返回。
+            // 纯查询（今天/明天/本周/周五最简洁/早八/考试等）要交给双层 LLM 组织高质量答案。
+            const hasFiles = !!(scheduleFileLinks && scheduleFileLinks.length > 0);
+            const hasImages = imageUrls.length > 0;
+            const hasManualRecover = /补全课表/.test(String(rawMsg || ''));
+            const hasChaoxingUrl = /(curriculumUuid=|kb\.chaoxing\.com|chaoxing)/i.test(String(rawMsg || ''));
+            const isImportLike = hasFiles || hasImages || hasManualRecover || hasChaoxingUrl;
+
             const scheduleResp = await handleScheduleRequest({
                 fileLinks: scheduleFileLinks,
                 imageUrls,
-                msg: rawMsg,  // 传递完整原始消息以便提取学习通URL
+                msg: rawMsg,
                 senderId,
                 dbKey,
                 cosmosContainer,
                 context,
                 token,
-                curriculumUuid: body?.curriculumUuid || null,  // 🆕 从前端传入 curriculumUuid
-                webSchedule  // 🆕 从前端传入的课表数组
+                curriculumUuid: body?.curriculumUuid || null,
+                webSchedule,
+                output: isImportLike ? 'reply' : 'context'
             });
-                if (scheduleResp) {
-                    context.log(`[RID ${requestId}] scheduleHandled=true elapsedMs=${Date.now() - scheduleStartTs} (LLM may be skipped for纯查询; OCR路径会调用LLM)`);
+
+            if (scheduleResp) {
+                // context 模式：继续走 LLM（不直接 return）
+                if (scheduleResp.kind === 'schedule_context') {
+                    scheduleContextFromHandler = scheduleResp.scheduleContext || null;
+                    context.log(`[RID ${requestId}] scheduleContextCaptured=true elapsedMs=${Date.now() - scheduleStartTs} willUseLLM=true`);
+                } else {
+                    context.log(`[RID ${requestId}] scheduleHandled=true elapsedMs=${Date.now() - scheduleStartTs} willReturnNow=true`);
                     return scheduleResp;
                 }
-            if ((!scheduleFileLinks || scheduleFileLinks.length === 0) && imageUrls.length === 0) {
-                if (cosmosContainer) {
-                    const sessionKey = `${dbKey}:${senderId}`;
-                    await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
-                }
-                return {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                    body: JSON.stringify({
-                        reply: '请直接发送官方导出的课表文件 (Excel / ICS)，无法提供文件时请附上课表截图，我会用 OCR 解析。',
-                        auto_escape: false
-                    })
-                };
+            }
+
+            // 既没有导入材料，也没有可用上下文：作为“工具层事实”交给 LLM 来说明缺失信息。
+            if (!isImportLike && !scheduleContextFromHandler) {
+                context.log(`[RID ${requestId}] scheduleContextCaptured=false (no files/images/url); willUseLLM=true`);
             }
         }
 
@@ -4948,6 +4957,17 @@ ${scheduleInfo}
 
         // 构建工具上下文提示（注入到系统 Prompt）
         let toolContextPrompt = '';
+
+        // 0. 课表处理器的“事实材料”（用于早八/考试/周几最简洁等更复杂口语问题）
+        if (scheduleContextFromHandler) {
+            const sc = scheduleContextFromHandler;
+            if (sc.boundary && sc.boundary.hasExamDataSource === false) {
+                toolContextPrompt += `\n\n🧾【数据边界(重要)】\n- 当前只接入课程安排(课表)数据；不包含考试/考场/准考证等信息。\n- 回答考试相关问题时：只能说明“暂无考试数据源/无法判断”，并引导用户提供截图/文字以便整理。`;
+            }
+            if (sc.replyText) {
+                toolContextPrompt += `\n\n📚【课表查询事实材料】\n${String(sc.replyText || '').trim()}`;
+            }
+        }
         if (toolContext.scheduleData) {
             const sd = toolContext.scheduleData;
             if (sd.fromCosmos) {
@@ -4963,14 +4983,15 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             }
 
             // 🆕 课表类回答严格要求：根据问题类型决定回答内容
-            toolContextPrompt += `
+                toolContextPrompt += `
 
-【🔴 关键回答规则】
-1. 用户问"下一节课"/"下节课"/"接下来"：只回答下一节课信息（时间、课程名、地点），不要输出整周课表
-2. 用户问"今天有什么课"：只列出今天的课程  
-3. 用户问"明天有什么课"：只列出明天的课程
-4. 用户问"课表"/"本周课表"/"下周课表"：才输出完整周课表（用表格格式）
-5. 保持简洁工具风格，不要添加过多情感表达`;
+        【🔴 关键回答规则】
+        1. 用户问"下一节课"/"下节课"/"接下来"：只回答下一节课信息（时间、课程名、地点），不要输出整周课表
+        2. 用户问"今天有什么课"：只列出今天的课程
+        3. 用户问"明天有什么课"：只列出明天的课程
+        4. 用户问"周五/周X 的课程"或"最简洁"：只输出该天安排（若无课就一句话说明无课）
+        5. 只有用户明确问"课表"/"本周课表"/"下周课表"/"整周"时，才输出完整周课表
+        6. 用户表达情绪(累/不想去/焦虑)或问"翘课影响"：先回答情绪/影响问题，再引用课表事实；不要把问题降级成统计列表`;
         }
         if (toolContext.weatherData) {
             const wd = toolContext.weatherData;
@@ -5708,15 +5729,16 @@ ${fullWeekScheduleTable}
 2. **课程归属**：只回答表格中确实存在的课程，绝对禁止编造或混淆课程日期
 3. **数据边界意识**：
    - 只有"课表数据"，没有"考试数据"、"作业数据"、"活动数据"
-   - 用户问考试/作业时：回答"当前数据源只包含课程安排，不包含考试信息"
+    - 用户问考试/作业时：解释数据边界（我没有考试/作业数据源，无法判断具体安排），并引导用户提供截图/文字让我整理
    - 不要说"没有考试"（这是无法验证的断言），而是"我没有考试数据"
 
 【回答场景指南】
 - "下一节课" → 根据当前时间，查表格找当天剩余课程中最早一节
 - "明天有什么课" → 只看表格中明天那一天的数据，严格按表回答
+- "周五/周X 的课程" 或 "最简洁" → 只输出该天安排，不要输出整周
 - "这周哪天最累/课最多" → 统计表格中每天课程数量，给出精确数字
 - "翘课影响" → 引用具体课表数据，如"这是本周唯一一节XX课"
-- "和ChatGPT有什么区别" → 回答"我只在你授权的数据范围内行动，不会编造不存在的课程，也不会在没有课表时给出确定答案"
+- "和 ChatGPT 有什么本质区别" → 可参考："ChatGPT 是通用对话模型，而爱丽丝只在你授权的数据范围内行动。爱丽丝不会编造不存在的课程，也不会在没有课表时给出确定答案。爱丽丝更像是一个‘只对你负责的校园 Agent’。"
 
 【禁止的回答方式】
 - ❌ 概括时间（08:00-08:45 而非精确的 08:00-09:40）
@@ -5827,11 +5849,11 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             for (let i = 0; i < MODEL_CHAIN.length; i++) {
                 const model = MODEL_CHAIN[i];
                 if (shouldSkipModel(model?.name)) {
-                    context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] skip unsupported: ${model.name}`);
+                    context.log(`[RID ${requestId}] [多脑-${i+1}/${MODEL_CHAIN.length}] skip unsupported: ${model.name}`);
                     continue;
                 }
                 try {
-                    context.log(`[多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name}`);
+                    context.log(`[RID ${requestId}] [多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name}`);
                     const tModel = Date.now();
                     
                     const response = await client.chat.completions.create({
@@ -5844,14 +5866,14 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
 
                     const elapsed = Date.now() - tModel;
                     const preview = String(response?.choices?.[0]?.message?.content || '').slice(0, 160).replace(/\s+/g, ' ');
-                    context.log(`[多脑] ✅ 成功! 使用: ${model.name} elapsedMs=${elapsed} preview=${preview}`);
+                    context.log(`[RID ${requestId}] [多脑] ✅ 成功! 使用: ${model.name} elapsedMs=${elapsed} preview=${preview}`);
                     return response;
 
                 } catch (err) {
                     const errMsg = err?.message || err?.toString() || "Unknown error";
                     const statusCode = err?.status || err?.response?.status;
                     
-                    context.log(`[多脑] 模型 ${model.name} 失败 (${statusCode || 'N/A'}): ${errMsg.substring(0, 100)}`);
+                    context.log(`[RID ${requestId}] [多脑] 模型 ${model.name} 失败 (${statusCode || 'N/A'}): ${errMsg.substring(0, 100)}`);
 
                     // 不支持模型：加入缓存并立即尝试下一个
                     if (isModelNotFoundError(err)) {
@@ -5864,7 +5886,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                     }
                     
                     // 否则继续尝试下一个模型
-                    context.log(`[多脑] 切换到下一个模型...`);
+                    context.log(`[RID ${requestId}] [多脑] 切换到下一个模型...`);
                 }
             }
         }
