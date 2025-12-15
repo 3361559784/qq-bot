@@ -1833,12 +1833,29 @@ async function saveUserScheduleProfile(cosmosContainer, userId, scheduleData, so
 }
 
 function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBotReply }) {
-  return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token, curriculumUuid: webUuid, webSchedule }) {
+  return async function handleScheduleRequest({ fileLinks, imageUrls, msg, senderId, dbKey, cosmosContainer, context, token, curriculumUuid: webUuid, webSchedule, output = 'reply' }) {
     const hasKeyword = SCHEDULE_KEYWORDS.some(k => msg && msg.toLowerCase().includes(k));
     const queryType = detectScheduleQueryType(msg);
 
-    // ✅ 数据边界：考试/测验类问题一律固定答复（我们没有考试数据源）
+    // ✅ 数据边界：我们只有“课表”数据，没有“考试”数据源。
+    // - output=reply: 兼容旧行为（直接回复）
+    // - output=context: 只返回边界事实，交给上层 LLM 组织最终回答
     if (queryType === 'exam') {
+      if (output === 'context') {
+        return {
+          kind: 'schedule_context',
+          scheduleContext: {
+            queryType: 'exam',
+            hasScheduleData: Array.isArray(webSchedule) ? webSchedule.length > 0 : undefined,
+            boundary: {
+              hasExamDataSource: false,
+              note: '当前系统只接入课程安排(课表)数据；不包含考试/考场/准考证等信息。'
+            },
+            userQuery: String(msg || '')
+          }
+        };
+      }
+
       return {
         status: 200,
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
@@ -2036,6 +2053,20 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
         } else {
           replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
         }
+      }
+
+      if (output === 'context') {
+        return {
+          kind: 'schedule_context',
+          scheduleContext: {
+            queryType: queryType || null,
+            hasKeyword,
+            hasWebSchedule,
+            effectiveUuid: effectiveUuid || null,
+            replyText: String(replyText || ''),
+            userQuery: String(msg || '')
+          }
+        };
       }
 
       const sessionKey = `${dbKey}:${senderId}`;
