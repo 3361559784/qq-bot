@@ -736,7 +736,29 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
     }
     
     const todayWeekday = getShanghaiWeekdayNumber(nowSh);
-    const nowTimeStr = String(nowSh.getHours()).padStart(2, '0') + ':' + String(nowSh.getMinutes()).padStart(2, '0');
+    const nowTimeStr = String(nowSh.getUTCHours()).padStart(2, '0') + ':' + String(nowSh.getUTCMinutes()).padStart(2, '0');
+
+    const pickStart = (c) => String(c?.startTime || c?.start || '').trim();
+    const pickEnd = (c) => String(c?.endTime || c?.end || '').trim();
+    const fmtMinutesToHHMM = (mins) => {
+      if (!Number.isFinite(mins)) return '';
+      const m = ((mins % (24 * 60)) + (24 * 60)) % (24 * 60);
+      const hh = String(Math.floor(m / 60)).padStart(2, '0');
+      const mm = String(m % 60).padStart(2, '0');
+      return `${hh}:${mm}`;
+    };
+    const computeTimeRange = (c) => {
+      const start = pickStart(c);
+      const end = pickEnd(c);
+      if (start && end) return `${start}-${end}`;
+      const startM = parseTimeToMinutes(start);
+      const dur = Number(c?.duration) || 0;
+      if (startM != null && dur > 0) {
+        const computedEnd = fmtMinutesToHHMM(startM + dur);
+        if (computedEnd) return `${start}-${computedEnd}`;
+      }
+      return start || end || '';
+    };
     
     context?.log?.(`[Schedule] 查询下一节课: 第${currentWeek}周 周${todayWeekday} 当前时间${nowTimeStr}`);
     
@@ -758,10 +780,11 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
     
     // 查找今天剩余的下一节课
     for (const c of todayCourses) {
-      const startTime = c.startTime || c.timeRange?.split('-')[0]?.trim() || '';
-      if (startTime > nowTimeStr) {
+      const startTime = pickStart(c);
+      if (startTime && startTime > nowTimeStr) {
         const loc = c.location ? `，地点 ${c.location}` : '';
-        return { text: `📚 下一节课是《${c.name}》，时间 ${c.timeRange || startTime}${loc}。` };
+        const timeRange = c.timeRange || computeTimeRange(c) || startTime;
+        return { text: `📚 下一节课是《${c.name}》，时间 ${timeRange}${loc}。` };
       }
     }
     
@@ -787,7 +810,8 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
     if (tomorrowCourses.length > 0) {
       const c = tomorrowCourses[0];
       const loc = c.location ? `，地点 ${c.location}` : '';
-      return { text: `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${c.timeRange || c.startTime}${loc}。` };
+      const timeRange = c.timeRange || computeTimeRange(c) || pickStart(c);
+      return { text: `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${timeRange}${loc}。` };
     }
     
     return { text: '✅ 今天和明天都没有课了，好好休息吧！' };
@@ -1707,18 +1731,19 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
       }
 
       let replyText = '';
-      
-      // 🆕 优先使用前端传入的 webSchedule（Web 端直接传入的课表数组）
-      if (hasWebSchedule) {
-        context?.log?.(`[Schedule] 使用前端传入的 webSchedule (${webSchedule.length} 门课)`);
-        replyText = formatAnswerFromWebSchedule(webSchedule, queryType, context);
-      } else if (effectiveUuid) {
+
+      // ✅ 优先使用 curriculumUuid 走学习通动态接口（避免 webSchedule 依赖固定开学周导致周次误差）
+      if (effectiveUuid) {
         // 本周/下周课表：动态请求学习通API获取对应周次数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
           const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, queryType || 'this_week', context);
           if (dynamicResult.error) {
             // API失败时降级到静态profile（如果存在）
             context?.log?.(`[Schedule] 动态查询失败,降级到静态profile: ${dynamicResult.error}`);
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败,回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, queryType || 'this_week', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
             } else {
@@ -1731,6 +1756,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           // 明天有课吗：动态请求
           const dynamicResult = await fetchDayScheduleFromChaoxing(effectiveUuid, 'tomorrow', context);
           if (dynamicResult.error) {
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败(明天),回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, 'tomorrow', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
             } else {
@@ -1742,6 +1771,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
         } else if (queryType === 'today') {
           const dynamicResult = await fetchDayScheduleFromChaoxing(effectiveUuid, 'today', context);
           if (dynamicResult.error) {
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败(今天),回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, 'today', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatTomorrowAnswerFromProfile(profile, 'today');
             } else {
@@ -1754,6 +1787,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           // 下一节课：查询今天剩余的课，找到下一节
           const dynamicResult = await fetchNextCourseFromChaoxing(effectiveUuid, context);
           if (dynamicResult.error) {
+            if (hasWebSchedule) {
+              context?.log?.(`[Schedule] 动态查询失败(下一节课),回退到 webSchedule (${webSchedule.length} 门课)`);
+              replyText = formatAnswerFromWebSchedule(webSchedule, 'next_course', context);
+            } else
             if (profile?.weekly_schedule) {
               replyText = formatNextCourseFromProfile(profile, context);
             } else {
@@ -1770,6 +1807,10 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             replyText = dynamicResult.error ? `⚠️ 查询失败: ${dynamicResult.error}` : dynamicResult.text;
           }
         }
+      } else if (hasWebSchedule) {
+        // 🆕 无 curriculumUuid 时才使用前端传入的 webSchedule（Web 端直接传入的课表数组）
+        context?.log?.(`[Schedule] 使用前端传入的 webSchedule (${webSchedule.length} 门课)`);
+        replyText = formatAnswerFromWebSchedule(webSchedule, queryType, context);
       } else if (profile?.weekly_schedule) {
         // 无 curriculumUuid：直接使用 profile 中静态数据
         if (queryType === 'this_week' || queryType === 'next_week' || (!queryType && hasKeyword)) {
