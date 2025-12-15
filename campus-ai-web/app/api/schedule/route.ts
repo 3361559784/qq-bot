@@ -143,10 +143,19 @@ export async function POST(req: NextRequest) {
         : (process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL?.replace('/schoolBot', '/ocrCourse') || 
            'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrCourse');
 
+      // 生成临时 userId 用于后端调用（前端无真实用户体系时使用匿名ID）
+      const tempUserId = `web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
       const ocrResponse = await fetch(backendUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl }),
+        body: JSON.stringify({ 
+          imageUrls: [imageUrl],
+          images: [imageUrl],
+          userId: tempUserId,
+          senderId: tempUserId,
+          msg: '课表识别'
+        }),
       });
 
       const ocrData = await ocrResponse.json();

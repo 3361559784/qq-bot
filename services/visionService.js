@@ -239,8 +239,62 @@ async function checkComputerVision(imgUrl, context) {
     }
 }
 
+// ==========================================
+// Azure Computer Vision - Read full text
+// 支持 input 为 URL(string) 或 Buffer/Uint8Array
+// ==========================================
+async function readTextFromComputerVision(input, context) {
+    const endpoint = process.env["COMPUTER_VISION_ENDPOINT"];
+    const key = process.env["COMPUTER_VISION_KEY"];
+
+    if (!endpoint || !key) return null;
+
+    try {
+        const analysisUrl = `${endpoint.replace(/\/+$/, "")}/computervision/imageanalysis:analyze?api-version=2023-10-01&features=Read&language=zh`;
+        context?.log?.(`[ComputerVision][Read] 请求: ${analysisUrl}`);
+
+        let headers = {
+            "Ocp-Apim-Subscription-Key": key
+        };
+
+        let body;
+        if (typeof input === 'string') {
+            headers["Content-Type"] = "application/json";
+            body = JSON.stringify({ url: input });
+        } else if (input && (Buffer.isBuffer(input) || input instanceof Uint8Array)) {
+            headers["Content-Type"] = "application/octet-stream";
+            body = Buffer.isBuffer(input) ? input : Buffer.from(input);
+        } else {
+            return null;
+        }
+
+        const res = await fetchWithTimeout(analysisUrl, {
+            method: "POST",
+            headers,
+            body
+        }, 20000);
+
+        if (!res.ok) {
+            context?.log?.(`[ComputerVision][Read] 失败: ${res.status}`);
+            return null;
+        }
+
+        const data = await res.json();
+        const text = data?.readResult?.content || '';
+        const cleaned = String(text).replace(/\r/g, '').trim();
+        if (cleaned) {
+            context?.log?.(`[ComputerVision][Read] OCR字符数=${cleaned.length}`);
+        }
+        return cleaned || null;
+    } catch (e) {
+        context?.log?.(`[ComputerVision][Read] 异常: ${e.message}`);
+        return null;
+    }
+}
+
 module.exports = {
     checkAnimeDB,
     checkCustomVision,
-    checkComputerVision
+    checkComputerVision,
+    readTextFromComputerVision
 };
