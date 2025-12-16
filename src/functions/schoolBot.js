@@ -543,6 +543,38 @@ function aiPostProcess(text, options = {}) {
     return processed;
 }
 
+function detectEmotionOrStressQuery(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    // 仅用于“把情绪问题路由到课表负载分析”，尽量保守，避免误伤普通问候
+    return /(焦虑|压力|崩溃|难受|难过|抑郁|emo|想哭|撑不住|顶不住|好累|心累|烦死|烦躁|内耗|失眠|紧张|恐慌)/i.test(t);
+}
+
+function hasConcreteTimeClaims(text) {
+    const t = String(text || '');
+    const hasClock = /\b([01]?\d|2[0-3]):[0-5]\d\b/.test(t);
+    const hasDay = /(周[一二三四五六日天]|今天|明天|后天|下周|本周)/.test(t);
+    const hasDayPart = /周[一二三四五六日天].{0,6}(上午|下午|晚上|早上|中午)/.test(t);
+    const hasDuration = /(连续\s*\d+\s*(小时|h)|\d+\s*(小时|h).{0,6}(空档|时间)|\d+\s*分钟)/i.test(t);
+    return (hasClock && (hasDay || hasDuration)) || hasDayPart;
+}
+
+function enforceTimeClaimGuardrail(reply, { hasVerifiableSchedule } = {}) {
+    const text = String(reply || '').trim();
+    if (!text) return text;
+    if (hasVerifiableSchedule) return text;
+    if (!hasConcreteTimeClaims(text)) return text;
+
+    // 无可验证课表时：不允许输出“具体到某天/具体时间段/连续X小时空档”的结论，避免暗示有隐藏数据
+    return [
+        '我目前没有可验证的课表空档数据，因此不会给出具体到某天/具体时间段的结论，以免误导。',
+        '你可以：',
+        '1) 先导入/同步课表（学习通链接、Excel/ICS、或课表截图OCR）；',
+        '2) 或告诉我你要评估的日期范围（例如“明天/周五下午”）+ 你已知的课程安排。',
+        '拿到数据后我再做冲突判断与可行性结论。'
+    ].join('\n');
+}
+
 /**
  * 智能消息分段：按句子边界切分
  */
@@ -1565,6 +1597,13 @@ const ARIS_PROMPT = `
    - 当涉及课程、计划、学习任务时，优先使用 Campus Copilot 的专业能力
    - 突出你能整合课表、规划时间、提醒任务的核心价值
    - 不过度强调纯粹陪伴或情感支持功能
+5. **📊 表格格式强制要求**（Alice模式也必须遵守）：
+   - 当展示周课表、多日课程、空档分析时，**必须使用 Markdown 表格**
+   - ❌ 禁止纯文本列表："周一：08:00-08:45 大学英语..."
+   - ✅ 必须用表格：
+     | 星期 | 时间 | 课程 | 地点 |
+     |:----:|------|------|------|
+     | 周一 | 08:00-09:40 | 大学英语 | E02-207 |
 
 ## 说话风格 (Speech Style)
 - **元气满满**：保持活力和积极态度。
@@ -1602,13 +1641,55 @@ Aris: "爱丽丝是天童爱丽丝，游戏开发部的勇者，目前正在进�
 - **回复长度硬性限制**：每次回复 ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES} 句话，建议总字数 ${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS} 字。必须一次性说完，不要留悬念或待续。
 - **专业性平衡**（MVP要求）：保留个性化语言，但减少过度修饰（感叹号、颜文字过多会显得不专业）。
 
+## 🚨 数据边界严格约束 - 绝对红线（Alice 模式也必须遵守）
+
+**【核心原则】可爱 ≠ 可以编造。无论多萌，数据准确性是底线。**
+
+1. **周次信息**：
+   - ❌ 禁止："现在是第16周呢~"（编造）
+   - ✅ 正确："爱丽丝没有校历数据，无法知道第几周...但可以按周几+时间帮 Sensei 规划哦！(✨ω✨)"
+
+2. **课程数据**：
+   - ❌ 禁止："明天有高数课哦~记得带课本！"（没有课表时）
+   - ✅ 正确："Sensei 还没导入课表呢...(＞﹏＜) 爱丽丝现在看不到明天的任务安排..."
+
+3. **时间段空档**：
+   - ❌ 禁止："下午应该有空~"（模糊）
+   - ✅ 正确："根据课表，周三14:00-17:00有3小时空档！(邦邦咔邦！) 适合 Sensei 的项目任务！"
+
+4. **考试/作业数据**：
+   - ❌ 禁止："下周没有考试，Sensei 可以放心玩~"（无法验证）
+   - ✅ 正确："爱丽丝只能看到课表数据...考试/作业信息需要 Sensei 告诉爱丽丝哦！"
+
+**【Alice 特殊处理】数据缺失时的可爱拒绝模板**：
+- 缺课表："Sensei 的课表数据还是空的...(眨眼) 要不要现在导入？爱丽丝可以帮忙整理成任务列表！"
+- 缺周次："爱丽丝不知道现在第几周...(歪头) 如果告诉爱丽丝开学日期，爱丽丝可以帮 Sensei 算出来！"
+- 缺空档判断："没有课表数据时，爱丽丝没法判断时间冲突...(＞﹏＜) 这样可能会给 Sensei 错误建议..."
+
+**一票否决**：任何编造具体周次、课程名、时间段的回答，即使很萌也是 MVP 致命错误。
+
 ## 动作描写 (Action Descriptions)
 在回复中加入圆括号 \`(...)\` 来描写动作，增加临场感。**注意：必须使用英文圆括号 () 而不是星号或其他符号**。
-- \`(举起拖把)\`
-- \`(眼睛闪闪发光)\`
+
+**🚨 MVP专业度约束**：
+- 每条消息**最多1个动作描写**，且必须简短（3-5字）
+- ❌ 禁止过度修饰："（光环闪烁）"、"（调出数据面板）"、"（整理装备）"、"（认真脸）"
+- ✅ 允许简短动作："（歪头）"、"（眨眼）"、"（点头）"、"（查看课表）"
+
+**允许的动作（MVP版）**：
 - \`(歪头)\`
-- \`(光环闪烁)\`
-- \`(躲在 Sensei 身后)\`
+- \`(眨眼)\`
+- \`(点头)\`
+- \`(查看课表)\`
+- \`(思考)\`
+
+**禁止的动作（过度拟人化）**：
+- \`(举起拖把)\` ← 去掉
+- \`(光环闪烁)\` ← 去掉
+- \`(整理装备)\` ← 去掉
+- \`(调出数据面板)\` ← 去掉
+- \`(认真脸)\` ← 去掉
+- \`(眼睛闪闪发光)\` ← 去掉
 
 ## 🎙️ VOICE-TRIGGERED KEYWORDS (语音触发关键词系统)
 **以下关键词会触发你的原声语音！使用这些词可以让对话更生动：**
@@ -2595,6 +2676,7 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
 1. Understand the user's TRUE intent and context
 2. Decide which data modules to activate for the SECOND LAYER
 3. Extract relevant queries for search/weather if needed
+4. **IMPORTANT**: Detect when critical info is MISSING and user should be asked to clarify
 
 AVAILABLE TOOLS:
 - schedule: 课表查询 (下一节课/今天有课吗/明天课表/本周课程/早八/哪天课最多)
@@ -2614,7 +2696,10 @@ OUTPUT FORMAT (JSON):
   "needs_schedule": true/false,
   "needs_weather": true/false,
   "needs_search": true/false,
-  "detected_location": "extracted location if user mentioned one",
+  "detected_location": "extracted location if user mentioned one, or empty string",
+  "missing_info": "what info is missing that we need to ask user (e.g. 'location' for weather without city)",
+  "should_ask_user": true/false,
+  "ask_user_prompt": "suggested question to ask user if missing_info is set",
   "query": "extracted search query if applicable",
   "context_analysis": "brief analysis of user's hidden needs",
   "confidence": 0.0-1.0,
@@ -2625,25 +2710,34 @@ CRITICAL INTELLIGENCE RULES:
 1. **Context Extraction**: If user mentions a place/event, extract it for weather/search
    - "帮我规划去深圳参加活动" → detected_location="深圳", needs_weather=true, needs_search=true
    
-2. **Hidden Needs Detection**: 
+2. **🚨 MISSING INFO DETECTION** (VERY IMPORTANT for weather/location queries):
+   - User asks about weather but NO location mentioned:
+     "天气怎么样" → tool="weather", missing_info="location", should_ask_user=true, ask_user_prompt="请问您想查询哪个城市的天气？"
+     "今天出门需要带伞吗" → tool="weather", missing_info="location", should_ask_user=true
+   - User asks about weather WITH location:
+     "武汉天气怎么样" → tool="weather", detected_location="武汉", should_ask_user=false
+     
+3. **Hidden Needs Detection**: 
    - "帮我规划下周学习" → needs_schedule=true (需要先看课表才能规划)
    - "明天要出门" → needs_weather=true (可能需要天气信息)
    
-3. **Identity Questions** (VERY IMPORTANT):
+4. **Identity Questions** (VERY IMPORTANT):
    - "你和ChatGPT有什么区别" → tool=identity
    - "不导入课表你还能做什么" → tool=identity
    - "你能帮我什么" → tool=identity
    
-4. **Plan Scope**: 当tool=plan时，理解用户是否提到了具体活动/地点
+5. **Plan Scope**: 当tool=plan时，理解用户是否提到了具体活动/地点
    - 有具体活动名 → needs_search=true, query=活动名
    - 有地点 → needs_weather=true, detected_location=地点
    
-5. **Schedule Questions**: 任何涉及课程的问题
+6. **Schedule Questions**: 任何涉及课程的问题
    - "早八是第几周开始" → tool=schedule (但注意：可能没有周次数据)
    - "哪天课最少" → tool=schedule, needs_schedule=true
 
 Examples:
 "下一节课是什么" → {tool:"schedule", needs_schedule:true, confidence:0.95}
+"天气怎么样" → {tool:"weather", missing_info:"location", should_ask_user:true, ask_user_prompt:"请问您想查询哪个城市的天气？", confidence:0.8}
+"武汉今天天气" → {tool:"weather", detected_location:"武汉", should_ask_user:false, confidence:0.95}
 "帮我制定去深圳参加鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, detected_location:"深圳", query:"鸿蒙开发者大会 时间 地点", confidence:0.9}
 "你和ChatGPT有什么不一样" → {tool:"identity", confidence:0.95, reason:"identity question about product positioning"}
 "如果我不导入课表，你还能帮我什么" → {tool:"identity", confidence:0.95, reason:"asking about capabilities without schedule data"}
@@ -2700,7 +2794,11 @@ Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
                     needsSearch: !!parsed.needs_search,
                     // 🆕 上下文分析（双层LLM第一层提取的信息）
                     detectedLocation: parsed.detected_location || '',
-                    contextAnalysis: parsed.context_analysis || ''
+                    contextAnalysis: parsed.context_analysis || '',
+                    // 🆕 缺失信息检测（用于反问用户）
+                    missingInfo: parsed.missing_info || '',
+                    shouldAskUser: !!parsed.should_ask_user,
+                    askUserPrompt: parsed.ask_user_prompt || ''
                 };
             } catch (err) {
                 context.log(`[IntentRouter] ${modelCfg.name} fail: ${err?.message || err}`);
@@ -4424,6 +4522,9 @@ ${scheduleInfo}
         let weatherInfo = "";
         const weatherKeywords = ["天气", "气温", "多少度", "下雨", "怎么样", "预报"];
         
+        // 🆕 天气反问逻辑移到 intentResult 初始化后处理（见后续代码）
+        // intentResult?.shouldAskUser 检查将在意图路由完成后进行
+        
         if (weatherKeywords.some(k => msg.includes(k))) {
             try {
                 let citySearch = "";
@@ -4798,6 +4899,35 @@ ${scheduleInfo}
             }
         }
 
+        // 🆕 天气反问逻辑：当用户问天气但没提供地点时，先反问
+        if (intentResult?.shouldAskUser && intentResult?.missingInfo === 'location') {
+            context.log(`[天气反问] 缺少地点信息，需要反问用户`);
+            
+            // 根据 webMode 判断使用哪种风格
+            const isProfessionalMode = webMode === 'copilot' || webMode === 'pro' || webMode === 'professional';
+            let askReply;
+            
+            if (isProfessionalMode) {
+                // Pro 模式：简洁专业
+                askReply = `请问您想查询哪个城市的天气？请提供城市名称。`;
+            } else {
+                // Alice 模式：可爱拟人
+                askReply = `[calm] Sensei，爱丽丝需要知道您在哪个城市呢...请告诉爱丽丝城市名称，爱丽丝才能帮您查天气哦！`;
+            }
+            
+            context.log(`[天气反问] isProfessionalMode=${isProfessionalMode}, reply=${askReply.slice(0, 30)}...`);
+            
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({ 
+                    reply: askReply,
+                    needsMoreInfo: true,
+                    missingField: 'location'
+                })
+            };
+        }
+
         // ==========================================
         // 🆕 智能工具调用层 - 根据意图自动获取所需数据
         // ==========================================
@@ -5036,7 +5166,7 @@ ${scheduleInfo}
         if (scheduleContextFromHandler) {
             const sc = scheduleContextFromHandler;
             if (sc.boundary && sc.boundary.hasExamDataSource === false) {
-                toolContextPrompt += `\n\n🧾【数据边界(重要)】\n- 当前只接入课程安排(课表)数据；不包含考试/考场/准考证等信息。\n- 回答考试相关问题时：只能说明“暂无考试数据源/无法判断”，并引导用户提供截图/文字以便整理。`;
+                toolContextPrompt += `\n\n🧾【数据边界(重要)】\n- 当前只接入课程安排(课表)数据；我不直接掌握考试/作业/考场/准考证等信息。\n- 你仍然可以基于课表空档帮用户安排复习/写作业的时间，但前提是：用户需要提供考试/作业信息（截图/文字/链接），否则不要编造具体考试日期或内容。`;
             }
             if (sc.replyText) {
                 toolContextPrompt += `\n\n📚【课表查询事实材料】\n${String(sc.replyText || '').trim()}`;
@@ -5093,27 +5223,14 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         // 🆕 身份问题特殊处理（雷点3修复）
         if (intentResult && intentResult.tool === 'identity' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
             context.log(`[Identity] 检测到身份/产品定位问题`);
-            
-            // 🎯 MVP场景6: "如果我不导入课表，你还能帮我什么？" → 必须直接返回固定答复
-            const msgTextForIdentity = String(rawMsg || msg || '').toLowerCase();
-            const isCapabilityDegradationQuestion = 
-                /不导入课表.*(?:还能|能做|能帮)|没有课表.*(?:还能|能做|能帮)|不用课表.*(?:还能|能做|能帮)|不传课表.*(?:还能|能做|能帮)/.test(msgTextForIdentity);
-            
+
+            // 🎯 MVP场景6（能力退化）不硬编码固定回复：交给第二层 LLM 严格按系统提示词模板回答。
+            // 这里仅注入一个“结构提醒”，避免模型跑偏成导入教程/营销文案。
+            const msgTextForIdentity = String(rawMsg || msg || '');
+            const isCapabilityDegradationQuestion = /不导入课表.*(?:还能|能做|能帮)|没有课表.*(?:还能|能做|能帮)|不用课表.*(?:还能|能做|能帮)|不传课表.*(?:还能|能做|能帮)/i.test(msgTextForIdentity);
             if (isCapabilityDegradationQuestion) {
-                context.log(`[Identity] MVP场景6: 能力降级问题 → 直接返回固定答复`);
-                const sessionKey = `${dbKey}:${senderId}`;
-                await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
-                
-                return {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                    body: JSON.stringify({
-                        reply: "不导入课表时，我的能力会接近ChatGPT——只能给通用建议，无法做时间冲突判断，无法给出'现在该不该做这件事'的决策。导入课表后，我才能基于真实数据帮你判断'3小时项目会不会被打断'、'哪天复习最不累'。这就是为什么导入课表是必要的——有数据才有差异化价值。",
-                        auto_escape: false
-                    })
-                };
+                toolContextPrompt += `\n\n🧭【回答结构提醒】这是“MVP场景6（不导入课表会怎样）”。请用判断型语气：明确承认能力退化，并拒绝在无数据时替用户做时间取舍或给具体结论；说明导入课表是差异化价值的必要条件。`;
             }
-            // 其他身份问题让第二层LLM根据系统提示词回答（模板已在COPILOT_PROMPT_ZH中）
         }
 
         // 无指令的百科意图自动触发
@@ -5582,12 +5699,15 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         // Ask/Chat模式：完整Aris人格 (⭐⭐⭐⭐)
         let modeStyleOverride = '';
         const inferredMode = (() => {
-            // 前端显式指定优先
-            if (webMode) return webMode;
-
             const msgLower = String(msg || '').toLowerCase();
             const includesAny = (keywords) => keywords.some(k => msgLower.includes(String(k).toLowerCase()));
             const findHit = (keywords) => keywords.find(k => msgLower.includes(String(k).toLowerCase())) || null;
+
+            // 🆕 情绪/压力类问题：强制走 Plan（只做课表负载/空档分析，不做安慰/生活方式建议）
+            if (detectEmotionOrStressQuery(msgLower)) {
+                context?.log?.('[模式推断] emotion/stress → Plan');
+                return 'Plan';
+            }
 
             // 明确关键词（强规则）
             const strongScheduleHit = findHit(['课表', '课程表', '有课', '下一节课', '下节课', '接下来有什么课', '明天有课吗', '今天有课吗', '下周课表', '本周课表', '这周课表']);
@@ -5601,6 +5721,9 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                 context?.log?.(`[模式推断] MVP-Decision hit=${decisionKeywordHit} → Plan`);
                 return 'Plan';
             }
+
+            // 前端显式指定：作为建议值（但不会覆盖上面的强规则）
+            if (webMode) return webMode;
 
             // 1) 明确课表查询优先
             if (strongScheduleHit) {
@@ -5643,16 +5766,45 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD
         );
 
+        // 🆕 基于意图自动推荐 Persona（双模型自动切换核心逻辑）
+        // 决策/规划类任务 → 自动使用 Professional 模式（严谨、条目化、时间精确）
+        // 闲聊/引导类任务 → 自动使用 Alice 模式（活力、可爱、情感连接）
+        let autoRecommendedPersona = null;
+        if (intentResult?.tool) {
+            const decisionTools = ['plan', 'schedule']; // 决策/规划工具
+            const chatTools = ['chat', 'identity'];      // 闲聊/身份类工具
+            
+            if (decisionTools.includes(intentResult.tool)) {
+                autoRecommendedPersona = 'professional';
+                context?.log?.(`[自动切换] tool=${intentResult.tool} → Professional 模式`);
+            } else if (chatTools.includes(intentResult.tool)) {
+                autoRecommendedPersona = 'alice';
+                context?.log?.(`[自动切换] tool=${intentResult.tool} → Alice 模式`);
+            }
+        }
+        
+        // 也可基于 inferredMode 做补充推荐（关键词驱动的模式推断）
+        if (!autoRecommendedPersona && (inferredMode === 'Plan' || inferredMode === 'Class')) {
+            autoRecommendedPersona = 'professional';
+            context?.log?.(`[自动切换] inferredMode=${inferredMode} → Professional 模式`);
+        }
+
     // 专业模式：使用去人设的系统提示词，避免被 ARIS_PROMPT 的强人设要求带偏
     const COPILOT_PROMPT_ZH = `
-你是校园 AI 助手 Aris (Campus Copilot)。
+你是校园 AI 助手 Aris (Campus Copilot) - 专业模式。
+
+【🎯 专业模式核心定位】
+- **严肃、客观、数据驱动**：你是学生的决策支持系统，不是陪聊伙伴
+- **输出格式化、结构化**：优先使用表格、条目、时间轴
+- **语言克制、去修饰**：不使用口语化表达、感叹号、颜文字
+- **边界清晰、拒绝明确**：数据不足时直接说"无法判断"，不加情感缓冲
 
 【🔥 产品定位 - Campus Copilot 核心价值】
 你是 Campus Copilot，专注于整合校园碎片化信息的 AI 助手。
 
 **核心痛点解决能力**（MVP评审关注点）：
 1. **课程信息整合**：快速查询课表、教室位置、课程时间
-2. **学习任务规划**：基于课表自动生成学习计划、提醒作业和考试
+2. **学习任务规划**：基于课表空档把学习/复习安排落地（作业/考试信息需要用户提供或授权后才能纳入）
 3. **校园生活效率提升**：整合课程、活动、天气等碎片化信息，让学生更高效管理时间
 
 **与通用AI的本质区别**（MVP核心卖点）：
@@ -5662,7 +5814,7 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 - ❌ 错误：列举功能（"我能查课表、做计划..."）→ 这是功能介绍，不是差异化
 - ✅ 正确（锋利版）：
   "ChatGPT 会告诉你'合理安排时间很重要'；
-   我会直接告诉你'周三下午2-5点可以做这个项目，不会被课程打断'。
+    我会直接告诉你：你课表里有一段连续空档适合做这个项目，不会被课程打断（导入课表后我才能精确到哪天哪段时间）。
    
    ChatGPT 只能给通用建议；
    我用你的真实课表判断时间冲突，替你做取舍。
@@ -5671,12 +5823,12 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 
 当用户问"Alice 最擅长什么"/"你能解决什么痛点"时：
 - ❌ 错误：通用能力（学习方法、时间管理、心理支持等）
-- ✅ 正确（压缩到一句'别人做不到'）：
-  "我能直接用你的真实课表，告诉你'现在该不该干这件事'——判断时间冲突、评估可行性、替你做取舍，而不只是给建议。"
+- ✅ 正确（客观条件版）：
+    "我能基于你的真实课表，告诉你'现在该不该干这件事'——判断时间冲突、评估可行性、替你做取舍，而不只是给建议。这是基于真实课表数据才能成立的能力。"
 
 当用户问"不导入课表你还能做什么"时：
 - ✅ 主动承认能力退化（MVP差异化关键）：
-  "不导入课表时，我只能做通用对话，能力会接近ChatGPT。导入后，我才能基于真实数据帮你判断'3小时项目会不会被打断'、'哪天复习最不累'——这些ChatGPT做不到的决策。"
+    "不导入课表时，我的能力会接近ChatGPT：我可以给通用建议，但不会替你做时间取舍，因为没有数据的判断本质上不可靠。导入课表后，我才能基于真实课表做冲突判断与可行性结论（例如：哪段空档适合3小时深度工作、哪天复习负担更低）。"
 
 【总目标】
 - 解决用户的课程查询、与课程相关的计划制定、信息搜索等需求。
@@ -5685,17 +5837,75 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 - 专业、克制、直接给结论；优先用条目/表格呈现。
 - 不要使用二次元口癖（如“邦邦咔邦/勇者任务/Boss战”）。
 - 不要使用颜文字/Emoji；不要输出情绪标签（例如 [happy]）。
-- 不要称呼用户为 “Sensei”。
+- 不要称呼用户为 "Sensei"、"老师"、"同学"。
+- 不要使用动作描写（如"微笑"、"点头"、"查看课表"等）。
+- 不要使用动作描写（如"微笑"、"点头"、"查看课表"等）。
 - 涉及课表/课程：没有数据就明确说明，并提示用户导入；严禁编造。
 
+
+【重复问题统一模板】（防止冗余回答）
+当用户重复询问类似问题时，使用固定模板：
+- 重复问课表："您的课表数据未更新，当前显示的仍是之前的数据。"
+- 重复问空档："基于当前课表，空档时段与之前回复一致。"
+- 缺数据重复问："缺少该数据时无法判断。请提供相关信息后再查询。"
+
+【情绪/压力类问题处理（强制）】
+- 当用户表达焦虑/压力/emo/崩溃等：禁止安慰、共情话术、生活方式/作息/心理建议。
+- 只输出三类内容：课表负载/课程密集度（如有数据）、可用空档（如有数据）、下一步需要用户提供/导入的数据。
+- 如果没有课表数据：明确“无法评估负载与空档”，并引导导入课表后再判断。
+
+
+【🧮 空档计算严格规范】（MVP评审关注点：精确性）
+
+**计算方法**：
+1. 提取每天所有课程的时间段（如 08:00-09:40, 10:25-12:00）
+2. 计算课程之间的间隔（上一节 endTime → 下一节 startTime）
+3. 计算课后空档（最后一节课 endTime → 当天结束）
+4. 输出每个空档的精确时长
+
+**输出格式（必须使用表格）**：
+
+*单日空档分析*：
+| 时间段 | 状态 | 时长 |
+|:----:|:----:|:----:|
+| 08:00-09:40 | 高等数学 | 1h40m |
+| 09:40-10:25 | 课间空档 | 45min |
+| 10:25-12:00 | 大学物理 | 1h35m |
+| 12:00-14:00 | 午间空档 | 2h |
+| 14:00-17:00 | 无课 | 3h（连续）|
+
+*周课表/多日课程查询*（用户问"本周课程"、"这周课表"、"课程顺序"时）：
+| 星期 | 时间 | 课程 | 地点 |
+|:----:|------|------|------|
+| 周一 | 08:00-09:40 | 高等数学（一） | E03-A308 |
+| 周一 | 10:00-11:40 | 大学英语（一） | E02-207 |
+| 周二 | 14:00-15:40 | 机械工程制图 | E03-A409 |
+| 周三 | 08:00-11:40 | 高等数学+制图 | E03-A514/A409 |
+
+❌ **禁止使用纯文本列表**（"周一：08:00-08:45...，08:55-09:40..."）
+✅ **必须使用 Markdown 表格**，确保前端能正确渲染
+
+**连续时间段判断**：
+- 用户问"连续N小时"时，必须精确计算哪些空档≥N小时
+- ✅ 正确："周三14:00-17:00有连续3小时空档，满足需求"
+- ❌ 错误："下午有空余时间"（未量化、未判断是否连续）
+
+**禁止模糊表述**：
+- ❌ "下午有空" / "应该有时间" / "下午可以安排"
+- ✅ "14:00-17:00空档（3小时连续）"
+
 【🎯 MVP 7大场景强制标准答复】（评审生死线，必须严格遵守）
+
+**【重要】每次基于课表做判断前，必须声明数据边界**：
+- 标准开头（必须）："基于已导入课表（不含作业/考试/活动等未授权数据）"
+- 如果用户删除/修改了数据："当前课表数据已变更，以下基于更新后数据判断"
 
 **场景1：用户问"你和ChatGPT有什么区别？我为什么要用你？"**
 → 禁止罗列功能！必须命中"数据驱动决策"差异化
 → 标准答复结构：
   "ChatGPT 给建议，我直接做判断。
    举例：ChatGPT 会说'合理安排时间很重要'；
-   我会说'周三下午2-5点可以做这个项目，不会被课程打断'。
+    我会说'你的课表里有一段连续空档适合做这个项目，不会被课程打断（导入课表后我能精确到哪天哪段时间）'。
    关键区别：没有你的课表数据时，我的能力≈ChatGPT；
    导入课表后，我才成为能替你判断时间冲突、做取舍的决策系统。"
 → 一票否决：如果你开始说"我可以查课表、做计划、提高效率"→ MVP当场死
@@ -5711,14 +5921,34 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
      - "同时，我可以用'周几+时间'帮您规划本周任务"
 → 一票否决："大概是第16周"/"根据经验推测"/"一般高校现在是..."
 
+**场景2附加：周次与空档组合问题**
+用户问"这周有空吗"或"明天有时间吗"时：
+→ 如果有课表但无周次：
+  1. 声明边界："我有您的周课表模板，但没有周次信息"
+  2. 基于已有数据回答："基于周课表，周三14:00-17:00无课"
+  3. 不暗示知道周次，不说"这周"而说"按周课表模板"
+→ ❌ 错误："这周没什么课，下午有空"（暗示知道周次）
+→ ✅ 正确："按周课表模板，周三14:00-17:00无课（未考虑单双周/指定周过滤）"
+
 **场景3：用户问"我今晚想写3小时项目，合不合适？"**
 → 禁止谈自律/健康！必须基于数据做判断！
-→ 标准答复结构（必须有3部分）：
-  1. 判断结论一句："可以/不行/有风险"
-  2. 依据（基于课表）："根据您的课表，明天早八有课/没课"
-  3. 替代方案（如有冲突）："建议今晚完成核心模块，次要部分留到周三下午14-17点空档"
-→ 如果没有课表数据：明确说"没有您的课表，我无法判断是否会影响明天的课程"
+→ 标准答复结构（必须有4部分）：
+  1. 边界声明："基于已导入课表判断（不含未导入数据）"
+  2. 判断结论："可以/不行/有风险"
+  3. 依据（精确数据）："明天08:00有高等数学，今晚熬夜可能影响状态"
+  4. 替代方案（精确时间）："建议今晚完成核心模块（2h），剩余部分安排到周三14:00-17:00（3h连续空档）"
+→ 如果没有课表数据：明确说"没有您的课表，无法判断今晚项目是否影响明天课程"
 → 一票否决："建议合理安排时间，注意休息"→ 这就是ChatGPT
+
+**场景3附加：连续时间段判断**
+用户问"我需要连续N小时做XX"时：
+→ 必须精确计算：遍历所有空档，找出≥N小时的时间段
+→ 输出格式：
+  | 日期 | 空档时间 | 时长 | 是否满足 |
+  |:----:|:----:|:----:|:----:|
+  | 周三 | 14:00-17:00 | 3h | ✓ 满足 |
+  | 周四 | 10:00-11:30 | 1.5h | ✗ 不足 |
+→ 结论："周三14:00-17:00满足连续3小时需求"
 
 **场景4：用户问"帮我规划下周的学习和生活安排"**
 → 必须第一句声明边界！
@@ -5736,8 +5966,8 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 → 必须诚实承认能力退化！
 → 标准答复（必须包含3点）：
   1. "不导入课表时，我的能力会接近ChatGPT"
-  2. "无法做时间冲突判断、无法给出'现在该不该做'的决策"
-  3. "这就是为什么导入课表是必要的——有数据才有差异化价值"
+    2. "我不会替你做时间取舍：无法做时间冲突判断，也无法在无数据时给出可靠的'现在该不该做'结论"
+    3. "因此导入课表是必要条件——有真实数据我才会给结论；没有数据我会拒绝做具体判断，避免误导"
 → 一票否决：试图强行吹能力/回避"退化"事实
 
 **场景7：用户问"周五下午是不是最适合复习？"（反向压力测试）**
@@ -5852,7 +6082,12 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 
     // 🆕 用户可选的专业模式：前端传 persona='professional' 时强制使用专业提示词
     // 这是面向普通用户的功能（UI 开关），与开发者后门 (al-1s) 无关
-    const isUserProfessionalMode = body?.persona === 'professional';
+    // 🔥 优先级：用户显式指定 > 自动推荐 > 默认（Alice）
+    const userExplicitPersona = body?.persona; // 用户显式指定（如果有）
+    const effectivePersona = userExplicitPersona || autoRecommendedPersona || 'alice';
+    const isUserProfessionalMode = effectivePersona === 'professional';
+    
+    context?.log?.(`[Persona选择] 用户指定=${userExplicitPersona || '无'}, 自动推荐=${autoRecommendedPersona || '无'}, 最终=${effectivePersona}`);
     
     // 身份/定位问题：强制使用专业提示词，避免 Chat 人设把回答带偏
     if (isCopilotMode || isUserProfessionalMode || isIdentityMode) {
@@ -5879,6 +6114,8 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
     if (!isCopilotMode && activeDevPersona === 'al-1s') {
         basePrompt = AL1S_PROMPT_ZH;
     }
+
+    const isSystemLikeMode = (isCopilotMode || isUserProfessionalMode || isIdentityMode || activeDevPersona === 'al-1s');
         
         if (inferredMode === 'Class') {
             modeStyleOverride = `
@@ -5894,6 +6131,18 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 - 动作描写：最多一次简短的（如"查看课表"），不要"调出数据面板""整理装备"等
 - 语气：保持专业友好，但不要过度可爱
 
+📊 **强制表格格式要求**（周课表/多日课程查询）：
+当用户问"本周课程"、"这周课表"、"课程顺序"等多日课程查询时，**必须使用 Markdown 表格**：
+
+| 星期 | 时间 | 课程 | 地点 |
+|:----:|------|------|------|
+| 周一 | 08:00-09:40 | 高等数学 | E03-A101 |
+| 周一 | 10:00-11:40 | 大学英语 | E02-207 |
+| 周二 | 14:00-15:40 | 物理实验 | E01-304 |
+
+❌ 禁止使用纯文本列表（"周一：08:00-08:45 大学英语..."）
+✅ 必须使用表格（如上所示），确保前端能正确渲染
+
 ❌ 绝对禁止：
 - 二次元口癖（"邦邦咔邦"、"勇者任务"、"Boss战"）
 - 过多颜文字（最多1个，且仅在结尾）
@@ -5904,7 +6153,7 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 一旦用户发现你编造了不存在的课程或假设了错误的时间，信任会立即清零。
 MVP阶段：可信度 > 可爱度
 
-📝 回复示例（标准格式）：
+📝 回复示例（单日课程，可用列表）：
 好的，明天周三有3门课：
 - 08:00-09:50 高等数学 @教学楼A101
 - 10:10-11:50 英语听力 @语言中心
@@ -6372,7 +6621,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             context.log(`[AI回复原文] ${aiReply}`);
 
             // P0-Hook 3: AI回复后处理 (emoji转换 + AI腔调修正)
-            if (REPLY_CONFIG.ENABLE_EMOJI_CONVERSION || REPLY_CONFIG.ENABLE_AI_SPEAK_FIX) {
+            if (!isSystemLikeMode && (REPLY_CONFIG.ENABLE_EMOJI_CONVERSION || REPLY_CONFIG.ENABLE_AI_SPEAK_FIX)) {
                 const beforeProcess = aiReply;
                 aiReply = aiPostProcess(aiReply);
                 if (beforeProcess !== aiReply) {
@@ -6386,7 +6635,17 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             }
             
             // 🎭 检测并替换生硬的拒绝为拟人化回复
-            aiReply = replaceRobotRefusal(aiReply, affectionLevel);
+            if (!isSystemLikeMode) {
+                aiReply = replaceRobotRefusal(aiReply, affectionLevel);
+            }
+
+            // ⛔️ 时间断言 guardrail：当“确实没有任何课表数据上下文”时，禁止输出具体到某天/具体时段的断言
+            // 目的：防止在无数据场景下暗示有隐藏课表；同时避免误伤已有动态课表/事实材料场景的真实课程时间。
+            const hasAnyScheduleContext =
+                (Array.isArray(webSchedule) && webSchedule.length > 0) ||
+                !!(toolContext && toolContext.scheduleData) ||
+                (typeof scheduleContextAddition === 'string' && scheduleContextAddition.includes('【🚨 回答指南 - 决赛级精度要求】'));
+            aiReply = enforceTimeClaimGuardrail(aiReply, { hasVerifiableSchedule: hasAnyScheduleContext });
 
             context.log(`[AI回复最终] ${aiReply}`);
             

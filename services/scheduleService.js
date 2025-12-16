@@ -191,7 +191,7 @@ function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
     });
 
   if (!courses.length) {
-    return `✅ ${todayLabel}(${dayLabel})看起来没有课。`;
+    return `${todayLabel}(${dayLabel})看起来没有课。`;
   }
 
   const lines = courses.map(c => {
@@ -204,7 +204,7 @@ function formatTomorrowAnswerFromProfile(profile, when = 'tomorrow') {
     return `- ${name}${loc}`;
   });
 
-  return `📚 ${todayLabel}(${dayLabel})有 ${courses.length} 门课:\n${lines.join('\n')}`;
+  return `${todayLabel}(${dayLabel})有 ${courses.length} 门课:\n${lines.join('\n')}`;
 }
 
 /**
@@ -228,16 +228,9 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
     return start && end ? `${start}-${end}` : (start || end || '');
   };
   const normalizeLocation = (c) => c?.location || '';
-  
-  // 🆕 计算当前学期周次（假设开学第一周周一为 2025-09-01）
-  const SEMESTER_START = new Date(Date.UTC(2025, 8, 1)); // 2025-09-01 周一
-  const thisMonday = new Date(nowSh.getTime() - (todayWeekday - 1) * 24 * 60 * 60 * 1000);
-  const weeksDiff = Math.floor((thisMonday.getTime() - SEMESTER_START.getTime()) / (7 * 24 * 60 * 60 * 1000));
-  const currentWeek = weeksDiff + 1; // 当前是第几周
-  
-  context?.log?.(`[Schedule] 当前周次: 第${currentWeek}周`);
-  
-  const isCourseInWeek = (course, targetWeek) => isWeeksMatch(course?.weeks, targetWeek);
+
+  // 注意：webSchedule 可能没有“学期起始日期/当前周次”信息。
+  // 在缺少可靠数据时，不允许通过硬编码日期推算周次（避免编造/误导）。
   
   // 计算日期
   const fmtYmd = (d) => {
@@ -266,7 +259,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
       const name = normalizeName(nextCourse);
       const time = normalizeTime(nextCourse);
       const loc = normalizeLocation(nextCourse);
-      return `📚 下一节课是《${name}》，时间 ${time}${loc ? `，地点 ${loc}` : ''}。`;
+      return `下一节课是《${name}》，时间 ${time}${loc ? `，地点 ${loc}` : ''}。`;
     }
     
     // 今天没课了，看明天
@@ -281,10 +274,10 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
       const time = normalizeTime(first);
       const loc = normalizeLocation(first);
       const dayLabel = dayNames[tomorrowWeekday];
-      return `✅ 今天没有剩余课程了。明天(${dayLabel})第一节是《${name}》，时间 ${time}${loc ? `，地点 ${loc}` : ''}。`;
+      return `今天没有剩余课程了。明天(${dayLabel})第一节是《${name}》，时间 ${time}${loc ? `，地点 ${loc}` : ''}。`;
     }
     
-    return '✅ 今天和明天都没有课，好好休息吧！';
+    return '今天和明天都没有课。';
   }
   
   if (queryType === 'today') {
@@ -296,7 +289,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
     const dayLabel = dayNames[todayWeekday];
     
     if (!todayCourses.length) {
-      return `✅ 今天(${dayLabel} ${dateStr})没有课。`;
+      return `今天(${dayLabel} ${dateStr})没有课。`;
     }
     
     const lines = todayCourses.map(c => {
@@ -306,7 +299,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
       return `- ${time ? `${time} ` : ''}${name}${loc ? ` @ ${loc}` : ''}`;
     });
     
-    return `📚 今天(${dayLabel} ${dateStr})有 ${todayCourses.length} 门课:\n${lines.join('\n')}`;
+    return `今天(${dayLabel} ${dateStr})有 ${todayCourses.length} 门课:\n${lines.join('\n')}`;
   }
   
   if (queryType === 'tomorrow') {
@@ -320,7 +313,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
       .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
     
     if (!tomorrowCourses.length) {
-      return `✅ 明天(${dayLabel} ${dateStr})没有课。`;
+      return `明天(${dayLabel} ${dateStr})没有课。`;
     }
     
     const lines = tomorrowCourses.map(c => {
@@ -330,7 +323,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
       return `- ${time ? `${time} ` : ''}${name}${loc ? ` @ ${loc}` : ''}`;
     });
     
-    return `📚 明天(${dayLabel} ${dateStr})有 ${tomorrowCourses.length} 门课:\n${lines.join('\n')}`;
+    return `明天(${dayLabel} ${dateStr})有 ${tomorrowCourses.length} 门课:\n${lines.join('\n')}`;
   }
   
   // 默认: 本周课表
@@ -341,13 +334,10 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
   const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
   const rangeLine = `${fmtYmd(weekStart)} ~ ${fmtYmd(weekEnd)}`;
   const title = queryType === 'next_week' ? '下周课表' : '本周课表';
-  
-  // 🆕 计算目标周次
-  const targetWeek = queryType === 'next_week' ? currentWeek + 1 : currentWeek;
-  context?.log?.(`[Schedule] 查询${title}: 第${targetWeek}周`);
-  
-  // 🆕 过滤出在目标周次上课的课程
-  const filteredSchedule = webSchedule.filter(c => isCourseInWeek(c, targetWeek));
+
+  // 缺少可靠周次信息：不做“第几周/单双周/指定周”过滤，仅按周内模板展示。
+  const weekNote = '说明：未提供学期周次/开学日期，无法精确过滤“第几周/单双周/指定周”，以下按周内课程模板展示。';
+  const filteredSchedule = webSchedule;
   
   // 按天分组
   const byDay = new Map();
@@ -358,7 +348,7 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
     byDay.get(day).push(c);
   }
   
-  const parts = [];
+  const parts = [weekNote, ''];
   for (let d = 1; d <= 7; d++) {
     const list = (byDay.get(d) || []).slice().sort((a, b) => 
       (a.startTime || '').localeCompare(b.startTime || '')
@@ -380,10 +370,10 @@ function formatAnswerFromWebSchedule(webSchedule, queryType, context) {
   }
   
   if (!parts.length) {
-    return `⚠️ ${title}（${rangeLine}）没有课程数据。`;
+    return `${title}（${rangeLine}）没有课程数据。`;
   }
-  
-  return `🗓️ ${title}（${rangeLine}）\n\n${parts.join('\n')}`;
+
+  return `${title}（${rangeLine}）\n\n${parts.join('\n')}`;
 }
 
 function formatWeekScheduleAnswerFromProfile(profile, which = 'this_week') {
@@ -792,7 +782,7 @@ async function fetchDayScheduleFromChaoxing(curriculumUuid, when, context) {
     const dayLabel = dayNames[targetWeekday] || `周${targetWeekday}`;
     
     if (!dayCourses.length) {
-      return { text: `✅ ${todayLabel}(${dayLabel})看起来没有课。` };
+      return { text: `${todayLabel}(${dayLabel})看起来没有课。` };
     }
     
     // 排序并合并
@@ -808,7 +798,7 @@ async function fetchDayScheduleFromChaoxing(curriculumUuid, when, context) {
       return `- ${c.timeRange}${loc} ${c.name}`;
     });
     
-    return { text: `📚 ${todayLabel}(${dayLabel})有 ${merged.length} 门课:\n${lines.join('\n')}` };
+    return { text: `${todayLabel}(${dayLabel})有 ${merged.length} 门课:\n${lines.join('\n')}` };
   } catch (err) {
     context?.log?.(`[Schedule] 动态查询异常: ${err.message}`);
     return { error: err.message };
@@ -890,7 +880,7 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
       if (startTime && startTime > nowTimeStr) {
         const loc = c.location ? `，地点 ${c.location}` : '';
         const timeRange = c.timeRange || computeTimeRange(c) || startTime;
-        return { text: `📚 下一节课是《${c.name}》，时间 ${timeRange}${loc}。` };
+        return { text: `下一节课是《${c.name}》，时间 ${timeRange}${loc}。` };
       }
     }
     
@@ -917,10 +907,10 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
       const c = tomorrowCourses[0];
       const loc = c.location ? `，地点 ${c.location}` : '';
       const timeRange = c.timeRange || computeTimeRange(c) || pickStart(c);
-      return { text: `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${timeRange}${loc}。` };
+      return { text: `今天没有更多课了。明天第一节是《${c.name}》，时间 ${timeRange}${loc}。` };
     }
     
-    return { text: '✅ 今天和明天都没有课了，好好休息吧！' };
+    return { text: '今天和明天都没有课。' };
   } catch (err) {
     context?.log?.(`[Schedule] 查询下一节课异常: ${err.message}`);
     return { error: err.message };
@@ -932,7 +922,7 @@ async function fetchNextCourseFromChaoxing(curriculumUuid, context) {
  */
 function formatNextCourseFromProfile(profile, context) {
   if (!profile?.weekly_schedule) {
-    return '⚠️ 没有课表数据。';
+    return '未检测到课表数据。';
   }
   
   const nowSh = getShanghaiNowUtcShifted();
@@ -950,7 +940,7 @@ function formatNextCourseFromProfile(profile, context) {
     const startTime = (c.time || '').split('-')[0]?.trim() || '';
     if (startTime > nowTimeStr) {
       const loc = c.location ? `，地点 ${c.location}` : '';
-      return `📚 下一节课是《${c.name}》，时间 ${c.time}${loc}。`;
+      return `下一节课是《${c.name}》，时间 ${c.time}${loc}。`;
     }
   }
   
@@ -963,10 +953,10 @@ function formatNextCourseFromProfile(profile, context) {
   if (tomorrowCourses.length > 0) {
     const c = tomorrowCourses[0];
     const loc = c.location ? `，地点 ${c.location}` : '';
-    return `📚 今天没有更多课了！明天第一节是《${c.name}》，时间 ${c.time}${loc}。`;
+    return `今天没有更多课了。明天第一节是《${c.name}》，时间 ${c.time}${loc}。`;
   }
   
-  return '✅ 今天和明天都没有课了，好好休息吧！';
+  return '今天和明天都没有课。';
 }
 
 function extractChaoxingScheduleUrl(rawMsg = '') {
@@ -1881,7 +1871,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
           body: JSON.stringify({
-            reply: `✅ 补全导入成功！已记录 ${recoveredEvents.length} 条课程。\n\n最近安排:\n${summary || '(没有即将到来的事件)'}${companion}\n\n你现在可以直接问“明天课表/本周课表/下一节课”。`,
+            reply: `补全导入成功。已记录 ${recoveredEvents.length} 条课程。\n\n最近安排:\n${summary || '(没有即将到来的事件)'}\n\n你现在可以直接问“明天课表/本周课表/下一节课”。`,
             auto_escape: false
           })
         };
@@ -1891,7 +1881,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
         status: 200,
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
         body: JSON.stringify({
-          reply: '⚠️ 爱丽丝看到了“补全课表”，但没识别到有效行。\n请用格式：\n周一 08:00-09:35 课程名 @地点\n一行一门课（时间用 24 小时制）。',
+          reply: '已收到“补全课表”，但未识别到有效行。\n请用格式：\n周一 08:00-09:35 课程名 @地点\n一行一门课（时间用 24 小时制）。',
           auto_escape: false
         })
       };
@@ -1912,7 +1902,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
           body: JSON.stringify({
-            reply: '⚠️ 我还没有你的课表数据。\n请先发送学习通课表链接，或上传官方导出的 Excel/ICS，或发送课表截图让我 OCR 解析。',
+            reply: '未检测到你的课表数据，因此无法进行课程/空档/负载分析。\n请先发送学习通课表链接，或上传官方导出的 Excel/ICS，或发送课表截图用于 OCR 解析。',
             auto_escape: false
           })
         };
@@ -1931,9 +1921,9 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
               const early = findEarliestClassesInWebSchedule(webSchedule);
               replyText = early;
             } else if (profile?.weekly_schedule) {
-              replyText = '⚠️ 我现在只能访问到课表课程数据（不含考试/作业）。要回答早八统计，需要本周完整课表数据；请先刷新课表或重新导入。';
+              replyText = '我当前只能访问到课表课程数据（不含考试/作业）。要回答早八统计，需要本周完整课表数据；请先刷新课表或重新导入。';
             } else {
-              replyText = `⚠️ 查询失败: ${weekResult.error}`;
+              replyText = `查询失败: ${weekResult.error}`;
             }
           } else {
             // weekResult.text 是格式化后的表格文本，解析结构不稳定；改为再拉一次结构化 lessons 统计更稳。
@@ -1941,7 +1931,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             const nowSh = getShanghaiNowUtcShifted();
             const info = await require('./chaoxingSchedule').getScheduleInfo(effectiveUuid);
             if (!info || info.success === false) {
-              replyText = `⚠️ 查询失败: ${info?.error || '无法获取课表信息'}`;
+              replyText = `查询失败: ${info?.error || '无法获取课表信息'}`;
             } else {
               const firstWeekDate = info.curriculum?.firstWeekDate;
               let currentWeek = info.curriculum?.currentWeek || 1;
@@ -1954,7 +1944,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             }
             const raw = await fetchChaoxingSchedule(effectiveUuid, currentWeek);
             if (!raw.success) {
-              replyText = `⚠️ 查询失败: ${raw.error}`;
+              replyText = `查询失败: ${raw.error}`;
             } else {
               const lessons = transformLessonsToStandardFormat(raw.data.lessons, raw.data.curriculum);
               replyText = formatEarliestFromLessons(lessons, currentWeek);
@@ -1976,7 +1966,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             if (profile?.weekly_schedule) {
               replyText = formatWeekScheduleAnswerFromProfile(profile, queryType || 'this_week');
             } else {
-              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+              replyText = `查询失败: ${dynamicResult.error}`;
             }
           } else {
             replyText = dynamicResult.text;
@@ -1992,7 +1982,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             if (profile?.weekly_schedule) {
               replyText = formatTomorrowAnswerFromProfile(profile, 'tomorrow');
             } else {
-              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+              replyText = `查询失败: ${dynamicResult.error}`;
             }
           } else {
             replyText = dynamicResult.text;
@@ -2007,7 +1997,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             if (profile?.weekly_schedule) {
               replyText = formatTomorrowAnswerFromProfile(profile, 'today');
             } else {
-              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+              replyText = `查询失败: ${dynamicResult.error}`;
             }
           } else {
             replyText = dynamicResult.text;
@@ -2023,7 +2013,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             if (profile?.weekly_schedule) {
               replyText = formatNextCourseFromProfile(profile, context);
             } else {
-              replyText = `⚠️ 查询失败: ${dynamicResult.error}`;
+              replyText = `查询失败: ${dynamicResult.error}`;
             }
           } else {
             replyText = dynamicResult.text;
@@ -2033,7 +2023,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             replyText = formatWeekScheduleAnswerFromProfile(profile, 'this_week');
           } else {
             const dynamicResult = await fetchWeekScheduleFromChaoxing(effectiveUuid, 'this_week', context);
-            replyText = dynamicResult.error ? `⚠️ 查询失败: ${dynamicResult.error}` : dynamicResult.text;
+            replyText = dynamicResult.error ? `查询失败: ${dynamicResult.error}` : dynamicResult.text;
           }
         }
       } else if (hasWebSchedule) {
@@ -2097,7 +2087,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
             status: 200,
             headers: { 'Content-Type': 'application/json; charset=utf-8' },
             body: JSON.stringify({
-              reply: `✅ 已成功解析学习通课表 (通过爬虫)！\n\n${scraperResult.events.length} 门课程已保存\n\n📚 最近课程:\n${summary}`,
+              reply: `已成功解析学习通课表（通过爬虫）。\n\n${scraperResult.events.length} 门课程已保存\n\n最近课程:\n${summary}`,
               auto_escape: false
             })
           };
@@ -2125,7 +2115,7 @@ function createScheduleHandler({ fetchBypass, checkComputerVision, updateLastBot
           status: 200,
           headers: { 'Content-Type': 'application/json; charset=utf-8' },
           body: JSON.stringify({
-            reply: `✅ 学习通课表解析成功！\n\n📅 学年: ${curriculum.schoolYear || '未知'}-${curriculum.semester || '未知'}\n📍 当前周次: 第 ${curriculum.currentWeek || '?'} 周 (共 ${curriculum.maxWeek || '?'} 周)\n📚 课程总数: ${apiResult.events.length} 门\n\n最近课程安排:\n${summary}${companion}\n\n💡 数据已保存,可查询"本周课表"、"明天有课吗"等`,
+            reply: `学习通课表解析成功。\n\n学年: ${curriculum.schoolYear || '未知'}-${curriculum.semester || '未知'}\n当前周次: 第 ${curriculum.currentWeek || '?'} 周 (共 ${curriculum.maxWeek || '?'} 周)\n课程总数: ${apiResult.events.length} 门\n\n最近课程安排:\n${summary}\n\n数据已保存，可查询"本周课表"、"明天有课吗"等。`,
             auto_escape: false
           })
         };

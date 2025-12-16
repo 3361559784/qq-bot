@@ -30,15 +30,19 @@ const MOCK_REPLIES = [
   "邦邦咔邦！爱丽丝登场！(≧∇≦)/"
 ];
 
-function ChatMessage({ role, content }: { role: string, content: string }) {
+function ChatMessage({ role, content, isProfessionalMode }: { role: string, content: string, isProfessionalMode?: boolean }) {
   const isUser = role === "user";
+  // Pro模式使用专业风格的头像和颜色
+  const avatarSrc = isProfessionalMode ? "/images/aris_calm.png" : "/images/aris_normal.png";
+  const avatarBg = isProfessionalMode ? "ring-2 ring-blue-500" : "";
+  
   return (
     <div className={`flex w-full mb-8 ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
         <img
-          src="/images/aris_normal.png"
+          src={avatarSrc}
           alt="Aris"
-          className="w-8 h-8 rounded-full object-cover mr-4 flex-shrink-0 shadow-sm"
+          className={`w-8 h-8 rounded-full object-cover mr-4 flex-shrink-0 shadow-sm ${avatarBg}`}
           loading="lazy"
         />
       )}
@@ -737,16 +741,22 @@ export default function Home() {
               {/* 产品身份说明：让评委30秒内看懂 */}
               <div className="flex items-center gap-3 mb-4">
                 <img 
-                  src="/images/aris_normal.png" 
+                  src={personaMode === 'professional' ? "/images/aris_calm.png" : "/images/aris_normal.png"}
                   alt="Aris" 
-                  className="w-10 h-10 rounded-full shadow-md"
+                  className={`w-10 h-10 rounded-full shadow-md ${personaMode === 'professional' ? 'ring-2 ring-blue-500' : ''}`}
                 />
                 <div className="text-sm text-gray-500 dark:text-gray-400">
-                  <span className="font-medium text-blue-500">爱丽丝</span> · 你的校园 AI 助手
+                  <span className={`font-medium ${personaMode === 'professional' ? 'text-blue-600' : 'text-blue-500'}`}>
+                    {personaMode === 'professional' ? 'Campus Copilot' : '爱丽丝'}
+                  </span> · 你的校园 AI 助手
                 </div>
               </div>
-              <h1 className="text-5xl font-medium bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-text text-transparent mb-2 text-center">
-                你好，同学
+              <h1 className={`text-5xl font-medium bg-clip-text text-transparent mb-2 text-center ${
+                personaMode === 'professional' 
+                  ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-400' 
+                  : 'bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500'
+              }`}>
+                {personaMode === 'professional' ? '您好' : '你好，同学'}
               </h1>
               <h2 className="text-4xl font-medium text-gray-700 dark:text-gray-300 mb-3 text-center">
                 {schedule.length > 0 ? '今天想做点什么？' : '我能帮你做这些'}
@@ -872,7 +882,7 @@ export default function Home() {
             <div className="max-w-3xl mx-auto w-full py-8">
               {messages.map((msg, idx) => (
                 <div key={idx}>
-                  <ChatMessage role={msg.role} content={msg.content} />
+                  <ChatMessage role={msg.role} content={msg.content} isProfessionalMode={personaMode === 'professional'} />
                   {/* 无课表时，在 assistant 回复后显示绑定提示 */}
                   {msg.role === 'assistant' && schedule.length === 0 && idx === messages.length - 1 && (
                     <div className="ml-12 mt-1 mb-4 flex items-center gap-2 text-xs text-gray-400">
