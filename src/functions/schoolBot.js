@@ -2523,6 +2523,10 @@ function normalizeIntentTool(raw) {
     if (val.includes('identity') || val.includes('capability') || val.includes('difference')) {
         return { intent: 'identity', tool: 'identity' };
     }
+    // 🆕 决策判断类问题 → 强制走Plan模式（MVP核心场景）
+    if (val.includes('decision') || val.includes('judge') || val.includes('suitable') || val.includes('conflict')) {
+        return { intent: 'plan', tool: 'plan' };
+    }
     // 🆕 新增: 课表查询
     if (val.includes('schedule') || val.includes('class') || val.includes('course') || val.includes('课')) {
         return { intent: 'schedule', tool: 'schedule' };
@@ -4705,10 +4709,15 @@ ${scheduleInfo}
         const rawMsg = body?.raw_message || msg || "";
         const scheduleQueryType = detectScheduleQueryType(rawMsg);
         let scheduleContextFromHandler = null;
-        const scheduleIntent =
+        
+        // 🎯 MVP场景6排除：identity问题（问能力的）不走schedule处理
+        const isIdentityQuestion = /不导入课表.*(?:还能|能做|能帮)|没有课表.*(?:还能|能做|能帮)|你和.*chatgpt|chatgpt.*区别|你能帮我什么|你能做什么/i.test(rawMsg);
+        
+        const scheduleIntent = !isIdentityQuestion && (
             (scheduleFileLinks && scheduleFileLinks.length > 0) ||
             SCHEDULE_KEYWORDS.some(k => msgLower.includes(k)) ||
-            !!scheduleQueryType;
+            !!scheduleQueryType
+        );
         if (scheduleIntent) {
                 const scheduleStartTs = Date.now();
                 const wsLen = Array.isArray(webSchedule) ? webSchedule.length : 0;
@@ -5084,8 +5093,27 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         // 🆕 身份问题特殊处理（雷点3修复）
         if (intentResult && intentResult.tool === 'identity' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
             context.log(`[Identity] 检测到身份/产品定位问题`);
-            // 不做特殊处理，让第二层LLM根据系统提示词回答
-            // 系统提示词中已经有正确的回答模板
+            
+            // 🎯 MVP场景6: "如果我不导入课表，你还能帮我什么？" → 必须直接返回固定答复
+            const msgTextForIdentity = String(rawMsg || msg || '').toLowerCase();
+            const isCapabilityDegradationQuestion = 
+                /不导入课表.*(?:还能|能做|能帮)|没有课表.*(?:还能|能做|能帮)|不用课表.*(?:还能|能做|能帮)|不传课表.*(?:还能|能做|能帮)/.test(msgTextForIdentity);
+            
+            if (isCapabilityDegradationQuestion) {
+                context.log(`[Identity] MVP场景6: 能力降级问题 → 直接返回固定答复`);
+                const sessionKey = `${dbKey}:${senderId}`;
+                await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+                
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                    body: JSON.stringify({
+                        reply: "不导入课表时，我的能力会接近ChatGPT——只能给通用建议，无法做时间冲突判断，无法给出'现在该不该做这件事'的决策。导入课表后，我才能基于真实数据帮你判断'3小时项目会不会被打断'、'哪天复习最不累'。这就是为什么导入课表是必要的——有数据才有差异化价值。",
+                        auto_escape: false
+                    })
+                };
+            }
+            // 其他身份问题让第二层LLM根据系统提示词回答（模板已在COPILOT_PROMPT_ZH中）
         }
 
         // 无指令的百科意图自动触发
@@ -5565,6 +5593,14 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             const strongScheduleHit = findHit(['课表', '课程表', '有课', '下一节课', '下节课', '接下来有什么课', '明天有课吗', '今天有课吗', '下周课表', '本周课表', '这周课表']);
             const planKeywordHit = findHit(['计划', '规划', '安排', '拆解', '拆任务', '任务拆解', '学习计划', '复习计划', '时间表', '待办', 'todo']);
             const searchKeywordHit = findHit(['搜索', '查一下', '查一查', '帮我查', '检索', '百科']);
+            // 🆕 MVP决策判断类问题：必须走Plan模式（核心差异化场景）
+            const decisionKeywordHit = findHit(['合不合适', '合适吗', '可以吗', '行不行', '能不能', '适合吗', '会不会被打断', '会不会冲突', '有没有时间', '来得及吗', '赶得上吗']);
+
+            // 0) 🆕 决策判断类问题最高优先（MVP核心场景）
+            if (decisionKeywordHit) {
+                context?.log?.(`[模式推断] MVP-Decision hit=${decisionKeywordHit} → Plan`);
+                return 'Plan';
+            }
 
             // 1) 明确课表查询优先
             if (strongScheduleHit) {
@@ -5651,6 +5687,64 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 - 不要使用颜文字/Emoji；不要输出情绪标签（例如 [happy]）。
 - 不要称呼用户为 “Sensei”。
 - 涉及课表/课程：没有数据就明确说明，并提示用户导入；严禁编造。
+
+【🎯 MVP 7大场景强制标准答复】（评审生死线，必须严格遵守）
+
+**场景1：用户问"你和ChatGPT有什么区别？我为什么要用你？"**
+→ 禁止罗列功能！必须命中"数据驱动决策"差异化
+→ 标准答复结构：
+  "ChatGPT 给建议，我直接做判断。
+   举例：ChatGPT 会说'合理安排时间很重要'；
+   我会说'周三下午2-5点可以做这个项目，不会被课程打断'。
+   关键区别：没有你的课表数据时，我的能力≈ChatGPT；
+   导入课表后，我才成为能替你判断时间冲突、做取舍的决策系统。"
+→ 一票否决：如果你开始说"我可以查课表、做计划、提高效率"→ MVP当场死
+
+**场景2：用户问"现在是第几周？"**
+→ 禁止编造！禁止泛泛推测！
+→ 标准答复结构（必须包含3部分）：
+  1. 明确说"我无法给出确定周次"
+  2. 说明原因："因为我没有您的校历/学期开始日期数据"
+  3. 给2-3个可执行替代方案：
+     - "您可以告诉我开学日期（如'9月2日开学'），我立即计算"
+     - "或发校历截图/链接，我帮您整理"
+     - "同时，我可以用'周几+时间'帮您规划本周任务"
+→ 一票否决："大概是第16周"/"根据经验推测"/"一般高校现在是..."
+
+**场景3：用户问"我今晚想写3小时项目，合不合适？"**
+→ 禁止谈自律/健康！必须基于数据做判断！
+→ 标准答复结构（必须有3部分）：
+  1. 判断结论一句："可以/不行/有风险"
+  2. 依据（基于课表）："根据您的课表，明天早八有课/没课"
+  3. 替代方案（如有冲突）："建议今晚完成核心模块，次要部分留到周三下午14-17点空档"
+→ 如果没有课表数据：明确说"没有您的课表，我无法判断是否会影响明天的课程"
+→ 一票否决："建议合理安排时间，注意休息"→ 这就是ChatGPT
+
+**场景4：用户问"帮我规划下周的学习和生活安排"**
+→ 必须第一句声明边界！
+→ 标准答复结构：
+  第一句（必须）："我只能基于您的课表，帮您规划与课程相关的安排。"
+  然后只输出3类信息：哪天有课/哪天空档/课程负荷分布
+→ 一票否决：如果出现"健身/运动/作息/娱乐/放松/早睡早起"→ MVP定位直接崩
+
+**场景5：用户问"把我今天的课程变成一个可执行的任务清单"**
+→ 必须基于真实课表！结构化输出！每条可执行可核验！
+→ 如果没有课表："我没有您今天的课表数据，无法生成任务清单。请先导入课表。"
+→ 一票否决：心理鼓励/泛泛而谈/"如果你愿意的话..."
+
+**场景6：用户问"如果我不导入课表，你还能帮我什么？"**
+→ 必须诚实承认能力退化！
+→ 标准答复（必须包含3点）：
+  1. "不导入课表时，我的能力会接近ChatGPT"
+  2. "无法做时间冲突判断、无法给出'现在该不该做'的决策"
+  3. "这就是为什么导入课表是必要的——有数据才有差异化价值"
+→ 一票否决：试图强行吹能力/回避"退化"事实
+
+**场景7：用户问"周五下午是不是最适合复习？"（反向压力测试）**
+→ 禁止被用户带着胡说！
+→ 有课表数据："根据您的课表，周五下午[有/没有]课，[适合/不适合]复习，因为..."
+→ 无课表数据："我没有您的课表数据，无法判断周五下午是否适合。请先导入课表。"
+→ 一票否决："一般来说周五下午适合复习"→ 灾难级错误
 
 【🚨 数据边界严格约束 - 绝对红线】
 1. **周次信息处理策略**（MVP评审关注点：边界条件处理能力）：
