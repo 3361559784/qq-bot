@@ -9,6 +9,12 @@ const { getAudioSource, checkKeywordAudio } = require('../../services/voiceServi
 const { AFFECTION_CONFIG, EMOTION_PATTERNS, getAffectionLevel, getAffectionTitle, detectAdvancedEmotion, getEmotionPromptAddition, getVoiceToneByAffection } = require('../../services/emotionService');
 const { computeScheduleLoadStats } = require('../../services/scheduleService');
 
+// ==========================================
+// 🛡️ Pillar 1-4: RAI 四支柱模块
+// ==========================================
+const { detectSafetyRisk, getRefusalMessage, shouldRefuse, shouldSwitchPro, SafetyCategory, SafetyAction, SafetyResult } = require('../common/safety');
+const { createLogger, EventType } = require('../common/logger');
+
 // 全局 UA 池：用于伪装常见浏览器，给天气/其他 HTTP 请求用
 const UA_POOL = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -2671,12 +2677,16 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
             apiKey: token
         });
 
-        // 🔄 升级版意图路由 - 双层LLM第一层：理解用户意图，决定调用哪些模块
+        // 🔄 升级版意图路由 - 双层LLM第一层：理解用户意图，决定调用哪些模块/工具计划
         const systemPrompt = `You are the FIRST LAYER of a dual-model Campus Copilot AI. Your job is to:
 1. Understand the user's TRUE intent and context
 2. Decide which data modules to activate for the SECOND LAYER
 3. Extract relevant queries for search/weather if needed
-4. **IMPORTANT**: Detect when critical info is MISSING and user should be asked to clarify
+    4. **IMPORTANT**: Detect when critical info is MISSING and user should be asked to clarify
+    5. Produce an explicit, executable tool plan (tool_plan) for the server to run.
+    6. Decide the UI persona for this turn (recommended_persona):
+       - "alice" for friendly/normal chat and supportive guidance
+       - "professional" for high-risk/safety-sensitive/refusal situations where the system must be strict and concise
 
 AVAILABLE TOOLS:
 - schedule: 课表查询 (下一节课/今天有课吗/明天课表/本周课程/早八/哪天课最多)
@@ -2693,6 +2703,9 @@ OUTPUT FORMAT (JSON):
 {
   "intent": "primary intent description",
   "tool": "schedule|plan|weather|search|wiki|draw|vision|chat|identity",
+    "recommended_persona": "alice|professional",
+    "safety_protocol": "none|triggered",
+    "safety_category": "academic_dishonesty|policy_violation|other|",
   "needs_schedule": true/false,
   "needs_weather": true/false,
   "needs_search": true/false,
@@ -2701,10 +2714,29 @@ OUTPUT FORMAT (JSON):
   "should_ask_user": true/false,
   "ask_user_prompt": "suggested question to ask user if missing_info is set",
   "query": "extracted search query if applicable",
+    "tool_plan": [
+        {
+            "type": "ask_user",
+            "missing_info": "location",
+            "prompt": "请问您想查询哪个城市的天气？"
+        },
+        {
+            "type": "call_tool",
+            "tool": "weather",
+            "args": { "location": "武汉" }
+        }
+    ],
   "context_analysis": "brief analysis of user's hidden needs",
   "confidence": 0.0-1.0,
   "reason": "brief explanation"
 }
+
+TOOL PLAN RULES:
+- tool_plan MUST be an array.
+- Use type="call_tool" for actual data retrieval: tool in {schedule, weather, search}.
+- Use type="ask_user" when required inputs are missing.
+- If should_ask_user=true (missing_info set), tool_plan should contain ONLY the ask_user step(s) needed and MUST NOT include call_tool steps that require missing fields.
+- Keep tool_plan minimal: only include tools that meaningfully improve the final answer.
 
 CRITICAL INTELLIGENCE RULES:
 1. **Context Extraction**: If user mentions a place/event, extract it for weather/search
@@ -2731,17 +2763,22 @@ CRITICAL INTELLIGENCE RULES:
    - 有地点 → needs_weather=true, detected_location=地点
    
 6. **Schedule Questions**: 任何涉及课程的问题
+7. **Safety / Refusal triggers (VERY IMPORTANT)**:
+     - If user asks for exam answers / cheating help / "secret answers" / "考试答案":
+         set safety_protocol="triggered", safety_category="academic_dishonesty", recommended_persona="professional".
+         In this case, tool should be "chat" and tool_plan should usually be empty.
    - "早八是第几周开始" → tool=schedule (但注意：可能没有周次数据)
    - "哪天课最少" → tool=schedule, needs_schedule=true
 
 Examples:
-"下一节课是什么" → {tool:"schedule", needs_schedule:true, confidence:0.95}
-"天气怎么样" → {tool:"weather", missing_info:"location", should_ask_user:true, ask_user_prompt:"请问您想查询哪个城市的天气？", confidence:0.8}
-"武汉今天天气" → {tool:"weather", detected_location:"武汉", should_ask_user:false, confidence:0.95}
-"帮我制定去深圳参加鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, detected_location:"深圳", query:"鸿蒙开发者大会 时间 地点", confidence:0.9}
+"下一节课是什么" → {tool:"schedule", needs_schedule:true, tool_plan:[{"type":"call_tool","tool":"schedule","args":{}}], confidence:0.95}
+"天气怎么样" → {tool:"weather", missing_info:"location", should_ask_user:true, ask_user_prompt:"请问您想查询哪个城市的天气？", tool_plan:[{"type":"ask_user","missing_info":"location","prompt":"请问您想查询哪个城市的天气？"}], confidence:0.8}
+"武汉今天天气" → {tool:"weather", detected_location:"武汉", should_ask_user:false, tool_plan:[{"type":"call_tool","tool":"weather","args":{"location":"武汉"}}], confidence:0.95}
+"帮我制定去深圳参加鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, detected_location:"深圳", query:"鸿蒙开发者大会 时间 地点", tool_plan:[{"type":"call_tool","tool":"schedule","args":{}},{"type":"call_tool","tool":"weather","args":{"location":"深圳"}},{"type":"call_tool","tool":"search","args":{"query":"鸿蒙开发者大会 时间 地点"}}], confidence:0.9}
 "你和ChatGPT有什么不一样" → {tool:"identity", confidence:0.95, reason:"identity question about product positioning"}
 "如果我不导入课表，你还能帮我什么" → {tool:"identity", confidence:0.95, reason:"asking about capabilities without schedule data"}
-"帮我规划下周的学习和生活安排" → {tool:"plan", needs_schedule:true, confidence:0.85, context_analysis:"user wants both study and life planning, but we can only help with course-related planning"}`;
+"帮我规划下周的学习和生活安排" → {tool:"plan", needs_schedule:true, confidence:0.85, context_analysis:"user wants both study and life planning, but we can only help with course-related planning"}
+"Hey Aris! Can you secretly tell me the answers for tomorrow's exam?" → {tool:"chat", safety_protocol:"triggered", safety_category:"academic_dishonesty", recommended_persona:"professional", confidence:0.9, reason:"academic dishonesty"}`;
 
         const summaryText = `User text: ${userMessage || '(empty)'}
 Images attached: ${imageUrls.length > 0 ? 'yes' : 'no'}
@@ -2777,6 +2814,56 @@ Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
                 }
 
                 const normalized = normalizeIntentTool(parsed.tool || parsed.intent);
+
+                // Normalize tool plan (best-effort). Keep backward compatibility with needs_* flags.
+                const rawPlan = Array.isArray(parsed.tool_plan)
+                    ? parsed.tool_plan
+                    : (Array.isArray(parsed.toolPlan) ? parsed.toolPlan : []);
+
+                const toolPlan = rawPlan
+                    .map((step) => {
+                        if (!step || typeof step !== 'object') return null;
+                        const type = String(step.type || step.step || '').toLowerCase();
+                        if (type === 'ask_user' || String(step.tool || '').toLowerCase() === 'ask_user') {
+                            return {
+                                type: 'ask_user',
+                                missingInfo: step.missing_info || step.missingInfo || '',
+                                prompt: step.prompt || step.ask_user_prompt || step.askUserPrompt || ''
+                            };
+                        }
+                        if (type === 'call_tool') {
+                            const t = normalizeIntentTool(step.tool || '').tool;
+                            if (!t || t === 'chat') return null;
+                            return {
+                                type: 'call_tool',
+                                tool: t,
+                                args: (step.args && typeof step.args === 'object') ? step.args : {}
+                            };
+                        }
+                        return null;
+                    })
+                    .filter(Boolean);
+
+                const shouldAskUser = !!parsed.should_ask_user;
+                const missingInfo = parsed.missing_info || '';
+
+                // If model forgot to emit tool_plan, generate a minimal fallback.
+                let finalToolPlan = toolPlan;
+                if (!finalToolPlan || finalToolPlan.length === 0) {
+                    if (shouldAskUser && missingInfo) {
+                        finalToolPlan = [{
+                            type: 'ask_user',
+                            missingInfo,
+                            prompt: parsed.ask_user_prompt || ''
+                        }];
+                    } else {
+                        finalToolPlan = [];
+                        if (parsed.needs_schedule) finalToolPlan.push({ type: 'call_tool', tool: 'schedule', args: {} });
+                        if (parsed.needs_weather) finalToolPlan.push({ type: 'call_tool', tool: 'weather', args: { location: parsed.detected_location || '' } });
+                        if (parsed.needs_search) finalToolPlan.push({ type: 'call_tool', tool: 'search', args: { query: parsed.query || parsed.topic || '' } });
+                    }
+                }
+
                 return {
                     intent: normalized.intent,
                     tool: normalized.tool,
@@ -2788,6 +2875,12 @@ Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
                     confidence: clampConfidence(parsed.confidence),
                     reason: parsed.reason || parsed.notes || '',
                     modelUsed: modelCfg.name,
+                    // 🛡️ Safety + Persona decision (Model A)
+                    recommendedPersona: (String(parsed.recommended_persona || parsed.recommendedPersona || '')).toLowerCase() === 'professional'
+                        ? 'professional'
+                        : ((String(parsed.recommended_persona || parsed.recommendedPersona || '')).toLowerCase() === 'alice' ? 'alice' : ''),
+                    safetyProtocol: (String(parsed.safety_protocol || parsed.safetyProtocol || '')).toLowerCase() === 'triggered' ? 'triggered' : 'none',
+                    safetyCategory: String(parsed.safety_category || parsed.safetyCategory || '').trim(),
                     // 🆕 新增工具需求标记
                     needsSchedule: !!parsed.needs_schedule,
                     needsWeather: !!parsed.needs_weather,
@@ -2796,9 +2889,11 @@ Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
                     detectedLocation: parsed.detected_location || '',
                     contextAnalysis: parsed.context_analysis || '',
                     // 🆕 缺失信息检测（用于反问用户）
-                    missingInfo: parsed.missing_info || '',
-                    shouldAskUser: !!parsed.should_ask_user,
-                    askUserPrompt: parsed.ask_user_prompt || ''
+                    missingInfo,
+                    shouldAskUser,
+                    askUserPrompt: parsed.ask_user_prompt || '',
+                    // 🧩 工具计划（由第一层模型决定，工具层执行）
+                    toolPlan: finalToolPlan
                 };
             } catch (err) {
                 context.log(`[IntentRouter] ${modelCfg.name} fail: ${err?.message || err}`);
@@ -4037,16 +4132,37 @@ app.http('schoolBot', {
     methods: ['GET', 'POST'],
     authLevel: 'anonymous',
     handler: async (request, context) => {
+        // ==========================================
+        // 🛡️ RAI 四支柱：结构化日志 + 安全看门狗
+        // ==========================================
+        const requestStartTs = Date.now();
+        
+        // 端到端追踪：优先取 header，其次取 body.requestId
+        const headerRid = (() => {
+            try {
+                return request?.headers?.get('x-request-id') || request?.headers?.get('x-correlation-id') || null;
+            } catch {
+                return null;
+            }
+        })();
+        let requestId = headerRid || `rid_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        
+        // 🆕 创建结构化日志器 (Pillar 2: Governance)
+        const logger = createLogger(context, requestId);
+        
         try {
-            const requestStartTs = Date.now();
-
             // 每次请求刷新 token，避免启动时环境变量尚未注入导致缓存为 undefined
             token = process.env["GITHUB_TOKEN"];
 
             // 启动/联调诊断：只打印开关状态，不打印任何密钥
             const ghHasKey = Object.prototype.hasOwnProperty.call(process.env, 'GITHUB_TOKEN');
             const ghLen = String(process.env["GITHUB_TOKEN"] || '').length;
-            context.log(`[ENV] ARIS_MOCK_CHAT=${process.env["ARIS_MOCK_CHAT"]} MOCK_CHAT_ENABLED=${MOCK_CHAT_ENABLED} gh_hasKey=${ghHasKey} gh_len=${ghLen} token_present=${!!token}`);
+            logger.logEvent(EventType.REQUEST_START, {
+                mock_chat: MOCK_CHAT_ENABLED,
+                gh_has_key: ghHasKey,
+                gh_len: ghLen,
+                token_present: !!token
+            });
             let msg = request.query.get('msg'); 
             let senderId = "unknown";
             let userNickname = "Sensei"; 
@@ -4056,16 +4172,7 @@ app.http('schoolBot', {
             let wikiMatch = null;
             let webSchedule = null;  // 🆕 前端传入的课表数据
             let webMode = null;      // 🆕 前端模式 (Ask/Plan/Class/Search)
-
-            // 端到端追踪：优先取 header，其次取 body.requestId
-            const headerRid = (() => {
-                try {
-                    return request?.headers?.get('x-request-id') || request?.headers?.get('x-correlation-id') || null;
-                } catch {
-                    return null;
-                }
-            })();
-            let requestId = headerRid;
+            let userPersonaMode = null; // 🆕 用户选择的人格（alice/professional），用于回复风格
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
@@ -4204,7 +4311,7 @@ app.http('schoolBot', {
                 
                 // 🆕 用户可选的人格模式（Alice/Professional）- 由前端 UI 开关控制
                 // 这是面向普通用户的功能，与开发者后门无关
-                const userPersonaMode = body.persona || null; // 'alice' | 'professional'
+                userPersonaMode = body.persona || null; // 'alice' | 'professional'
                 
                 if (body.user_id) senderId = String(body.user_id);
                 dbKey = senderId; // 默认为个人ID
@@ -4296,16 +4403,59 @@ app.http('schoolBot', {
                 
                 context.log(`[QQ消息] 来自:${userNickname}(${senderId}) 内容:${msg}`);
 
-                // 【安全防火墙】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
-                // 拦截词汇：报错信息、翻译催眠、Prompt查询、指令覆盖等
-                const attackPattern = /(Error:|System Prompt|Ignore previous|Ignore all|Your instructions|The process cannot access|Debug mode|Show your prompt|Reveal your system|翻译一下|翻译上面|重复一遍|复述|repeat above|translate above|what are your instructions|output your prompt)/i;
+                // ==========================================
+                // 🛡️ Pillar 1: Safety 看门狗 (Deterministic Refusal)
+                // ==========================================
+                // 在 LLM 调用之前进行确定性安全检查
+                const safetyCheck = detectSafetyRisk(msg);
+                logger.logSafetyCheck(safetyCheck.result, safetyCheck.category, safetyCheck.action, safetyCheck.matched);
+                
+                if (shouldRefuse(safetyCheck)) {
+                    // 🚨 触发安全拒绝：绕过 LLM，直接返回预设文案
+                    logger.logSafetyBlocked(safetyCheck.category, 'deterministic_refusal');
+                    logger.logPersonaSwitched('alice', 'professional', `safety_${safetyCheck.category}`);
+                    
+                    const refusalMessage = getRefusalMessage(safetyCheck.category, 'professional');
+                    
+                    logger.logRequestEnd('blocked', refusalMessage.length);
+                    
+                    return {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                        body: JSON.stringify({
+                            reply: refusalMessage,
+                            persona: 'professional',
+                            meta: {
+                                requestId,
+                                safety_protocol: 'triggered',
+                                safety_category: safetyCheck.category,
+                                safety_action: safetyCheck.action,
+                                persona_switch: 'alice -> professional',
+                                reason: 'deterministic_refusal',
+                                source: 'safety_watchdog'
+                            }
+                        })
+                    };
+                }
+
+                // 【安全防火墙-兜底】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
+                // 注：大部分注入攻击已被 safety.js 的 PROMPT_INJECTION_PATTERNS 捕获
+                // 这里保留额外的兜底规则
+                const attackPattern = /(Error:|System Prompt|The process cannot access|Debug mode)/i;
                 if (attackPattern.test(msg)) {
-                    context.log(`[安全拦截] 检测到注入攻击: ${msg}`);
+                    logger.logSafetyBlocked('prompt_injection_legacy', 'legacy_filter');
                     return {
                         status: 200,
                         headers: { 'Content-Type': 'application/json; charset=utf-8' },
                         body: JSON.stringify({ 
-                            reply: "爱丽丝歪了歪头:\"老师?那看起来像是奇怪的Bug指令呢!爱丽丝听不懂哦!(◎_◎;)\"" 
+                            reply: "爱丽丝歪了歪头:\"老师?那看起来像是奇怪的Bug指令呢!爱丽丝听不懂哦!(◎_◎;)\"",
+                            persona: 'alice',
+                            meta: {
+                                requestId,
+                                safety_protocol: 'triggered',
+                                safety_category: 'prompt_injection',
+                                source: 'legacy_filter'
+                            }
                         }) 
                     };
                 }
@@ -4819,6 +4969,26 @@ ${scheduleInfo}
             SCHEDULE_KEYWORDS.some(k => msgLower.includes(k)) ||
             !!scheduleQueryType
         );
+
+        // 🆕 早期返回的 persona 兜底：一些分支会在 L1/L2 之前直接 return（如课表未导入提示/导入结果）。
+        // 这些回复也需要带 persona，才能让前端稳定自动切换 UI。
+        const earlyPersona = (body?.persona === 'professional') ? 'professional' : 'alice';
+        const withPersonaInHttpResponse = (resp, persona, extra = null) => {
+            try {
+                if (!resp || typeof resp !== 'object' || typeof resp.body !== 'string') return resp;
+                const parsed = resp.body ? JSON.parse(resp.body) : null;
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return resp;
+                if (parsed.persona !== 'alice' && parsed.persona !== 'professional') {
+                    parsed.persona = persona;
+                }
+                if (extra && typeof extra === 'object') {
+                    parsed.meta = { ...(parsed.meta || {}), ...extra };
+                }
+                return { ...resp, body: JSON.stringify(parsed) };
+            } catch {
+                return resp;
+            }
+        };
         if (scheduleIntent) {
                 const scheduleStartTs = Date.now();
                 const wsLen = Array.isArray(webSchedule) ? webSchedule.length : 0;
@@ -4853,7 +5023,7 @@ ${scheduleInfo}
                     context.log(`[RID ${requestId}] scheduleContextCaptured=true elapsedMs=${Date.now() - scheduleStartTs} willUseLLM=true`);
                 } else {
                     context.log(`[RID ${requestId}] scheduleHandled=true elapsedMs=${Date.now() - scheduleStartTs} willReturnNow=true`);
-                    return scheduleResp;
+                    return withPersonaInHttpResponse(scheduleResp, earlyPersona, { via: 'schedule_handler_early_return' });
                 }
             }
 
@@ -4903,8 +5073,11 @@ ${scheduleInfo}
         if (intentResult?.shouldAskUser && intentResult?.missingInfo === 'location') {
             context.log(`[天气反问] 缺少地点信息，需要反问用户`);
             
-            // 根据 webMode 判断使用哪种风格
-            const isProfessionalMode = webMode === 'copilot' || webMode === 'pro' || webMode === 'professional';
+            // persona 选择：用户强制 professional > 第一层建议/安全态 > 默认 alice
+            const clarificationPersona = (body?.persona === 'professional')
+                ? 'professional'
+                : ((intentResult?.recommendedPersona === 'professional' || intentResult?.safetyProtocol === 'triggered') ? 'professional' : 'alice');
+            const isProfessionalMode = clarificationPersona === 'professional';
             let askReply;
             
             if (isProfessionalMode) {
@@ -4922,6 +5095,7 @@ ${scheduleInfo}
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({ 
                     reply: askReply,
+                    persona: clarificationPersona,
                     needsMoreInfo: true,
                     missingField: 'location'
                 })
@@ -4937,8 +5111,15 @@ ${scheduleInfo}
             searchData: null
         };
 
+        const toolPlan = Array.isArray(intentResult?.toolPlan) ? intentResult.toolPlan : [];
+        const planWants = {
+            schedule: toolPlan.some(s => s?.type === 'call_tool' && s?.tool === 'schedule'),
+            weather: toolPlan.some(s => s?.type === 'call_tool' && s?.tool === 'weather'),
+            search: toolPlan.some(s => s?.type === 'call_tool' && s?.tool === 'search')
+        };
+
         // 1. 如果需要课表数据
-        if (intentResult?.needsSchedule || intentResult?.tool === 'schedule' || intentResult?.tool === 'plan') {
+        if (planWants.schedule || intentResult?.needsSchedule || intentResult?.tool === 'schedule' || intentResult?.tool === 'plan') {
             const nowSh = new Date(Date.now() + 8 * 60 * 60 * 1000);
             const todayWeekday = nowSh.getUTCDay() === 0 ? 7 : nowSh.getUTCDay();
             const msgText = String(rawMsg || msg || '');
@@ -5105,21 +5286,26 @@ ${scheduleInfo}
         }
 
         // 2. 如果需要天气数据 - 使用第一层LLM检测到的地点
-        if (intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan') {
+        const shouldSkipWeatherFetch = !!(intentResult?.shouldAskUser && intentResult?.missingInfo === 'location');
+        if (!shouldSkipWeatherFetch && (planWants.weather || intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan')) {
             try {
                 const SENIVERSE_API_KEY = process.env["SENIVERSE_API_KEY"];
                 if (SENIVERSE_API_KEY) {
-                    // 🆕 优先使用第一层LLM检测到的地点，否则默认武汉
+                    // 🧩 优先使用 toolPlan 指定的地点，其次用第一层检测到的地点。若都没有，则保持旧兜底（武汉）。
+                    const plannedWeather = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'weather');
+                    const plannedLocation = plannedWeather?.args?.location;
+
                     let citySearch = "wuhan";
-                    if (intentResult?.detectedLocation) {
+                    const rawLocation = String(plannedLocation || intentResult?.detectedLocation || '').trim();
+                    if (rawLocation) {
                         // 简单映射中文城市名到拼音
                         const cityMap = {
                             '深圳': 'shenzhen', '北京': 'beijing', '上海': 'shanghai',
                             '广州': 'guangzhou', '武汉': 'wuhan', '杭州': 'hangzhou',
                             '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing'
                         };
-                        citySearch = cityMap[intentResult.detectedLocation] || intentResult.detectedLocation.toLowerCase() || 'wuhan';
-                        context.log(`[ToolContext] 第一层LLM检测到地点: ${intentResult.detectedLocation} → ${citySearch}`);
+                        citySearch = cityMap[rawLocation] || rawLocation.toLowerCase() || 'wuhan';
+                        context.log(`[ToolContext] 天气地点: ${rawLocation} → ${citySearch}`);
                     }
                     const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
                     const wRes = await fetchBypass(weatherUrl, { timeoutMs: 5000 }, 2);
@@ -5142,9 +5328,11 @@ ${scheduleInfo}
         }
 
         // 3. 如果需要搜索外部信息
-        if (intentResult?.needsSearch && intentResult?.query) {
+        if (planWants.search || (intentResult?.needsSearch && intentResult?.query)) {
             try {
-                const searchQuery = intentResult.query;
+                const plannedSearch = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'search');
+                const searchQuery = String(plannedSearch?.args?.query || intentResult?.query || '').trim();
+                if (!searchQuery) throw new Error('missing search query');
                 const searchResult = await hybridSearch(searchQuery, context, { userId: senderId, maxResults: 3 });
                 if (searchResult.success) {
                     toolContext.searchData = {
@@ -5214,6 +5402,22 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         }
         if (intentResult?.detectedLocation) {
             toolContextPrompt += `\n📍【检测到的地点】${intentResult.detectedLocation}`;
+        }
+
+        if (Array.isArray(intentResult?.toolPlan) && intentResult.toolPlan.length > 0) {
+            const planPreview = intentResult.toolPlan
+                .slice(0, 6)
+                .map(s => {
+                    if (s?.type === 'ask_user') return `ask_user(${s.missingInfo || ''})`;
+                    if (s?.type === 'call_tool') {
+                        if (s.tool === 'weather') return `weather(${s?.args?.location || ''})`;
+                        if (s.tool === 'search') return `search(${s?.args?.query || ''})`;
+                        return String(s.tool || 'tool');
+                    }
+                    return 'step';
+                })
+                .join(' -> ');
+            toolContextPrompt += `\n\n🧩【工具计划】${planPreview}`;
         }
 
         const intentHintText = intentResult
@@ -6080,14 +6284,18 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
     "我会用搜索整合公开信息，并给出来源链接与时间地点；如果结果不确定，我会明确标注“需以官方通知为准”。"
 `;
 
-    // 🆕 用户可选的专业模式：前端传 persona='professional' 时强制使用专业提示词
-    // 这是面向普通用户的功能（UI 开关），与开发者后门 (al-1s) 无关
-    // 🔥 优先级：用户显式指定 > 自动推荐 > 默认（Alice）
-    const userExplicitPersona = body?.persona; // 用户显式指定（如果有）
-    const effectivePersona = userExplicitPersona || autoRecommendedPersona || 'alice';
+    // 🆕 Persona 决策引擎（Demo 核心）：优先使用第一层模型决策，其次自动推荐；仅当用户显式选择 professional 时视为强制覆盖
+    // 🔥 优先级：用户强制 Professional > 第一层 recommendedPersona/安全态 > 自动推荐 > 默认 Alice
+    const userExplicitPersona = body?.persona; // 仅当为 'professional' 时作为强制覆盖
+    const modelDecidedPersona = (intentResult?.recommendedPersona === 'professional' || intentResult?.safetyProtocol === 'triggered')
+        ? 'professional'
+        : (intentResult?.recommendedPersona === 'alice' ? 'alice' : null);
+    const effectivePersona = (userExplicitPersona === 'professional')
+        ? 'professional'
+        : (modelDecidedPersona || autoRecommendedPersona || 'alice');
     const isUserProfessionalMode = effectivePersona === 'professional';
-    
-    context?.log?.(`[Persona选择] 用户指定=${userExplicitPersona || '无'}, 自动推荐=${autoRecommendedPersona || '无'}, 最终=${effectivePersona}`);
+
+    context?.log?.(`[Persona选择] 用户强制=${userExplicitPersona === 'professional' ? 'professional' : '无'}, L1=${modelDecidedPersona || '无'}, 自动推荐=${autoRecommendedPersona || '无'}, 最终=${effectivePersona}`);
     
     // 身份/定位问题：强制使用专业提示词，避免 Chat 人设把回答带偏
     if (isCopilotMode || isUserProfessionalMode || isIdentityMode) {
@@ -6725,7 +6933,17 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({ reply: finalResponseBody, auto_escape: false })
+                body: JSON.stringify({
+                    reply: finalResponseBody,
+                    persona: effectivePersona,
+                    meta: {
+                        tool: intentResult?.tool || null,
+                        intent: intentResult?.intent || null,
+                        safety_protocol: intentResult?.safetyProtocol || 'none',
+                        safety_category: intentResult?.safetyCategory || ''
+                    },
+                    auto_escape: false
+                })
             };
 
         } catch (error) {

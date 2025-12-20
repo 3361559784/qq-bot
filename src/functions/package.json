@@ -1,0 +1,9 @@
+{
+  "name": "functions",
+  "version": "1.0.0",
+  "main": "schoolBot.js",
+  "dependencies": {
+    "@azure/functions": "^4.0.0",
+    "axios": "^1.6.0"
+  }
+}

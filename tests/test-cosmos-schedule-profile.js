@@ -1,19 +1,40 @@
 // Cosmos DB查询测试 - 检查schedule_profile数据
 const { CosmosClient } = require("@azure/cosmos");
+const fs = require('fs');
+const path = require('path');
+
+function getCosmosConnString() {
+    let cosmosString = process.env.COSMOS_DB_STRING;
+    if (cosmosString) return cosmosString;
+
+    try {
+        const settingsPath = path.join(__dirname, '..', 'local.settings.json');
+        if (fs.existsSync(settingsPath)) {
+            const raw = fs.readFileSync(settingsPath, 'utf8');
+            const parsed = JSON.parse(raw);
+            cosmosString = parsed?.Values?.COSMOS_DB_STRING;
+        }
+    } catch {
+        // ignore
+    }
+    return cosmosString;
+}
 
 async function testCosmosQuery() {
     console.log("📊 开始查询Cosmos DB中的schedule_profile数据...\n");
     
-    const cosmosString = process.env.COSMOS_DB_STRING;
+    const cosmosString = getCosmosConnString();
     if (!cosmosString) {
-        console.error("❌ 错误: COSMOS_DB_STRING 环境变量未设置");
+        console.error("❌ 错误: COSMOS_DB_STRING 未配置（环境变量或 local.settings.json Values.COSMOS_DB_STRING）");
         return;
     }
 
     try {
         const client = new CosmosClient(cosmosString);
-        const db = client.database("aris-bot-db");
-        const container = db.container("chatHistory");
+        const dbId = process.env.COSMOS_DATABASE_ID || 'BotDB';
+        const containerId = process.env.COSMOS_CONTAINER_ID || 'Conversations';
+        const db = client.database(dbId);
+        const container = db.container(containerId);
 
         // 查询所有schedule_profile类型的文档
         const query = {

@@ -38,7 +38,6 @@ export function parseEmotionTag(text) {
   let remaining = text;
   let lastTag = null;
 
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const match = remaining.match(EMOTION_TAG_REGEX);
     if (!match) break;
@@ -68,8 +67,6 @@ export async function sendMessage(message, sessionId, options = {}) {
   const mode = typeof options.mode === "string" ? options.mode : undefined;
   const schedule = Array.isArray(options.schedule) ? options.schedule : undefined;
   const curriculumUuid = typeof options.curriculumUuid === "string" ? options.curriculumUuid : undefined;
-  // 🆕 用户可选的人格模式：'alice' | 'professional'
-  const persona = typeof options.persona === "string" ? options.persona : undefined;
 
   if (!message || typeof message !== "string") {
     return { reply: "消息不能为空", emotion: null };
@@ -97,7 +94,6 @@ export async function sendMessage(message, sessionId, options = {}) {
         ...(mode ? { mode } : {}),
         ...(schedule ? { schedule } : {}),
         ...(curriculumUuid ? { curriculumUuid } : {}),  // 🆕 传递 curriculumUuid
-        ...(persona ? { persona } : {}),  // 🆕 传递 persona (alice/professional)
       }),
       signal: controller.signal,
     });
@@ -119,12 +115,30 @@ export async function sendMessage(message, sessionId, options = {}) {
     // 解析情绪标签
     const { cleanText, emotion } = parseEmotionTag(rawReply);
     
-    return { reply: cleanText, emotion };
+    const persona = (data?.persona === 'professional' || data?.persona === 'alice') ? data.persona : null;
+    
+    // 🆕 Pillar 4: 提取后端返回的 meta 元数据用于前端决策摘要展示
+    const meta = data?.meta ? {
+      requestId: data.meta.requestId,
+      safety_protocol: data.meta.safety_protocol,
+      safety_category: data.meta.safety_category,
+      persona_switch: data.meta.persona_switch,
+      source: data.meta.source,
+      sourceLabel: data.meta.sourceLabel,
+      trustLevel: data.meta.trustLevel,
+      disclaimer: data.meta.disclaimer,
+      fallbackChain: data.meta.fallbackChain,
+      latencyMs: data.meta.latencyMs,
+    } : undefined;
+    
+    return { reply: cleanText, emotion, persona, meta };
   } catch (err) {
     const isAbort = err && typeof err === "object" && err.name === "AbortError";
     return { 
       reply: isAbort ? "请求超时(20s)，请稍后重试" : "网络异常，请稍后重试",
-      emotion: "worried"
+      emotion: "worried",
+      persona: null,
+      meta: undefined
     };
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
