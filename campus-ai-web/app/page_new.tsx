@@ -30,7 +30,77 @@ const MOCK_REPLIES = [
   "邦邦咔邦！爱丽丝登场！(≧∇≦)/"
 ];
 
-function ChatMessage({ role, content, isProfessionalMode }: { role: string, content: string, isProfessionalMode?: boolean }) {
+// 🆕 Pillar 4: Accountability - 消息元数据类型
+interface MessageMeta {
+  requestId?: string;
+  safety_protocol?: 'none' | 'triggered';
+  safety_category?: string;
+  persona_switch?: string;
+  source?: string;
+  sourceLabel?: string;
+  trustLevel?: string;
+  disclaimer?: boolean;
+  fallbackChain?: Array<{ layer: string; status: string }>;
+  latencyMs?: number;
+}
+
+// 🆕 决策摘要组件 (Pillar 4: Accountability)
+function DecisionSummary({ meta }: { meta?: MessageMeta }) {
+  if (!meta) return null;
+  
+  const indicators = [];
+  
+  // 安全协议触发
+  if (meta.safety_protocol === 'triggered') {
+    indicators.push({
+      icon: '🛡️',
+      text: `Safety Protocol: ${meta.safety_category || 'triggered'}`,
+      color: 'text-red-400'
+    });
+  }
+  
+  // 数据来源标记
+  if (meta.sourceLabel) {
+    const isVerified = meta.trustLevel === 'verified' || meta.trustLevel === 'live_search';
+    const isAIGenerated = meta.trustLevel === 'ai_generated' || meta.disclaimer;
+    indicators.push({
+      icon: isVerified ? '✅' : (isAIGenerated ? '⚠️' : '📦'),
+      text: isAIGenerated ? `${meta.sourceLabel} (AI生成,需验证)` : `Verified: ${meta.sourceLabel}`,
+      color: isVerified ? 'text-green-400' : (isAIGenerated ? 'text-yellow-400' : 'text-blue-400')
+    });
+  }
+  
+  // 降级提示
+  if (meta.fallbackChain && meta.fallbackChain.length > 1) {
+    const lastHit = meta.fallbackChain.filter(f => f.status === 'hit').pop();
+    if (lastHit && lastHit.layer !== 'L0_cache' && lastHit.layer !== 'L1_local') {
+      indicators.push({
+        icon: '⚡',
+        text: `Fallback: ${lastHit.layer.replace('L', 'Layer ').replace('_', ' ')}`,
+        color: 'text-orange-400'
+      });
+    }
+  }
+  
+  if (indicators.length === 0) return null;
+  
+  return (
+    <div className="flex flex-wrap gap-2 mt-2 text-xs">
+      {indicators.map((ind, i) => (
+        <span key={i} className={`${ind.color} bg-gray-800/50 px-2 py-0.5 rounded-full`}>
+          {ind.icon} {ind.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ChatMessage({ role, content, isProfessionalMode, meta }: { 
+  role: string; 
+  content: string; 
+  isProfessionalMode?: boolean;
+  meta?: MessageMeta;
+}) {
   const isUser = role === "user";
   // Pro模式使用专业风格的头像和颜色
   const avatarSrc = isProfessionalMode ? "/images/aris_calm.png" : "/images/aris_normal.png";
@@ -52,32 +122,36 @@ function ChatMessage({ role, content, isProfessionalMode }: { role: string, cont
           : "text-gray-800 dark:text-gray-100 leading-7 pt-1"
       }`}>
         {isUser ? content : (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            components={{
-              table: ({ children }) => (
-                <table className="min-w-full border-collapse my-2 text-sm">
-                  {children}
-                </table>
-              ),
-              thead: ({ children }) => (
-                <thead className="bg-blue-600 text-white">{children}</thead>
-              ),
-              th: ({ children }) => (
-                <th className="px-3 py-2 text-left font-medium border border-gray-600">{children}</th>
-              ),
-              td: ({ children }) => (
-                <td className="px-3 py-2 border border-gray-600">{children}</td>
-              ),
-              tr: ({ children }) => (
-                <tr className="even:bg-gray-800/30 odd:bg-gray-700/30">{children}</tr>
-              ),
-              p: ({ children }) => <p className="mb-2">{children}</p>,
-              strong: ({ children }) => <strong className="font-bold text-blue-400">{children}</strong>,
-            }}
-          >
-            {content}
-          </ReactMarkdown>
+          <>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({ children }) => (
+                  <table className="min-w-full border-collapse my-2 text-sm">
+                    {children}
+                  </table>
+                ),
+                thead: ({ children }) => (
+                  <thead className="bg-blue-600 text-white">{children}</thead>
+                ),
+                th: ({ children }) => (
+                  <th className="px-3 py-2 text-left font-medium border border-gray-600">{children}</th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-3 py-2 border border-gray-600">{children}</td>
+                ),
+                tr: ({ children }) => (
+                  <tr className="even:bg-gray-800/30 odd:bg-gray-700/30">{children}</tr>
+                ),
+                p: ({ children }) => <p className="mb-2">{children}</p>,
+                strong: ({ children }) => <strong className="font-bold text-blue-400">{children}</strong>,
+              }}
+            >
+              {content}
+            </ReactMarkdown>
+            {/* 🆕 Pillar 4: 决策摘要展示 */}
+            <DecisionSummary meta={meta} />
+          </>
         )}
       </div>
     </div>
@@ -269,7 +343,8 @@ function ChatInput({
 
 export default function Home() {
   const [currentMode, setCurrentMode] = useState("Ask");
-  const [messages, setMessages] = useState<Array<{role: string, content: string}>>([]);
+  // 🆕 Pillar 4: 消息现在包含 meta 元数据
+  const [messages, setMessages] = useState<Array<{ role: string; content: string; persona?: "alice" | "professional"; meta?: MessageMeta }>>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isAvatarExpanded, setIsAvatarExpanded] = useState(true);
@@ -458,15 +533,32 @@ export default function Home() {
           mode: currentMode, 
           schedule: schedule.length > 0 ? schedule : undefined,
           curriculumUuid: savedUuid || undefined,
-          persona: personaMode,  // 🆕 传递人格模式
+          // persona 由后端第一层决策引擎驱动；前端不强制
         }
       );
       reply = result.reply;
       emotion = result.emotion;
-      
-      console.log(`📬 [${currentMode}模式] 后端回复:`, reply?.substring(0, 100));
 
-      setMessages(prev => [...prev, { role: "assistant", content: reply }]);
+      const nextPersona = (result && (result.persona === 'professional' || result.persona === 'alice')) ? result.persona : null;
+      if (nextPersona) setPersonaMode(nextPersona);
+      
+      // 🆕 Pillar 4: 提取 meta 元数据用于决策摘要展示
+      const responseMeta: MessageMeta | undefined = result?.meta ? {
+        requestId: result.meta.requestId,
+        safety_protocol: result.meta.safety_protocol,
+        safety_category: result.meta.safety_category,
+        persona_switch: result.meta.persona_switch,
+        source: result.meta.source,
+        sourceLabel: result.meta.sourceLabel,
+        trustLevel: result.meta.trustLevel,
+        disclaimer: result.meta.disclaimer,
+        fallbackChain: result.meta.fallbackChain,
+        latencyMs: result.meta.latencyMs,
+      } : undefined;
+      
+      console.log(`📬 [${currentMode}模式] 后端回复:`, reply?.substring(0, 100), responseMeta ? `[meta: ${JSON.stringify(responseMeta)}]` : '');
+
+      setMessages(prev => [...prev, { role: "assistant", content: reply, persona: nextPersona || personaMode, meta: responseMeta }]);
       
       // 使用后端返回的情绪，如果没有则根据内容推断
       const finalEmotion = emotion || inferEmotionFromContent(reply);
@@ -475,7 +567,7 @@ export default function Home() {
       }));
     } catch (error) {
       console.error('Failed to send message:', error);
-      setMessages(prev => [...prev, { role: "assistant", content: "抱歉，爱丽丝遇到了一些问题 (╥﹏╥)" }]);
+      setMessages(prev => [...prev, { role: "assistant", content: "抱歉，爱丽丝遇到了一些问题 (╥﹏╥)", persona: personaMode }]);
       
       window.dispatchEvent(new CustomEvent("alice:emotion", {
         detail: { emotion: "sad", showBubble: true }
@@ -672,26 +764,26 @@ export default function Home() {
            </div>
            <div className="flex items-center gap-4">
               {/* 🆕 人格模式切换：Alice Mode / Professional Mode */}
-              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-0.5">
+              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-0.5" title="由系统决策引擎自动切换">
                 <button
-                  onClick={() => setPersonaMode("alice")}
+                  type="button"
+                  disabled
                   className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all ${
                     personaMode === "alice"
                       ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-sm"
                       : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
                   }`}
-                  title="Alice Mode - 女仆勇者人格，情感支持"
                 >
                   🎀 Alice
                 </button>
                 <button
-                  onClick={() => setPersonaMode("professional")}
+                  type="button"
+                  disabled
                   className={`px-3 py-1.5 text-sm font-medium rounded-full transition-all ${
                     personaMode === "professional"
                       ? "bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-sm"
                       : "text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
                   }`}
-                  title="Professional Mode - 专业高效模式"
                 >
                   ⚡ Pro
                 </button>
@@ -742,7 +834,7 @@ export default function Home() {
               <div className="flex items-center gap-3 mb-4">
                 <img 
                   src={personaMode === 'professional' ? "/images/aris_calm.png" : "/images/aris_normal.png"}
-                  alt="Aris" 
+                  alt="Aris"
                   className={`w-10 h-10 rounded-full shadow-md ${personaMode === 'professional' ? 'ring-2 ring-blue-500' : ''}`}
                 />
                 <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -882,7 +974,11 @@ export default function Home() {
             <div className="max-w-3xl mx-auto w-full py-8">
               {messages.map((msg, idx) => (
                 <div key={idx}>
-                  <ChatMessage role={msg.role} content={msg.content} isProfessionalMode={personaMode === 'professional'} />
+                  <ChatMessage
+                    role={msg.role}
+                    content={msg.content}
+                    isProfessionalMode={msg.role === 'assistant' ? (msg.persona === 'professional') : false}
+                  />
                   {/* 无课表时，在 assistant 回复后显示绑定提示 */}
                   {msg.role === 'assistant' && schedule.length === 0 && idx === messages.length - 1 && (
                     <div className="ml-12 mt-1 mb-4 flex items-center gap-2 text-xs text-gray-400">

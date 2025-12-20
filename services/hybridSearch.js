@@ -1,18 +1,19 @@
 /**
  * 混合搜索服务 - 智能路由策略 (4层架构)
  * 
- * 搜索流程:
- * 1. Cosmos 缓存搜索 (永久缓存) - 零成本,秒级响应
- * 2. 本地数据源搜索 (Cosmos DB) - 零成本,低延迟
- * 3. DuckDuckGo 搜索 (免费无限) - 反限流机制
- * 4. SerpAPI 搜索 (Google) - 免费 100次/月
- * 5. LLM 降级回答 (GPT-4o-mini) - 最终兜底
+ * 🛡️ Pillar 3: Reliability (可靠性 - 失败处理，可降级)
  * 
- * 优势:
- * - 成本极致优化: 缓存 > 本地 > DDG(免费) > SerpAPI(付费)
- * - 质量保证: 多数据源补充
- * - 可靠性: 五层降级策略
- * - 可观测: 记录每层调用次数
+ * 搜索流程 (降级链路):
+ * L1: Cosmos 缓存搜索 (永久缓存) - 零成本,秒级响应 [Source: Cache]
+ * L2: 本地数据源搜索 (Cosmos DB) - 零成本,低延迟 [Source: Local]
+ * L3: DuckDuckGo 搜索 (免费无限) - 反限流机制 [Source: Live-DDG]
+ * L4: SerpAPI 搜索 (Google) - 免费 100次/月 [Source: Live-Google]
+ * L5: LLM 降级回答 (GPT-4o-mini) - 最终兜底 [Source: AI-Generated] + disclaimer
+ * 
+ * Pillar 4: Accountability (责任 - 有责任，可解释)
+ * - 每次返回都包含 source 标记
+ * - 降级时包含 fallback_chain 记录
+ * - LLM 生成内容必带 disclaimer
  */
 
 const { localSearch, formatLocalResults } = require('./localSearch');
@@ -20,6 +21,14 @@ const { duckduckgoSearch, formatDDGResults } = require('./duckduckgoSearch');
 const { serpSearch, formatSerpResults } = require('./serpSearch');
 const { getCachedSearch, setCachedSearch } = require('./searchCache');
 const { OpenAI } = require('openai');
+
+// 🆕 数据源可信度等级 (Pillar 4: Accountability)
+const SourceTrust = Object.freeze({
+  VERIFIED: 'verified',           // 可验证数据源（本地数据库）
+  LIVE_SEARCH: 'live_search',     // 实时搜索结果
+  CACHED: 'cached',               // 缓存数据
+  AI_GENERATED: 'ai_generated'    // AI 生成（需免责声明）
+});
 
 // 统计计数器 (内存中,重启清零)
 const stats = {
@@ -115,6 +124,10 @@ async function hybridSearch(query, context, options = {}) {
   } = options;
 
   stats.totalRequests++;
+  
+  // 🆕 Pillar 3 & 4: 追踪降级链路
+  const fallbackChain = [];
+  const startTime = Date.now();
 
   // ==========================================
   // Layer 0: Cosmos 缓存搜索 (最高优先级)
@@ -122,11 +135,13 @@ async function hybridSearch(query, context, options = {}) {
   if (!skipCache) {
     try {
       context.log(`[HybridSearch] Layer 0: 缓存查询 - ${query}`);
+      fallbackChain.push({ layer: 'L0_cache', status: 'attempting' });
       
       const cached = await getCachedSearch(query);
       
       if (cached && cached.results.length > 0) {
         stats.cacheHits++;
+        fallbackChain[fallbackChain.length - 1].status = 'hit';
         
         const formatted = formatCachedResults(cached.results, query, cached.source);
         
@@ -137,15 +152,22 @@ async function hybridSearch(query, context, options = {}) {
           success: true,
           results: cached.results.slice(0, maxResults),
           source: `cache-${cached.source}`,
+          sourceLabel: '[Source: Cache]',
+          trustLevel: SourceTrust.CACHED,
           formatted,
           cached: true,
+          latencyMs: Date.now() - startTime,
+          fallbackChain,
           stats: { ...stats }
         };
       }
       
+      fallbackChain[fallbackChain.length - 1].status = 'miss';
       context.log('[HybridSearch] 缓存未命中,进入 Layer 1');
       
     } catch (error) {
+      fallbackChain[fallbackChain.length - 1].status = 'error';
+      fallbackChain[fallbackChain.length - 1].error = error.message;
       context.log(`[HybridSearch] 缓存查询异常: ${error.message}`);
     }
   }
@@ -156,11 +178,13 @@ async function hybridSearch(query, context, options = {}) {
   if (!skipLocal) {
     try {
       context.log(`[HybridSearch] Layer 1: 本地搜索 - ${query}`);
+      fallbackChain.push({ layer: 'L1_local', status: 'attempting' });
       
       const localResults = await localSearch(query, { maxResults, userId });
       
       if (localResults && localResults.length > 0) {
         stats.localHits++;
+        fallbackChain[fallbackChain.length - 1].status = 'hit';
         
         const formatted = formatLocalResults(localResults, query);
         
@@ -176,14 +200,21 @@ async function hybridSearch(query, context, options = {}) {
           success: true,
           results: localResults,
           source: 'local',
+          sourceLabel: '[Source: Local Database]',
+          trustLevel: SourceTrust.VERIFIED,
           formatted,
+          latencyMs: Date.now() - startTime,
+          fallbackChain,
           stats: { ...stats }
         };
       }
       
+      fallbackChain[fallbackChain.length - 1].status = 'miss';
       context.log('[HybridSearch] 本地无结果,进入 Layer 2');
       
     } catch (error) {
+      fallbackChain[fallbackChain.length - 1].status = 'error';
+      fallbackChain[fallbackChain.length - 1].error = error.message;
       context.log(`[HybridSearch] 本地搜索异常: ${error.message}`);
     }
   }
@@ -194,11 +225,13 @@ async function hybridSearch(query, context, options = {}) {
   if (!skipDDG) {
     try {
       context.log(`[HybridSearch] Layer 2: DuckDuckGo 搜索 - ${query}`);
+      fallbackChain.push({ layer: 'L2_ddg', status: 'attempting' });
       
       const ddgResult = await duckduckgoSearch(query, maxResults);
       
       if (ddgResult.success && ddgResult.results.length > 0) {
         stats.ddgCalls++;
+        fallbackChain[fallbackChain.length - 1].status = 'hit';
         
         const formatted = formatDDGResults(ddgResult.results, query);
         
@@ -214,14 +247,21 @@ async function hybridSearch(query, context, options = {}) {
           success: true,
           results: ddgResult.results,
           source: 'duckduckgo',
+          sourceLabel: '[Source: Live-DDG]',
+          trustLevel: SourceTrust.LIVE_SEARCH,
           formatted,
+          latencyMs: Date.now() - startTime,
+          fallbackChain,
           stats: { ...stats }
         };
       }
       
+      fallbackChain[fallbackChain.length - 1].status = 'miss';
       context.log('[HybridSearch] DDG 无结果或失败,进入 Layer 3');
       
     } catch (error) {
+      fallbackChain[fallbackChain.length - 1].status = 'error';
+      fallbackChain[fallbackChain.length - 1].error = error.message;
       context.log(`[HybridSearch] DDG 异常: ${error.message}`);
     }
   }
@@ -232,11 +272,13 @@ async function hybridSearch(query, context, options = {}) {
   if (!skipSerp) {
     try {
       context.log(`[HybridSearch] Layer 3: SerpAPI 搜索 - ${query}`);
+      fallbackChain.push({ layer: 'L3_serp', status: 'attempting' });
       
       const serpResults = await serpSearch(query, { count: maxResults });
       
       if (serpResults && serpResults.length > 0) {
         stats.serpCalls++;
+        fallbackChain[fallbackChain.length - 1].status = 'hit';
         
         context.log(`[HybridSearch] ✅ SerpAPI 命中: ${serpResults.length} 条结果`);
         context.log(`[Stats] SerpAPI 调用: ${stats.serpCalls} 次`);
@@ -258,14 +300,21 @@ async function hybridSearch(query, context, options = {}) {
           success: true,
           results: serpResults,
           source: 'serp',
+          sourceLabel: '[Source: Live-Google]',
+          trustLevel: SourceTrust.LIVE_SEARCH,
           formatted,
+          latencyMs: Date.now() - startTime,
+          fallbackChain,
           stats: { ...stats }
         };
       }
       
+      fallbackChain[fallbackChain.length - 1].status = 'miss';
       context.log('[HybridSearch] SerpAPI 无结果,进入 Layer 4');
       
     } catch (error) {
+      fallbackChain[fallbackChain.length - 1].status = 'error';
+      fallbackChain[fallbackChain.length - 1].error = error.message;
       context.log(`[HybridSearch] SerpAPI 异常: ${error.message}`);
       
       // 特殊处理配额耗尽
@@ -280,6 +329,7 @@ async function hybridSearch(query, context, options = {}) {
   // ==========================================
   try {
     context.log(`[HybridSearch] Layer 4: LLM 降级回答 - ${query}`);
+    fallbackChain.push({ layer: 'L4_llm', status: 'attempting' });
     
     const token = process.env.GITHUB_TOKEN;
     if (!token) {
@@ -304,6 +354,7 @@ async function hybridSearch(query, context, options = {}) {
     const answer = resp.choices[0]?.message?.content || '抱歉,无法生成回答';
     
     stats.llmFallbacks++;
+    fallbackChain[fallbackChain.length - 1].status = 'hit';
     
     context.log(`[HybridSearch] ✅ LLM 降级成功`);
     context.log(`[Stats] LLM 降级: ${stats.llmFallbacks} 次`);
@@ -319,11 +370,18 @@ async function hybridSearch(query, context, options = {}) {
       success: true,
       results: llmResult,
       source: 'llm',
+      sourceLabel: '[Source: AI-Generated]',
+      trustLevel: SourceTrust.AI_GENERATED,
+      disclaimer: true,  // 🆕 Pillar 4: 标记需要免责声明
       formatted: `🤖 AI 回答:\n\n${answer}\n\n⚠️ 此回答由 AI 生成,未经搜索验证`,
+      latencyMs: Date.now() - startTime,
+      fallbackChain,
       stats: { ...stats }
     };
 
   } catch (error) {
+    fallbackChain[fallbackChain.length - 1].status = 'error';
+    fallbackChain[fallbackChain.length - 1].error = error.message;
     context.log(`[HybridSearch] LLM 降级失败: ${error.message}`);
     
     stats.llmFallbacks++; // 失败也计数
@@ -332,7 +390,11 @@ async function hybridSearch(query, context, options = {}) {
       success: false,
       error: '搜索服务暂时不可用,请稍后再试',
       source: 'none',
+      sourceLabel: '[Source: None]',
+      trustLevel: null,
       formatted: '❌ 搜索服务暂时不可用\n\n所有搜索层均失败:\n- 缓存: 无匹配结果\n- 本地数据: 无匹配结果\n- DuckDuckGo: 调用失败或被限流\n- SerpAPI: 调用失败或配额耗尽\n- LLM 降级: 生成失败',
+      latencyMs: Date.now() - startTime,
+      fallbackChain,
       stats: { ...stats }
     };
   }
@@ -391,5 +453,6 @@ function getStats() {
 module.exports = {
   hybridSearch,
   resetStats,
-  getStats
+  getStats,
+  SourceTrust  // 🆕 导出可信度等级枚举
 };
