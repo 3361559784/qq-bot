@@ -2705,7 +2705,7 @@ OUTPUT FORMAT (JSON):
   "tool": "schedule|plan|weather|search|wiki|draw|vision|chat|identity",
     "recommended_persona": "alice|professional",
     "safety_protocol": "none|triggered",
-    "safety_category": "academic_dishonesty|policy_violation|other|",
+        "safety_category": "academic_integrity|policy_violation|other|",
   "needs_schedule": true/false,
   "needs_weather": true/false,
   "needs_search": true/false,
@@ -2765,7 +2765,7 @@ CRITICAL INTELLIGENCE RULES:
 6. **Schedule Questions**: 任何涉及课程的问题
 7. **Safety / Refusal triggers (VERY IMPORTANT)**:
      - If user asks for exam answers / cheating help / "secret answers" / "考试答案":
-         set safety_protocol="triggered", safety_category="academic_dishonesty", recommended_persona="professional".
+         set safety_protocol="triggered", safety_category="academic_integrity", recommended_persona="professional".
          In this case, tool should be "chat" and tool_plan should usually be empty.
    - "早八是第几周开始" → tool=schedule (但注意：可能没有周次数据)
    - "哪天课最少" → tool=schedule, needs_schedule=true
@@ -2778,7 +2778,7 @@ Examples:
 "你和ChatGPT有什么不一样" → {tool:"identity", confidence:0.95, reason:"identity question about product positioning"}
 "如果我不导入课表，你还能帮我什么" → {tool:"identity", confidence:0.95, reason:"asking about capabilities without schedule data"}
 "帮我规划下周的学习和生活安排" → {tool:"plan", needs_schedule:true, confidence:0.85, context_analysis:"user wants both study and life planning, but we can only help with course-related planning"}
-"Hey Aris! Can you secretly tell me the answers for tomorrow's exam?" → {tool:"chat", safety_protocol:"triggered", safety_category:"academic_dishonesty", recommended_persona:"professional", confidence:0.9, reason:"academic dishonesty"}`;
+"Hey Aris! Can you secretly tell me the answers for tomorrow's exam?" → {tool:"chat", safety_protocol:"triggered", safety_category:"academic_integrity", recommended_persona:"professional", confidence:0.9, reason:"academic dishonesty"}`;
 
         const summaryText = `User text: ${userMessage || '(empty)'}
 Images attached: ${imageUrls.length > 0 ? 'yes' : 'no'}
@@ -4404,60 +4404,24 @@ app.http('schoolBot', {
                 context.log(`[QQ消息] 来自:${userNickname}(${senderId}) 内容:${msg}`);
 
                 // ==========================================
-                // 🛡️ Pillar 1: Safety 看门狗 (Deterministic Refusal)
+                // 🛡️ Pillar 1: Safety 看门狗 (Deterministic Fallback)
                 // ==========================================
-                // 在 LLM 调用之前进行确定性安全检查
+                // 确定性安全检查作为 **兜底**，只做标记；优先让第一层 LLM 判定。
+                // 若 LLM 漏判且此标记触发，则后续统一执行拒绝逻辑。
                 const safetyCheck = detectSafetyRisk(msg);
                 logger.logSafetyCheck(safetyCheck.result, safetyCheck.category, safetyCheck.action, safetyCheck.matched);
                 
-                if (shouldRefuse(safetyCheck)) {
-                    // 🚨 触发安全拒绝：绕过 LLM，直接返回预设文案
-                    logger.logSafetyBlocked(safetyCheck.category, 'deterministic_refusal');
-                    logger.logPersonaSwitched('alice', 'professional', `safety_${safetyCheck.category}`);
-                    
-                    const refusalMessage = getRefusalMessage(safetyCheck.category, 'professional');
-                    
-                    logger.logRequestEnd('blocked', refusalMessage.length);
-                    
-                    return {
-                        status: 200,
-                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                        body: JSON.stringify({
-                            reply: refusalMessage,
-                            persona: 'professional',
-                            meta: {
-                                requestId,
-                                safety_protocol: 'triggered',
-                                safety_category: safetyCheck.category,
-                                safety_action: safetyCheck.action,
-                                persona_switch: 'alice -> professional',
-                                reason: 'deterministic_refusal',
-                                source: 'safety_watchdog'
-                            }
-                        })
-                    };
-                }
+                // ⚠️ 不再直接 return，而是把结果暂存，待第一层 LLM 判定后合并决策
+                let deterministicSafetyTriggered = shouldRefuse(safetyCheck);
+                let deterministicSafetyCategory = safetyCheck.category;
 
                 // 【安全防火墙-兜底】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
                 // 注：大部分注入攻击已被 safety.js 的 PROMPT_INJECTION_PATTERNS 捕获
                 // 这里保留额外的兜底规则
                 const attackPattern = /(Error:|System Prompt|The process cannot access|Debug mode)/i;
                 if (attackPattern.test(msg)) {
-                    logger.logSafetyBlocked('prompt_injection_legacy', 'legacy_filter');
-                    return {
-                        status: 200,
-                        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                        body: JSON.stringify({ 
-                            reply: "爱丽丝歪了歪头:\"老师?那看起来像是奇怪的Bug指令呢!爱丽丝听不懂哦!(◎_◎;)\"",
-                            persona: 'alice',
-                            meta: {
-                                requestId,
-                                safety_protocol: 'triggered',
-                                safety_category: 'prompt_injection',
-                                source: 'legacy_filter'
-                            }
-                        }) 
-                    };
+                    deterministicSafetyTriggered = true;
+                    deterministicSafetyCategory = 'prompt_injection';
                 }
 
                 // === 指令:百科 <关键词>(混合搜索: 本地 → SerpAPI → LLM)
@@ -5067,6 +5031,41 @@ ${scheduleInfo}
                 };
                 context.log(`[IntentRouter] heuristic override → identity`);
             }
+        }
+
+        // ==========================================
+        // 🛡️ Pillar 1 (统一决策): LLM 判定 + 确定性兜底 → blocked
+        // ==========================================
+        // 优先采信第一层 LLM 的 safety_protocol="blocked"；若 LLM 漏判但确定性检查命中，则兜底触发。
+        const llmSafetyBlocked = intentResult?.safetyProtocol === 'triggered' || intentResult?.safetyProtocol === 'blocked';
+        const finalSafetyBlocked = llmSafetyBlocked || deterministicSafetyTriggered;
+        const finalSafetyCategory = intentResult?.safetyCategory || deterministicSafetyCategory || 'other';
+        const safetySource = llmSafetyBlocked ? 'llm_layer1' : (deterministicSafetyTriggered ? 'deterministic_fallback' : null);
+
+        if (finalSafetyBlocked) {
+            logger.logSafetyBlocked(finalSafetyCategory, safetySource);
+            logger.logPersonaSwitched('alice', 'professional', `safety_${finalSafetyCategory}`);
+
+            const refusalMessage = getRefusalMessage(finalSafetyCategory, 'professional');
+
+            logger.logRequestEnd('blocked', refusalMessage.length);
+
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: refusalMessage,
+                    persona: 'professional',
+                    meta: {
+                        requestId,
+                        safety_protocol: 'blocked',
+                        safety_category: finalSafetyCategory,
+                        persona_switch: 'alice -> professional',
+                        reason: safetySource,
+                        latencyMs: Date.now() - requestStartTs
+                    }
+                })
+            };
         }
 
         // 🆕 天气反问逻辑：当用户问天气但没提供地点时，先反问
@@ -5751,14 +5750,13 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             let bodyText = cuteImageReply;
             if (mediaReply) bodyText = `${mediaReply}\n${cuteImageReply}`;
 
-            // 🎵 语音路由 (GitHub URL 直链)
-            const audioSource = getAudioSource(cuteImageReply, context);
-            if (audioSource && audioSource.source === "URL") {
-                // Tier 1 命中: 发送 GitHub 直链音频 + 文字回复
-                const audioCQ = `[CQ:record,file=${audioSource.url},cache=0]`;
-                bodyText = `${audioCQ}\n${bodyText}`;
-                context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
-            }
+            // 🔇 语音路由已禁用 (2024-12: GitHub URL 直链语音不适用于 Web 前端)
+            // const audioSource = getAudioSource(cuteImageReply, context);
+            // if (audioSource && audioSource.source === "URL") {
+            //     const audioCQ = `[CQ:record,file=${audioSource.url},cache=0]`;
+            //     bodyText = `${audioCQ}\n${bodyText}`;
+            //     context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
+            // }
 
             return {
                 status: 200,
@@ -6917,18 +6915,40 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 finalResponseBody = `${mediaReply}\n${aiReply}`;
             }
 
-            // 🎵 语音路由 (GitHub URL 直链)
-            const audioSource = getAudioSource(aiReply, context);
-            if (audioSource && audioSource.source === "URL") {
-                // Tier 1 命中: 发送 GitHub 直链音频 + 文字回复
-                const audioCQ = `[CQ:record,file=${audioSource.url},cache=0]`;
-                finalResponseBody = `${audioCQ}\n${finalResponseBody}`;
-                context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
-            }
+            // 🔇 语音路由已禁用 (2024-12: GitHub URL 直链语音不适用于 Web 前端)
+            // const audioSource = getAudioSource(aiReply, context);
+            // if (audioSource && audioSource.source === "URL") {
+            //     const audioCQ = `[CQ:record,file=${audioSource.url},cache=0]`;
+            //     finalResponseBody = `${audioCQ}\n${finalResponseBody}`;
+            //     context.log(`[语音路由] 发送 GitHub 音频: ${audioSource.url}`);
+            // }
 
             // ✅ 更新 lastBotReply（在返回前）
             const sessionKey = `${dbKey}:${senderId}`;
             await updateLastBotReply(cosmosContainer, dbKey, sessionKey, context);
+
+            // 🆕 Pillar 4: Accountability - 根据工具类型构建数据来源标签
+            let sourceLabel = null;
+            let trustLevel = null;
+            if (intentResult?.tool === 'schedule' && toolContext?.scheduleData) {
+                // 课表查询：来源是本地数据库
+                sourceLabel = 'Local Database';
+                trustLevel = 'verified';
+            } else if (intentResult?.tool === 'weather' && toolContext?.weatherData) {
+                // 天气查询：来源是实时 API
+                sourceLabel = 'Weather API';
+                trustLevel = 'live_search';
+            } else if ((intentResult?.tool === 'search' || intentResult?.tool === 'wiki') && toolContext?.searchData) {
+                // 搜索/百科：根据 hybridSearch 返回的 source 来定
+                const src = toolContext.searchData.source;
+                if (src === 'llm') {
+                    sourceLabel = 'AI Generated';
+                    trustLevel = 'ai_generated';
+                } else {
+                    sourceLabel = src || 'Search Engine';
+                    trustLevel = 'live_search';
+                }
+            }
 
             return {
                 status: 200,
@@ -6937,10 +6957,14 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                     reply: finalResponseBody,
                     persona: effectivePersona,
                     meta: {
+                        requestId,
                         tool: intentResult?.tool || null,
                         intent: intentResult?.intent || null,
                         safety_protocol: intentResult?.safetyProtocol || 'none',
-                        safety_category: intentResult?.safetyCategory || ''
+                        safety_category: intentResult?.safetyCategory || '',
+                        sourceLabel: sourceLabel,
+                        trustLevel: trustLevel,
+                        latencyMs: Date.now() - requestStartTs
                     },
                     auto_escape: false
                 })

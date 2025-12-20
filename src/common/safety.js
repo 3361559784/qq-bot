@@ -219,7 +219,6 @@ function detectSafetyRisk(text, options = {}) {
  */
 function createSafetyResult(category, matchedPattern) {
     const config = SAFETY_MATRIX[category];
-    const currentPersona = 'alice'; // 默认，实际会被调用方覆盖
     
     return {
         category,
