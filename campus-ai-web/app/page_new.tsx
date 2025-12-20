@@ -33,7 +33,7 @@ const MOCK_REPLIES = [
 // 🆕 Pillar 4: Accountability - 消息元数据类型
 interface MessageMeta {
   requestId?: string;
-  safety_protocol?: 'none' | 'triggered';
+  safety_protocol?: 'none' | 'blocked' | 'triggered';  // 🆕 支持 'blocked' 作为主要标识
   safety_category?: string;
   persona_switch?: string;
   source?: string;
@@ -50,11 +50,11 @@ function DecisionSummary({ meta }: { meta?: MessageMeta }) {
   
   const indicators = [];
   
-  // 安全协议触发
-  if (meta.safety_protocol === 'triggered') {
+  // 安全协议触发 —— 支持 'blocked' (新) 和 'triggered' (兼容旧)
+  if (meta.safety_protocol === 'blocked' || meta.safety_protocol === 'triggered') {
     indicators.push({
       icon: '🛡️',
-      text: `Safety Protocol: ${meta.safety_category || 'triggered'}`,
+      text: `Safety Protocol: Blocked${meta.safety_category ? ` (${meta.safety_category})` : ''}`,
       color: 'text-red-400'
     });
   }
@@ -978,6 +978,7 @@ export default function Home() {
                     role={msg.role}
                     content={msg.content}
                     isProfessionalMode={msg.role === 'assistant' ? (msg.persona === 'professional') : false}
+                    meta={msg.meta}
                   />
                   {/* 无课表时，在 assistant 回复后显示绑定提示 */}
                   {msg.role === 'assistant' && schedule.length === 0 && idx === messages.length - 1 && (

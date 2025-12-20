@@ -142,9 +142,12 @@ export async function POST(req: Request) {
       (data?.persona === 'professional' || data?.persona === 'alice') ? data.persona :
       ((data?.body?.persona === 'professional' || data?.body?.persona === 'alice') ? data.body.persona :
       ((data?.jsonBody?.persona === 'professional' || data?.jsonBody?.persona === 'alice') ? data.jsonBody.persona : null));
+
+    // 🆕 Pillar 4: 透传后端 meta（用于前端 DecisionSummary 展示）
+    const responseMeta = (data?.meta ?? data?.body?.meta ?? data?.jsonBody?.meta) || undefined;
     
     return new Response(
-      JSON.stringify({ reply: reply || '抱歉,我现在无法回答 (｡•́︿•̀｡)', persona: responsePersona || undefined, requestId }),
+      JSON.stringify({ reply: reply || '抱歉,我现在无法回答 (｡•́︿•̀｡)', persona: responsePersona || undefined, meta: responseMeta, requestId }),
       {
         headers: {
           'Content-Type': 'application/json',
