@@ -66,22 +66,24 @@ export async function POST(req: Request) {
 
     const safeSessionId = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : 'web_unknown';
     
-    // Azure Functions URL 选择策略：
-    // - 优先使用 NEXT_PUBLIC_AZURE_FUNCTION_URL（便于切换到线上/本地/测试环境）
-    // - 未配置时：开发环境走本地 127.0.0.1:7071，生产环境走线上
-    const isDev = process.env.NODE_ENV !== 'production';
+    // Azure Functions URL 选择策略（只走线上，避免本地/端口导致 502）：
+    // - 优先使用 NEXT_PUBLIC_AZURE_FUNCTION_URL / AZURE_FUNCTION_URL
+    // - 未配置时默认走线上
     const azureFunctionUrl =
       process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
-      (isDev
-        ? 'http://127.0.0.1:7071/api/schoolBot'
-        : 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot');
-    
+      process.env.AZURE_FUNCTION_URL ||
+      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot';
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+
     const response = await fetch(azureFunctionUrl, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
         'x-request-id': requestId,
       },
+      signal: controller.signal,
       body: JSON.stringify({
         // 兼容 schoolBot 的 NapCat/CQHTTP 消息事件路由
         post_type: 'message',
@@ -105,6 +107,8 @@ export async function POST(req: Request) {
         // 🆕 端到端追踪：让 Azure Function 日志可按 requestId 关联
         requestId,
       })
+    }).finally(() => {
+      clearTimeout(timeout);
     });
 
     const rawText = await response.text();
@@ -124,7 +128,7 @@ export async function POST(req: Request) {
         (rawText ? rawText.slice(0, 300) : `HTTP ${response.status}`);
 
       return new Response(
-        JSON.stringify({ reply: `后端错误(${response.status}): ${errorMsg}` }),
+        JSON.stringify({ reply: `后端错误(${response.status}): ${errorMsg}`, backendUrl: azureFunctionUrl }),
         { status: 502, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' } }
       );
     }
@@ -159,11 +163,12 @@ export async function POST(req: Request) {
     );
     
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
     console.error('Chat API Error:', error);
     return new Response(
-      JSON.stringify({ reply: '连接Alice失败,请稍后重试 (╥﹏╥)' }),
+      JSON.stringify({ reply: `请求失败(502): Bad Gateway`, error: msg }),
       { 
-        status: 500,
+        status: 502,
         headers: { 'Content-Type': 'application/json' }
       }
     );
