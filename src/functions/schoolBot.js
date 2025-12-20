@@ -4164,6 +4164,9 @@ app.http('schoolBot', {
                 token_present: !!token
             });
             let msg = request.query.get('msg'); 
+            // 🛡️ Safety 兜底标记：必须在全 handler 作用域内定义（线上曾出现 ReferenceError）
+            let deterministicSafetyTriggered = false;
+            let deterministicSafetyCategory = 'other';
             let senderId = "unknown";
             let userNickname = "Sensei"; 
             let dbKey = "unknown";
@@ -4412,8 +4415,8 @@ app.http('schoolBot', {
                 logger.logSafetyCheck(safetyCheck.result, safetyCheck.category, safetyCheck.action, safetyCheck.matched);
                 
                 // ⚠️ 不再直接 return，而是把结果暂存，待第一层 LLM 判定后合并决策
-                let deterministicSafetyTriggered = shouldRefuse(safetyCheck);
-                let deterministicSafetyCategory = safetyCheck.category;
+                deterministicSafetyTriggered = shouldRefuse(safetyCheck);
+                deterministicSafetyCategory = safetyCheck.category;
 
                 // 【安全防火墙-兜底】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
                 // 注：大部分注入攻击已被 safety.js 的 PROMPT_INJECTION_PATTERNS 捕获
