@@ -611,6 +611,19 @@ function smartSplitMessage(text, maxLength = 150) {
  */
 function detectLanguage(text) {
     if (!text || text.length < 2) return LANG_CONFIG.DEFAULT_LANG;
+
+    // ✅ 显式语言偏好（优先级最高）：用户用中文提出“用英语/说英语”等时，不应被字符占比误判为中文
+    const raw = String(text);
+    const lower = raw.toLowerCase();
+    if (/(用|说|讲)\s*(英文|英语)/.test(raw) || /\bin\s+english\b|\bspeak\s+english\b|\benglish\s+please\b/.test(lower)) {
+        return 'en';
+    }
+    if (/(用|说|讲)\s*(日文|日语)/.test(raw) || /日本語/.test(raw) || /\bin\s+japanese\b|\bspeak\s+japanese\b/.test(lower)) {
+        return 'ja';
+    }
+    if (/(用|说|讲)\s*(中文|汉语|普通话)/.test(raw) || /\bin\s+chinese\b|\bspeak\s+chinese\b/.test(lower)) {
+        return 'zh';
+    }
     
     const chineseCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
     const japaneseHiragana = (text.match(/[\u3040-\u309f]/g) || []).length;
@@ -4948,8 +4961,19 @@ ${scheduleInfo}
                 if (parsed.persona !== 'alice' && parsed.persona !== 'professional') {
                     parsed.persona = persona;
                 }
+                const baseMeta = {
+                    requestId,
+                    tool: 'schedule',
+                    intent: 'schedule',
+                    safety_protocol: 'none',
+                    safety_category: '',
+                    sourceLabel: null,
+                    trustLevel: null,
+                    latencyMs: Date.now() - requestStartTs
+                };
+                parsed.meta = { ...baseMeta, ...(parsed.meta || {}) };
                 if (extra && typeof extra === 'object') {
-                    parsed.meta = { ...(parsed.meta || {}), ...extra };
+                    parsed.meta = { ...parsed.meta, ...extra };
                 }
                 return { ...resp, body: JSON.stringify(parsed) };
             } catch {
@@ -6285,6 +6309,23 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
     "我会用搜索整合公开信息，并给出来源链接与时间地点；如果结果不确定，我会明确标注“需以官方通知为准”。"
 `;
 
+    const COPILOT_PROMPT_EN = `
+You are Aris (Campus Copilot) — Professional mode.
+
+[Role]
+- Serious, objective, data-driven decision support for students.
+- Prefer structured outputs (bullets/tables/timelines).
+
+[Constraints]
+- Keep tone restrained: no emojis, no kaomoji, no roleplay catchphrases.
+- Be explicit about boundaries: if data is missing, say you cannot determine and ask for the minimum missing info.
+- Do not fabricate schedule/course/exam data.
+
+[Core capability]
+- If the user has schedule data, use it to judge conflicts and feasibility.
+- If schedule data is unavailable, provide general guidance but clearly label it as non-verified.
+`;
+
     // 🆕 Persona 决策引擎（Demo 核心）：优先使用第一层模型决策，其次自动推荐；仅当用户显式选择 professional 时视为强制覆盖
     // 🔥 优先级：用户强制 Professional > 第一层 recommendedPersona/安全态 > 自动推荐 > 默认 Alice
     const userExplicitPersona = body?.persona; // 仅当为 'professional' 时作为强制覆盖
@@ -6300,7 +6341,7 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
     
     // 身份/定位问题：强制使用专业提示词，避免 Chat 人设把回答带偏
     if (isCopilotMode || isUserProfessionalMode || isIdentityMode) {
-        basePrompt = COPILOT_PROMPT_ZH;
+        basePrompt = (typeof userLang !== 'undefined' && userLang === 'en') ? COPILOT_PROMPT_EN : COPILOT_PROMPT_ZH;
     }
 
     const AL1S_PROMPT_ZH = `
