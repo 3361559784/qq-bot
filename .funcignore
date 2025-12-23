@@ -7,3 +7,13 @@ tests
 .DS_Store
 *.md
 node_modules
+
+# Frontend (deploy separately)
+campus-ai-web
+
+# Large/irrelevant folders for Functions runtime
+docs
+tools
+scripts
+Alice–Initial-Sprite
+koishi-plugin-aris-voice
