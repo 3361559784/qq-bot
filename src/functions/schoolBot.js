@@ -5320,7 +5320,17 @@ ${scheduleInfo}
         const toolFetchPromises = [];
         
         // 2. 如果需要天气数据 - 使用第一层LLM检测到的地点
-        const shouldSkipWeatherFetch = !!(intentResult?.shouldAskUser && intentResult?.missingInfo === 'location');
+        // 🆕 修复：当有对话历史时，不应该因为"当前消息没有城市"就跳过天气获取
+        let historyHasCity = false;
+        if (history && history.length > 0) {
+            const historyText = history.slice(-6).map(h => h.content || '').join(' ');
+            historyHasCity = /(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛)/.test(historyText);
+        }
+        const shouldSkipWeatherFetch = !!(
+            intentResult?.shouldAskUser && 
+            intentResult?.missingInfo === 'location' && 
+            !historyHasCity  // 🆕 如果历史中有城市，不跳过
+        );
         // 🆕 Plan 模式默认需要天气（帮用户规划需要考虑天气因素）
         const isPlanMode = intentResult?.tool === 'plan' || intentResult?.intent === 'plan';
         const needsWeather = !shouldSkipWeatherFetch && (planWants.weather || intentResult?.needsWeather || intentResult?.tool === 'weather' || isPlanMode);
