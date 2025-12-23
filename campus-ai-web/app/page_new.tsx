@@ -7,13 +7,27 @@ import remarkGfm from "remark-gfm";
 import { motion, AnimatePresence } from "framer-motion";
 import AliceAvatar, { type AliceEmotion } from "../components/AliceAvatar";
 import ThinkingAnimation from "../components/ThinkingAnimation";
-import { sendMessage, sendPoke } from "../services/chat";
+import { sendMessage, sendPoke, sendMessageStream } from "../services/chat";
 import Sidebar from "../components/Sidebar";
 import RightPanel from "../components/RightPanel";
 import ScheduleImportEnhanced from "../components/ScheduleImportEnhanced";
 import PlanCard, { parsePlanText, type DayPlan } from "../components/PlanCard";
 import { DEMO_SCHEDULE } from "../components/DemoPreset";
 import JudgePanel, { JUDGE_DEMO_SCHEDULE } from "../components/JudgePanel";
+
+// 🚀 流式响应开关
+// - 生产环境默认启用（满足“启用流式响应”的需求）
+// - 仍支持通过 localStorage 强制开/关：
+//   - localStorage.setItem('enable_streaming','false') 关闭
+//   - localStorage.setItem('enable_streaming','true')  开启
+// - 同时兼容 NEXT_PUBLIC_ENABLE_STREAMING=true 作为显式开启
+const ENABLE_STREAMING = typeof window !== 'undefined' && (() => {
+  const forced = localStorage.getItem('enable_streaming');
+  if (forced === 'false') return false;
+  if (forced === 'true') return true;
+  if (process.env.NEXT_PUBLIC_ENABLE_STREAMING === 'true') return true;
+  return process.env.NODE_ENV === 'production';
+})();
 
 const MODES = [
   { name: "Plan", icon: Calendar, label: "智能计划" },
@@ -95,11 +109,14 @@ function DecisionSummary({ meta }: { meta?: MessageMeta }) {
   );
 }
 
-function ChatMessage({ role, content, isProfessionalMode, meta }: { 
+function ChatMessage({ role, content, isProfessionalMode, meta, isStreaming, streamingPhase, streamingText }: { 
   role: string; 
   content: string; 
   isProfessionalMode?: boolean;
   meta?: MessageMeta;
+  isStreaming?: boolean;
+  streamingPhase?: string;
+  streamingText?: string | null;
 }) {
   const isUser = role === "user";
   // Pro模式使用专业风格的头像和颜色
@@ -123,34 +140,75 @@ function ChatMessage({ role, content, isProfessionalMode, meta }: {
       }`}>
         {isUser ? content : (
           <>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                table: ({ children }) => (
-                  <table className="min-w-full border-collapse my-2 text-sm">
-                    {children}
-                  </table>
-                ),
-                thead: ({ children }) => (
-                  <thead className="bg-blue-600 text-white">{children}</thead>
-                ),
-                th: ({ children }) => (
-                  <th className="px-3 py-2 text-left font-medium border border-gray-600">{children}</th>
-                ),
-                td: ({ children }) => (
-                  <td className="px-3 py-2 border border-gray-600">{children}</td>
-                ),
-                tr: ({ children }) => (
-                  <tr className="even:bg-gray-800/30 odd:bg-gray-700/30">{children}</tr>
-                ),
-                p: ({ children }) => <p className="mb-2">{children}</p>,
-                strong: ({ children }) => <strong className="font-bold text-blue-400">{children}</strong>,
-              }}
-            >
-              {content}
-            </ReactMarkdown>
-            {/* 🆕 Pillar 4: 决策摘要展示 */}
-            <DecisionSummary meta={meta} />
+            {/* 🚀 流式响应：思考阶段显示 */}
+            {isStreaming && streamingPhase === "thinking" && streamingText && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 italic"
+              >
+                <div className="flex gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      className="w-1.5 h-1.5 rounded-full bg-blue-500"
+                      animate={{
+                        scale: [1, 1.3, 1],
+                        opacity: [0.5, 1, 0.5],
+                      }}
+                      transition={{
+                        duration: 0.8,
+                        repeat: Infinity,
+                        delay: i * 0.15,
+                      }}
+                    />
+                  ))}
+                </div>
+                <span>{streamingText}</span>
+              </motion.div>
+            )}
+            
+            {/* 内容显示（流式生成或完成） */}
+            {content && (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  table: ({ children }) => (
+                    <table className="min-w-full border-collapse my-2 text-sm">
+                      {children}
+                    </table>
+                  ),
+                  thead: ({ children }) => (
+                    <thead className="bg-blue-600 text-white">{children}</thead>
+                  ),
+                  th: ({ children }) => (
+                    <th className="px-3 py-2 text-left font-medium border border-gray-600">{children}</th>
+                  ),
+                  td: ({ children }) => (
+                    <td className="px-3 py-2 border border-gray-600">{children}</td>
+                  ),
+                  tr: ({ children }) => (
+                    <tr className="even:bg-gray-800/30 odd:bg-gray-700/30">{children}</tr>
+                  ),
+                  p: ({ children }) => <p className="mb-2">{children}</p>,
+                  strong: ({ children }) => <strong className="font-bold text-blue-400">{children}</strong>,
+                }}
+              >
+                {content}
+              </ReactMarkdown>
+            )}
+            
+            {/* 🚀 流式响应：打字机光标 */}
+            {isStreaming && streamingPhase === "generating" && (
+              <motion.span
+                animate={{ opacity: [1, 0] }}
+                transition={{ duration: 0.5, repeat: Infinity }}
+                className="inline-block w-0.5 h-4 bg-blue-500 ml-0.5 align-middle"
+              />
+            )}
+            
+            {/* 🆕 Pillar 4: 决策摘要展示（仅完成后显示） */}
+            {!isStreaming && <DecisionSummary meta={meta} />}
           </>
         )}
       </div>
@@ -343,8 +401,17 @@ function ChatInput({
 
 export default function Home() {
   const [currentMode, setCurrentMode] = useState("Ask");
-  // 🆕 Pillar 4: 消息现在包含 meta 元数据
-  const [messages, setMessages] = useState<Array<{ role: string; content: string; persona?: "alice" | "professional"; meta?: MessageMeta }>>([]);
+  // 🆕 Pillar 4: 消息现在包含 meta 元数据和流式状态
+  const [messages, setMessages] = useState<Array<{ 
+    role: string; 
+    content: string; 
+    persona?: "alice" | "professional"; 
+    meta?: MessageMeta;
+    // 🚀 流式响应状态
+    isStreaming?: boolean;
+    streamingPhase?: "thinking" | "generating" | "complete";
+    streamingText?: string;
+  }>>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isAvatarExpanded, setIsAvatarExpanded] = useState(true);
@@ -505,14 +572,6 @@ export default function Home() {
     }));
 
     try {
-      let reply = "";
-      let emotion = null;
-
-      // 🔄 统一调用后端 LLM（双模型架构）
-      // 后端会通过 Perception 模型理解上下文和用户意图
-      // 然后由 Response 模型生成智能回复
-      // 前端不再做本地硬编码回复，确保对话连贯性
-      
       // 构建增强的消息（包含模式提示）
       let enhancedMessage = userMessage;
       if (currentMode === "Class" && schedule.length > 0) {
@@ -523,9 +582,108 @@ export default function Home() {
         enhancedMessage = `搜索:${userMessage}`;
       }
       
-      // 统一调用后端 chat API
       // 🆕 从 localStorage 读取 curriculumUuid 用于动态跨周查询
       const savedUuid = typeof window !== 'undefined' ? localStorage.getItem("campus_curriculum_uuid") : null;
+
+      // 🚀 流式响应模式
+      if (ENABLE_STREAMING) {
+        // 添加一个占位消息用于流式更新
+        const streamingMsgIndex = messages.length + 1; // +1 因为刚加了 user message
+        setMessages(prev => [...prev, { 
+          role: "assistant", 
+          content: "", 
+          isStreaming: true,
+          streamingPhase: "thinking",
+          streamingText: "🔍 分析问题中..."
+        }]);
+
+        await sendMessageStream(enhancedMessage, getSessionId(), {
+          mode: currentMode,
+          schedule: schedule.length > 0 ? schedule : undefined,
+          curriculumUuid: savedUuid || undefined,
+
+          onThinking: (stage: string | null) => {
+            setMessages(prev => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].isStreaming) {
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  streamingPhase: stage ? "thinking" : "generating",
+                  streamingText: stage || undefined,
+                };
+              }
+              return updated;
+            });
+          },
+
+          onToken: (token: string, fullText: string) => {
+            setMessages(prev => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].isStreaming) {
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  content: fullText,
+                  streamingPhase: "generating",
+                  streamingText: undefined,
+                };
+              }
+              return updated;
+            });
+          },
+
+          onComplete: (result: { reply: string; emotion?: string | null; persona?: string | null; meta?: MessageMeta }) => {
+            const nextPersona = (result.persona === 'professional' || result.persona === 'alice') ? result.persona : null;
+            if (nextPersona) setPersonaMode(nextPersona);
+            
+            setMessages(prev => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].isStreaming) {
+                updated[lastIdx] = {
+                  role: "assistant",
+                  content: result.reply,
+                  persona: nextPersona || personaMode,
+                  meta: result.meta,
+                  isStreaming: false,
+                };
+              }
+              return updated;
+            });
+
+            const finalEmotion = result.emotion || inferEmotionFromContent(result.reply);
+            window.dispatchEvent(new CustomEvent("alice:emotion", {
+              detail: { emotion: finalEmotion, showBubble: true }
+            }));
+            setIsLoading(false);
+          },
+
+          onError: (error: Error) => {
+            setMessages(prev => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (lastIdx >= 0 && updated[lastIdx].isStreaming) {
+                updated[lastIdx] = {
+                  role: "assistant",
+                  content: `抱歉，爱丽丝遇到了一些问题: ${error.message} (╥﹏╥)`,
+                  persona: personaMode,
+                  isStreaming: false,
+                };
+              }
+              return updated;
+            });
+            
+            window.dispatchEvent(new CustomEvent("alice:emotion", {
+              detail: { emotion: "sad", showBubble: true }
+            }));
+            setIsLoading(false);
+          },
+        });
+        return; // 流式模式在回调中处理完成
+      }
+
+      // 🔄 非流式模式: 统一调用后端 LLM（双模型架构）
       const result = await sendMessage(
         enhancedMessage,
         getSessionId(),
@@ -533,11 +691,10 @@ export default function Home() {
           mode: currentMode, 
           schedule: schedule.length > 0 ? schedule : undefined,
           curriculumUuid: savedUuid || undefined,
-          // persona 由后端第一层决策引擎驱动；前端不强制
         }
       );
-      reply = result.reply;
-      emotion = result.emotion;
+      const reply = result.reply;
+      const emotion = result.emotion;
 
       const nextPersona = (result && (result.persona === 'professional' || result.persona === 'alice')) ? result.persona : null;
       if (nextPersona) setPersonaMode(nextPersona);
@@ -979,6 +1136,9 @@ export default function Home() {
                     content={msg.content}
                     isProfessionalMode={msg.role === 'assistant' ? (msg.persona === 'professional') : false}
                     meta={msg.meta}
+                    isStreaming={msg.isStreaming}
+                    streamingPhase={msg.streamingPhase}
+                    streamingText={msg.streamingText}
                   />
                   {/* 无课表时，在 assistant 回复后显示绑定提示 */}
                   {msg.role === 'assistant' && schedule.length === 0 && idx === messages.length - 1 && (

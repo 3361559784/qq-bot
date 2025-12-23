@@ -57,6 +57,148 @@ export function parseEmotionTag(text) {
 }
 
 /**
+ * 🆕 流式消息发送 - 支持边生成边显示 + 展示思考过程
+ * @param {string} message - 用户消息
+ * @param {string} sessionId - 会话ID
+ * @param {Object} options - 配置选项
+ * @param {Function} options.onThinking - 思考阶段回调 (stage: string)
+ * @param {Function} options.onToken - 每个 token 回调 (token: string, fullText: string)
+ * @param {Function} options.onComplete - 完成回调 (result: object)
+ * @param {Function} options.onError - 错误回调 (error: Error)
+ * @param {string} [options.mode] - 当前模式（Ask/Search/Plan/Class）
+ * @param {Array} [options.schedule] - 课程表数组（前端透传给后端）
+ * @param {string} [options.curriculumUuid] - 学习通课表 uuid（如有）
+ */
+export async function sendMessageStream(message, sessionId, options = {}) {
+  const {
+    onThinking,
+    onToken,
+    onComplete,
+    onError,
+    mode,
+    schedule,
+    curriculumUuid,
+  } = options;
+
+  if (!message || typeof message !== "string") {
+    onError?.(new Error("消息不能为空"));
+    return;
+  }
+
+  try {
+    // 阶段1: 开始思考
+    onThinking?.("🔍 分析问题中...");
+
+    const response = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        sessionId,
+        stream: true,
+        ...(mode ? { mode } : {}),
+        ...(schedule ? { schedule } : {}),
+        ...(curriculumUuid ? { curriculumUuid } : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`请求失败: ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("不支持流式响应");
+    }
+
+    const decoder = new TextDecoder();
+    let fullText = "";
+    let currentPhase = "thinking";
+    let emotion = null;
+    let persona = null;
+    let meta = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n").filter(line => line.startsWith("data: "));
+
+      for (const line of lines) {
+        const data = line.slice(6); // 移除 "data: "
+        if (data === "[DONE]") continue;
+
+        try {
+          const parsed = JSON.parse(data);
+
+          // 处理不同类型的事件
+          switch (parsed.type) {
+            case "thinking":
+              currentPhase = "thinking";
+              onThinking?.(parsed.stage || "思考中...");
+              break;
+
+            case "tool_call":
+              onThinking?.(`🛠️ ${parsed.tool}: ${parsed.status || "调用中..."}`);
+              break;
+
+            case "token":
+              if (currentPhase === "thinking") {
+                currentPhase = "generating";
+                onThinking?.(null); // 清除思考状态
+              }
+              fullText += parsed.content || "";
+              onToken?.(parsed.content || "", fullText);
+              break;
+
+            case "emotion":
+              emotion = parsed.emotion;
+              break;
+
+            case "meta":
+              persona = parsed.persona;
+              meta = parsed.meta;
+              break;
+
+            case "complete":
+              // 解析情绪标签
+              const { cleanText, emotion: parsedEmotion } = parseEmotionTag(fullText);
+              onComplete?.({
+                reply: cleanText,
+                emotion: emotion || parsedEmotion,
+                persona,
+                meta,
+              });
+              break;
+
+            case "error":
+              throw new Error(parsed.message || "流式响应错误");
+          }
+        } catch (e) {
+          // 忽略解析错误，继续处理
+          console.warn("SSE parse warning:", e);
+        }
+      }
+    }
+
+    // 如果没有收到 complete 事件，手动完成
+    if (fullText && currentPhase === "generating") {
+      const { cleanText, emotion: parsedEmotion } = parseEmotionTag(fullText);
+      onComplete?.({
+        reply: cleanText,
+        emotion: emotion || parsedEmotion,
+        persona,
+        meta,
+      });
+    }
+
+  } catch (err) {
+    onError?.(err);
+  }
+}
+
+/**
  * 调用后端 /api/chat
  * - POST { message, sessionId }
  * - 返回 { reply, emotion }

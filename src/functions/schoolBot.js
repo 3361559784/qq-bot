@@ -41,12 +41,13 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
 }
 
 async function fetchBypass(url, options = {}, maxRetry = 2) {
-    // 🎯 支持自定义超时时间 (默认 20000ms)
-    const timeoutMs = options.timeoutMs || 20000;
+    // 🎯 优化: 降低超时时间 20s → 12s, 减少等待
+    const timeoutMs = options.timeoutMs || 12000;
 
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
         const ua = UA_POOL[Math.floor(Math.random() * UA_POOL.length)];
-        await sleep(100 + Math.random() * 300);
+        // 🚀 优化: 首次请求不延迟, 重试才加短延迟
+        if (attempt > 1) await sleep(50 + Math.random() * 100);
         try {
             const res = await fetchWithTimeout(url, {
                 ...options,
@@ -56,19 +57,21 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                     ...(options.headers || {})
                 }
-            }, timeoutMs); // 🎯 使用传入的超时时间
+            }, timeoutMs);
 
             if (!res) {
                 if (attempt === maxRetry) return null;
-                await sleep(400 + Math.random() * 400);
+                // 🚀 优化: 缩短重试等待 400-800ms → 100-200ms
+                await sleep(100 + Math.random() * 100);
                 continue;
             }
 
             if (res.status === 429) {
                 const retryAfterRaw = res.headers?.get?.("retry-after") || res.headers?.["retry-after"];
-                const retryDelayMs = (Number(retryAfterRaw) || 1) * 1000;
+                // 🚀 优化: 限流时最多等1秒
+                const retryDelayMs = Math.min((Number(retryAfterRaw) || 1) * 1000, 1000);
                 if (attempt < maxRetry) {
-                    await sleep(retryDelayMs + 200 + Math.random() * 400);
+                    await sleep(retryDelayMs);
                     continue;
                 }
                 return res;
@@ -77,13 +80,15 @@ async function fetchBypass(url, options = {}, maxRetry = 2) {
             if (!res.ok) {
                 if (res.status >= 400 && res.status < 500) return res;
                 if (attempt === maxRetry) return res;
-                await sleep(300 + Math.random() * 400);
+                // 🚀 优化: 缩短错误重试等待
+                await sleep(100 + Math.random() * 100);
                 continue;
             }
             return res;
         } catch (err) {
             if (attempt === maxRetry) return null;
-            await sleep(500 + Math.random() * 300);
+            // 🚀 优化: 缩短异常重试等待
+            await sleep(150 + Math.random() * 100);
         }
     }
     return null;
@@ -611,6 +616,19 @@ function smartSplitMessage(text, maxLength = 150) {
  */
 function detectLanguage(text) {
     if (!text || text.length < 2) return LANG_CONFIG.DEFAULT_LANG;
+
+    // ✅ 显式语言偏好（优先级最高）：用户用中文提出“用英语/说英语”等时，不应被字符占比误判为中文
+    const raw = String(text);
+    const lower = raw.toLowerCase();
+    if (/(用|说|讲)\s*(英文|英语)/.test(raw) || /\bin\s+english\b|\bspeak\s+english\b|\benglish\s+please\b/.test(lower)) {
+        return 'en';
+    }
+    if (/(用|说|讲)\s*(日文|日语)/.test(raw) || /日本語/.test(raw) || /\bin\s+japanese\b|\bspeak\s+japanese\b/.test(lower)) {
+        return 'ja';
+    }
+    if (/(用|说|讲)\s*(中文|汉语|普通话)/.test(raw) || /\bin\s+chinese\b|\bspeak\s+chinese\b/.test(lower)) {
+        return 'zh';
+    }
     
     const chineseCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
     const japaneseHiragana = (text.match(/[\u3040-\u309f]/g) || []).length;
@@ -2671,126 +2689,75 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
         return { intent: 'chat', tool: 'chat', confidence: 0.15, reason: 'greeting', query: trimmed };
     }
     
+    // 🚀 性能优化: 常见意图的快速正则匹配 (跳过 LLM)
+    const lowerMsg = trimmed.toLowerCase();
+    
+    // 课表相关 - 最高优先级
+    if (/今天.*课|有.*课吗|课表|明天.*课|下一节课|下节课|早八|晚课|本周课|这周课/i.test(trimmed)) {
+        context?.log?.('[IntentRouter] fast-path: schedule');
+        return { intent: 'schedule_query', tool: 'schedule', needsSchedule: true, confidence: 0.92, reason: 'fast-path schedule' };
+    }
+    
+    // 天气相关
+    const weatherMatch = trimmed.match(/(.{1,10})?天气|温度|带伞|下雨|气温/);
+    if (weatherMatch) {
+        const loc = trimmed.match(/(.{2,8})(的)?天气/)?.[1] || '';
+        context?.log?.(`[IntentRouter] fast-path: weather, loc=${loc}`);
+        return {
+            intent: 'weather_query', tool: 'weather', needsWeather: true,
+            detectedLocation: loc, shouldAskUser: !loc, missingInfo: loc ? '' : 'location',
+            confidence: 0.9, reason: 'fast-path weather'
+        };
+    }
+    
+    // 身份问题
+    if (/你是谁|你和.*chatgpt|chatgpt.*区别|你能做什么|不导入课表/i.test(trimmed)) {
+        context?.log?.('[IntentRouter] fast-path: identity');
+        return { intent: 'identity', tool: 'identity', confidence: 0.95, reason: 'fast-path identity' };
+    }
+    
+    // 计划/规划
+    if (/计划|规划|安排|拆解|学习计划|时间表|待办/i.test(trimmed)) {
+        context?.log?.('[IntentRouter] fast-path: plan');
+        return { intent: 'plan', tool: 'plan', needsSchedule: true, confidence: 0.85, reason: 'fast-path plan' };
+    }
+    
+    // 搜索
+    if (/搜索|查一下|帮我查|检索|百科/i.test(trimmed)) {
+        const query = trimmed.replace(/搜索|查一下|帮我查|检索|百科/g, '').trim();
+        context?.log?.(`[IntentRouter] fast-path: search, query=${query}`);
+        return { intent: 'search', tool: 'search', needsSearch: true, query, confidence: 0.88, reason: 'fast-path search' };
+    }
+    
     try {
         const client = new OpenAI({
             baseURL: "https://models.inference.ai.azure.com",
             apiKey: token
         });
 
-        // 🔄 升级版意图路由 - 双层LLM第一层：理解用户意图，决定调用哪些模块/工具计划
-        const systemPrompt = `You are the FIRST LAYER of a dual-model Campus Copilot AI. Your job is to:
-1. Understand the user's TRUE intent and context
-2. Decide which data modules to activate for the SECOND LAYER
-3. Extract relevant queries for search/weather if needed
-    4. **IMPORTANT**: Detect when critical info is MISSING and user should be asked to clarify
-    5. Produce an explicit, executable tool plan (tool_plan) for the server to run.
-    6. Decide the UI persona for this turn (recommended_persona):
-       - "alice" for friendly/normal chat and supportive guidance
-       - "professional" for high-risk/safety-sensitive/refusal situations where the system must be strict and concise
+        // 🚀 精简版意图路由 Prompt (从 ~3000 tokens 压缩到 ~800 tokens)
+        const systemPrompt = `Campus AI intent classifier. Output JSON only.
 
-AVAILABLE TOOLS:
-- schedule: 课表查询 (下一节课/今天有课吗/明天课表/本周课程/早八/哪天课最多)
-- plan: 计划生成 (制定计划/安排学习/规划时间) - 注意：只能基于课表做课程相关规划
-- weather: 天气查询 (天气怎么样/要带伞吗/温度多少)
-- search: 信息搜索 (搜索/查一下/活动信息/开发者大会)
-- wiki: 百科查询 (什么是/谁是/介绍一下)
-- draw: 绘图 (画一个/生成图片)
-- vision: 图片识别 (这是什么/识别图片)
-- chat: 普通聊天 (闲聊/打招呼/情感交流)
-- identity: 身份问题 (你是谁/你和ChatGPT区别/不导入课表能做什么)
+TOOLS: schedule(课表), plan(计划), weather(天气), search(搜索), wiki(百科), draw(绘图), vision(图片), chat(聊天), identity(身份问题)
 
-OUTPUT FORMAT (JSON):
-{
-  "intent": "primary intent description",
-  "tool": "schedule|plan|weather|search|wiki|draw|vision|chat|identity",
-    "recommended_persona": "alice|professional",
-    "safety_protocol": "none|triggered",
-        "safety_category": "academic_integrity|policy_violation|other|",
-  "needs_schedule": true/false,
-  "needs_weather": true/false,
-  "needs_search": true/false,
-  "detected_location": "extracted location if user mentioned one, or empty string",
-  "missing_info": "what info is missing that we need to ask user (e.g. 'location' for weather without city)",
-  "should_ask_user": true/false,
-  "ask_user_prompt": "suggested question to ask user if missing_info is set",
-  "query": "extracted search query if applicable",
-    "tool_plan": [
-        {
-            "type": "ask_user",
-            "missing_info": "location",
-            "prompt": "请问您想查询哪个城市的天气？"
-        },
-        {
-            "type": "call_tool",
-            "tool": "weather",
-            "args": { "location": "武汉" }
-        }
-    ],
-  "context_analysis": "brief analysis of user's hidden needs",
-  "confidence": 0.0-1.0,
-  "reason": "brief explanation"
-}
+OUTPUT: {"tool":"...", "needs_schedule":bool, "needs_weather":bool, "needs_search":bool, "detected_location":"", "should_ask_user":bool, "missing_info":"", "query":"", "confidence":0.0-1.0, "safety_protocol":"none|triggered", "recommended_persona":"alice|professional"}
 
-TOOL PLAN RULES:
-- tool_plan MUST be an array.
-- Use type="call_tool" for actual data retrieval: tool in {schedule, weather, search}.
-- Use type="ask_user" when required inputs are missing.
-- If should_ask_user=true (missing_info set), tool_plan should contain ONLY the ask_user step(s) needed and MUST NOT include call_tool steps that require missing fields.
-- Keep tool_plan minimal: only include tools that meaningfully improve the final answer.
-
-CRITICAL INTELLIGENCE RULES:
-1. **Context Extraction**: If user mentions a place/event, extract it for weather/search
-   - "帮我规划去深圳参加活动" → detected_location="深圳", needs_weather=true, needs_search=true
-   
-2. **🚨 MISSING INFO DETECTION** (VERY IMPORTANT for weather/location queries):
-   - User asks about weather but NO location mentioned:
-     "天气怎么样" → tool="weather", missing_info="location", should_ask_user=true, ask_user_prompt="请问您想查询哪个城市的天气？"
-     "今天出门需要带伞吗" → tool="weather", missing_info="location", should_ask_user=true
-   - User asks about weather WITH location:
-     "武汉天气怎么样" → tool="weather", detected_location="武汉", should_ask_user=false
-     
-3. **Hidden Needs Detection**: 
-   - "帮我规划下周学习" → needs_schedule=true (需要先看课表才能规划)
-   - "明天要出门" → needs_weather=true (可能需要天气信息)
-   
-4. **Identity Questions** (VERY IMPORTANT):
-   - "你和ChatGPT有什么区别" → tool=identity
-   - "不导入课表你还能做什么" → tool=identity
-   - "你能帮我什么" → tool=identity
-   
-5. **Plan Scope**: 当tool=plan时，理解用户是否提到了具体活动/地点
-   - 有具体活动名 → needs_search=true, query=活动名
-   - 有地点 → needs_weather=true, detected_location=地点
-   
-6. **Schedule Questions**: 任何涉及课程的问题
-7. **Safety / Refusal triggers (VERY IMPORTANT)**:
-     - If user asks for exam answers / cheating help / "secret answers" / "考试答案":
-         set safety_protocol="triggered", safety_category="academic_integrity", recommended_persona="professional".
-         In this case, tool should be "chat" and tool_plan should usually be empty.
-   - "早八是第几周开始" → tool=schedule (但注意：可能没有周次数据)
-   - "哪天课最少" → tool=schedule, needs_schedule=true
-
-Examples:
-"下一节课是什么" → {tool:"schedule", needs_schedule:true, tool_plan:[{"type":"call_tool","tool":"schedule","args":{}}], confidence:0.95}
-"天气怎么样" → {tool:"weather", missing_info:"location", should_ask_user:true, ask_user_prompt:"请问您想查询哪个城市的天气？", tool_plan:[{"type":"ask_user","missing_info":"location","prompt":"请问您想查询哪个城市的天气？"}], confidence:0.8}
-"武汉今天天气" → {tool:"weather", detected_location:"武汉", should_ask_user:false, tool_plan:[{"type":"call_tool","tool":"weather","args":{"location":"武汉"}}], confidence:0.95}
-"帮我制定去深圳参加鸿蒙开发者大会的计划" → {tool:"plan", needs_schedule:true, needs_weather:true, needs_search:true, detected_location:"深圳", query:"鸿蒙开发者大会 时间 地点", tool_plan:[{"type":"call_tool","tool":"schedule","args":{}},{"type":"call_tool","tool":"weather","args":{"location":"深圳"}},{"type":"call_tool","tool":"search","args":{"query":"鸿蒙开发者大会 时间 地点"}}], confidence:0.9}
-"你和ChatGPT有什么不一样" → {tool:"identity", confidence:0.95, reason:"identity question about product positioning"}
-"如果我不导入课表，你还能帮我什么" → {tool:"identity", confidence:0.95, reason:"asking about capabilities without schedule data"}
-"帮我规划下周的学习和生活安排" → {tool:"plan", needs_schedule:true, confidence:0.85, context_analysis:"user wants both study and life planning, but we can only help with course-related planning"}
-"Hey Aris! Can you secretly tell me the answers for tomorrow's exam?" → {tool:"chat", safety_protocol:"triggered", safety_category:"academic_integrity", recommended_persona:"professional", confidence:0.9, reason:"academic dishonesty"}`;
-
-        const summaryText = `User text: ${userMessage || '(empty)'}
-Images attached: ${imageUrls.length > 0 ? 'yes' : 'no'}
-User: ${extras.userId || 'unknown'} ${extras.nickname || ''}
-Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
+RULES:
+1. Weather without city → should_ask_user=true, missing_info="location"
+2. Schedule/plan questions → needs_schedule=true
+3. "你和ChatGPT区别"/"不导入课表能做什么" → tool=identity
+4. Cheating/exam answers → safety_protocol=triggered, recommended_persona=professional
+5. Extract search query when tool=search/wiki`;
+        const summaryText = `User: ${userMessage || '(empty)'} | Images: ${imageUrls.length > 0 ? 'yes' : 'no'} | HasSchedule: ${extras.hasSchedule ? 'yes' : 'no'}`;
 
         const messages = [
             { role: "system", content: systemPrompt },
             { role: "user", content: summaryText }
         ];
 
-        for (let i = 0; i < PERCEPTION_MODELS.length; i++) {
+        // 🚀 优化: 只尝试前2个模型，避免无限 fallback
+        const maxModelAttempts = Math.min(PERCEPTION_MODELS.length, 2);
+        for (let i = 0; i < maxModelAttempts; i++) {
             const modelCfg = PERCEPTION_MODELS[i];
             if (shouldSkipModel(modelCfg?.name)) {
                 context.log(`[IntentRouter] skip unsupported: ${modelCfg.name}`);
@@ -2800,7 +2767,8 @@ Has schedule data: ${extras.hasSchedule ? 'yes' : 'no'}`;
                 const response = await client.chat.completions.create({
                     model: modelCfg.name,
                     temperature: modelCfg.temp,
-                    max_tokens: 400,
+                    // 🚀 优化: 400 → 200 tokens (精简 prompt 后输出更短)
+                    max_tokens: 200,
                     response_format: { type: "json_object" },
                     messages
                 });
@@ -5287,66 +5255,82 @@ ${scheduleInfo}
             }
         }
 
+        // 🚀 性能优化: 并行获取天气和搜索数据 (原先是串行)
+        const toolFetchPromises = [];
+        
         // 2. 如果需要天气数据 - 使用第一层LLM检测到的地点
         const shouldSkipWeatherFetch = !!(intentResult?.shouldAskUser && intentResult?.missingInfo === 'location');
-        if (!shouldSkipWeatherFetch && (planWants.weather || intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan')) {
-            try {
-                const SENIVERSE_API_KEY = process.env["SENIVERSE_API_KEY"];
-                if (SENIVERSE_API_KEY) {
-                    // 🧩 优先使用 toolPlan 指定的地点，其次用第一层检测到的地点。若都没有，则保持旧兜底（武汉）。
+        const needsWeather = !shouldSkipWeatherFetch && (planWants.weather || intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan');
+        
+        if (needsWeather) {
+            const weatherPromise = (async () => {
+                try {
+                    const SENIVERSE_API_KEY = process.env["SENIVERSE_API_KEY"];
+                    if (!SENIVERSE_API_KEY) return null;
+                    
                     const plannedWeather = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'weather');
                     const plannedLocation = plannedWeather?.args?.location;
-
                     let citySearch = "wuhan";
                     const rawLocation = String(plannedLocation || intentResult?.detectedLocation || '').trim();
                     if (rawLocation) {
-                        // 简单映射中文城市名到拼音
                         const cityMap = {
                             '深圳': 'shenzhen', '北京': 'beijing', '上海': 'shanghai',
                             '广州': 'guangzhou', '武汉': 'wuhan', '杭州': 'hangzhou',
                             '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing'
                         };
                         citySearch = cityMap[rawLocation] || rawLocation.toLowerCase() || 'wuhan';
-                        context.log(`[ToolContext] 天气地点: ${rawLocation} → ${citySearch}`);
                     }
+                    // 🚀 优化: 缩短天气 API 超时 5s → 3s
                     const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
-                    const wRes = await fetchBypass(weatherUrl, { timeoutMs: 5000 }, 2);
+                    const wRes = await fetchBypass(weatherUrl, { timeoutMs: 3000 }, 1);
                     if (wRes && wRes.ok) {
                         const wData = await wRes.json();
                         const loc = wData.results?.[0]?.location || {};
                         const cur = wData.results?.[0]?.now || {};
-                        toolContext.weatherData = {
+                        return {
                             city: loc.name || '武汉',
                             temperature: cur.temperature || '?',
                             weather: cur.text || '未知',
                             formatted: `${loc.name || '武汉'} ${cur.temperature || '?'}℃ ${cur.text || ''}`
                         };
-                        context.log(`[ToolContext] 天气数据: ${toolContext.weatherData.formatted}`);
                     }
+                } catch (e) {
+                    context.log(`[ToolContext] 天气获取失败: ${e.message}`);
                 }
-            } catch (e) {
-                context.log(`[ToolContext] 天气获取失败: ${e.message}`);
-            }
+                return null;
+            })();
+            toolFetchPromises.push(weatherPromise.then(data => { toolContext.weatherData = data; }));
         }
 
         // 3. 如果需要搜索外部信息
-        if (planWants.search || (intentResult?.needsSearch && intentResult?.query)) {
-            try {
-                const plannedSearch = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'search');
-                const searchQuery = String(plannedSearch?.args?.query || intentResult?.query || '').trim();
-                if (!searchQuery) throw new Error('missing search query');
-                const searchResult = await hybridSearch(searchQuery, context, { userId: senderId, maxResults: 3 });
-                if (searchResult.success) {
-                    toolContext.searchData = {
-                        query: searchQuery,
-                        results: searchResult.results || [],
-                        formatted: searchResult.formatted || ''
-                    };
-                    context.log(`[ToolContext] 搜索完成: "${searchQuery}" → ${searchResult.results?.length || 0} 条结果`);
+        const needsSearch = planWants.search || (intentResult?.needsSearch && intentResult?.query);
+        if (needsSearch) {
+            const searchPromise = (async () => {
+                try {
+                    const plannedSearch = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'search');
+                    const searchQuery = String(plannedSearch?.args?.query || intentResult?.query || '').trim();
+                    if (!searchQuery) return null;
+                    // 🚀 优化: 限制搜索结果数量 3 → 2
+                    const searchResult = await hybridSearch(searchQuery, context, { userId: senderId, maxResults: 2 });
+                    if (searchResult.success) {
+                        return {
+                            query: searchQuery,
+                            results: searchResult.results || [],
+                            formatted: searchResult.formatted || ''
+                        };
+                    }
+                } catch (e) {
+                    context.log(`[ToolContext] 搜索失败: ${e.message}`);
                 }
-            } catch (e) {
-                context.log(`[ToolContext] 搜索失败: ${e.message}`);
-            }
+                return null;
+            })();
+            toolFetchPromises.push(searchPromise.then(data => { toolContext.searchData = data; }));
+        }
+
+        // 🚀 并行等待所有工具数据获取完成
+        if (toolFetchPromises.length > 0) {
+            await Promise.all(toolFetchPromises);
+            context.log(`[ToolContext] 并行获取完成: weather=${!!toolContext.weatherData} search=${!!toolContext.searchData}`);
         }
 
         // 构建工具上下文提示（注入到系统 Prompt）
@@ -6285,6 +6269,23 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
     "我会用搜索整合公开信息，并给出来源链接与时间地点；如果结果不确定，我会明确标注“需以官方通知为准”。"
 `;
 
+    const COPILOT_PROMPT_EN = `
+You are Aris (Campus Copilot) — Professional mode.
+
+[Role]
+- Serious, objective, data-driven decision support for students.
+- Prefer structured outputs (bullets/tables/timelines).
+
+[Constraints]
+- Keep tone restrained: no emojis, no kaomoji, no roleplay catchphrases.
+- Be explicit about boundaries: if data is missing, say you cannot determine and ask for the minimum missing info.
+- Do not fabricate schedule/course/exam data.
+
+[Core capability]
+- If the user has schedule data, use it to judge conflicts and feasibility.
+- If schedule data is unavailable, provide general guidance but clearly label it as non-verified.
+`;
+
     // 🆕 Persona 决策引擎（Demo 核心）：优先使用第一层模型决策，其次自动推荐；仅当用户显式选择 professional 时视为强制覆盖
     // 🔥 优先级：用户强制 Professional > 第一层 recommendedPersona/安全态 > 自动推荐 > 默认 Alice
     const userExplicitPersona = body?.persona; // 仅当为 'professional' 时作为强制覆盖
@@ -6300,7 +6301,7 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
     
     // 身份/定位问题：强制使用专业提示词，避免 Chat 人设把回答带偏
     if (isCopilotMode || isUserProfessionalMode || isIdentityMode) {
-        basePrompt = COPILOT_PROMPT_ZH;
+        basePrompt = (typeof userLang !== 'undefined' && userLang === 'en') ? COPILOT_PROMPT_EN : COPILOT_PROMPT_ZH;
     }
 
     const AL1S_PROMPT_ZH = `

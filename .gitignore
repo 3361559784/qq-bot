@@ -20,6 +20,11 @@ local.settings.json
 /campus-ai-web/.next/
 /campus-ai-web/node_modules/
 
+# campus-ai-web standalone deploy artifacts (should never be committed)
+/campus-ai-web/deploy.zip
+/campus-ai-web/deploy-package/
+/campus-ai-web/.deploy/
+
 # 屏蔽日志
 npm-debug.log*
 yarn-debug.log*
@@ -56,3 +61,6 @@ coverage/
 
 # 允许忽略外设或工具文件（示例）
 # !/scripts/keep.sh (若需要保留某些工具，可使用否定规则)
+node_modules/
+**/node_modules/
+**/node_modules
