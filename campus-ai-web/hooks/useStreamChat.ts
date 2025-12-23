@@ -18,6 +18,7 @@ interface UseStreamChatOptions {
   mode?: string;
   schedule?: unknown[];
   curriculumUuid?: string;
+  chatHistory?: Array<{ role: string; content: string }>; // 🆕 对话历史
 }
 
 /**
@@ -36,7 +37,7 @@ interface UseStreamChatOptions {
  * ```
  */
 export function useStreamChat(options: UseStreamChatOptions) {
-  const { sessionId, mode, schedule, curriculumUuid } = options;
+  const { sessionId, mode, schedule, curriculumUuid, chatHistory } = options;
   
   const [state, setState] = useState<StreamState>({
     phase: 'idle',
@@ -76,6 +77,7 @@ export function useStreamChat(options: UseStreamChatOptions) {
       mode,
       schedule,
       curriculumUuid,
+      chatHistory, // 🆕 传递对话历史
       
       onThinking: (stage: string | null) => {
         if (stage) {
@@ -124,7 +126,7 @@ export function useStreamChat(options: UseStreamChatOptions) {
         }));
       },
     });
-  }, [sessionId, mode, schedule, curriculumUuid, reset]);
+  }, [sessionId, mode, schedule, curriculumUuid, chatHistory, reset]);
 
   return {
     state,

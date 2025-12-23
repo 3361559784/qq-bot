@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   const requestId = crypto.randomUUID();
   
   try {
-    const { message, sessionId, mode = 'Ask', schedule, curriculumUuid, persona } = await req.json();
+    const { message, sessionId, mode = 'Ask', schedule, curriculumUuid, persona, chatHistory } = await req.json();
 
     if (!message || typeof message !== 'string') {
       return new Response(
@@ -98,6 +98,8 @@ export async function POST(req: Request) {
             schedule: Array.isArray(schedule) ? schedule : undefined,
             curriculumUuid: typeof curriculumUuid === 'string' ? curriculumUuid : undefined,
             persona: persona === 'professional' ? 'professional' : undefined,
+            // 🆕 传递对话历史给后端（用于上下文记忆）
+            chatHistory: Array.isArray(chatHistory) ? chatHistory.slice(-6) : undefined,
             stream: true,  // 请求流式响应
             requestId,
           })

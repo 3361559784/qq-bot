@@ -68,6 +68,7 @@ export function parseEmotionTag(text) {
  * @param {string} [options.mode] - 当前模式（Ask/Search/Plan/Class）
  * @param {Array} [options.schedule] - 课程表数组（前端透传给后端）
  * @param {string} [options.curriculumUuid] - 学习通课表 uuid（如有）
+ * @param {Array} [options.chatHistory] - 🆕 对话历史（用于上下文记忆）
  */
 export async function sendMessageStream(message, sessionId, options = {}) {
   const {
@@ -78,6 +79,7 @@ export async function sendMessageStream(message, sessionId, options = {}) {
     mode,
     schedule,
     curriculumUuid,
+    chatHistory, // 🆕 新增对话历史参数
   } = options;
 
   if (!message || typeof message !== "string") {
@@ -99,6 +101,8 @@ export async function sendMessageStream(message, sessionId, options = {}) {
         ...(mode ? { mode } : {}),
         ...(schedule ? { schedule } : {}),
         ...(curriculumUuid ? { curriculumUuid } : {}),
+        // 🆕 传递对话历史（用于上下文记忆 - 记住之前提到的城市等信息）
+        ...(chatHistory && chatHistory.length > 0 ? { chatHistory: chatHistory.slice(-6) } : {}),
       }),
     });
 

@@ -2701,8 +2701,25 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
     // 天气相关
     const weatherMatch = trimmed.match(/(.{1,10})?天气|温度|带伞|下雨|气温/);
     if (weatherMatch) {
-        const loc = trimmed.match(/(.{2,8})(的)?天气/)?.[1] || '';
-        context?.log?.(`[IntentRouter] fast-path: weather, loc=${loc}`);
+        // 🆕 改进的城市提取正则，排除时间词
+        let loc = '';
+        const rawLoc = trimmed.match(/(.{2,8})(的)?天气/)?.[1] || '';
+        // 排除时间相关词汇
+        const timeWords = /^(今天|明天|后天|昨天|上午|下午|晚上|早上|中午|傍晚|凌晨|这周|下周|周一|周二|周三|周四|周五|周六|周日|\d+点|\d+时)/;
+        if (rawLoc && !timeWords.test(rawLoc)) {
+            loc = rawLoc;
+        }
+        
+        // 🆕 如果消息中没有城市，尝试从 contextHints 中提取
+        if (!loc && extras.contextHints) {
+            const ctxCityMatch = extras.contextHints.match(/之前提到城市:(\S+)/);
+            if (ctxCityMatch) {
+                loc = ctxCityMatch[1];
+                context?.log?.(`[IntentRouter] fast-path weather: 从contextHints提取城市=${loc}`);
+            }
+        }
+        
+        context?.log?.(`[IntentRouter] fast-path: weather, loc=${loc} (raw=${rawLoc})`);
         return {
             intent: 'weather_query', tool: 'weather', needsWeather: true,
             detectedLocation: loc, shouldAskUser: !loc, missingInfo: loc ? '' : 'location',
@@ -2735,20 +2752,31 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
             apiKey: token
         });
 
-        // 🚀 精简版意图路由 Prompt (从 ~3000 tokens 压缩到 ~800 tokens)
+        // 🚀 增强版意图路由 Prompt - 更积极的工具调用 + 上下文记忆
         const systemPrompt = `Campus AI intent classifier. Output JSON only.
 
-TOOLS: schedule(课表), plan(计划), weather(天气), search(搜索), wiki(百科), draw(绘图), vision(图片), chat(聊天), identity(身份问题)
+TOOLS: schedule(课表), plan(计划/规划/安排行程), weather(天气), search(搜索/查询活动/事件), wiki(百科), draw(绘图), vision(图片), chat(闲聊), identity(身份问题)
 
-OUTPUT: {"tool":"...", "needs_schedule":bool, "needs_weather":bool, "needs_search":bool, "detected_location":"", "should_ask_user":bool, "missing_info":"", "query":"", "confidence":0.0-1.0, "safety_protocol":"none|triggered", "recommended_persona":"alice|professional"}
+OUTPUT: {"tool":"...", "needs_schedule":bool, "needs_weather":bool, "needs_search":bool, "detected_location":"", "should_ask_user":bool, "missing_info":"", "query":"", "search_topic":"", "confidence":0.0-1.0, "safety_protocol":"none|triggered", "recommended_persona":"alice|professional", "context_extract":{"location":"","time":"","event":""}}
 
 RULES:
-1. Weather without city → should_ask_user=true, missing_info="location"
-2. Schedule/plan questions → needs_schedule=true
-3. "你和ChatGPT区别"/"不导入课表能做什么" → tool=identity
-4. Cheating/exam answers → safety_protocol=triggered, recommended_persona=professional
-5. Extract search query when tool=search/wiki`;
-        const summaryText = `User: ${userMessage || '(empty)'} | Images: ${imageUrls.length > 0 ? 'yes' : 'no'} | HasSchedule: ${extras.hasSchedule ? 'yes' : 'no'}`;
+1. 用户提到任何地点(城市/地区) → detected_location=该地点, context_extract.location=该地点
+2. 用户问天气但没说城市 → 如果对话历史有提到城市就用那个，否则 should_ask_user=true
+3. 任何"计划/plan/安排/行程/规划"类问题 → tool=plan, 同时考虑是否需要天气(needs_weather)和搜索(needs_search)
+4. 用户提到外部活动/展台/会议/测试 → needs_search=true, search_topic=活动关键词
+5. Schedule/plan questions → needs_schedule=true
+6. "你和ChatGPT区别"/"不导入课表能做什么" → tool=identity
+7. Cheating/exam answers → safety_protocol=triggered, recommended_persona=professional
+8. 积极调用工具：宁可多调用工具获取信息，也不要空口回答"不知道"
+
+EXAMPLES:
+- "我明天想去鸿蒙展台" → tool=plan, needs_search=true, search_topic="鸿蒙展台"
+- "武汉天气" → tool=weather, detected_location="武汉"
+- "晚上6-9点天气" → tool=weather (如果之前提过城市就用那个)
+- "给我一个计划去参加xxx活动" → tool=plan, needs_weather=true, needs_search=true`;
+        // 🆕 从历史对话中提取上下文（如之前提到的城市）
+        const contextHints = extras.contextHints || '';
+        const summaryText = `User: ${userMessage || '(empty)'} | Images: ${imageUrls.length > 0 ? 'yes' : 'no'} | HasSchedule: ${extras.hasSchedule ? 'yes' : 'no'}${contextHints ? ` | ContextHints: ${contextHints}` : ''}`;
 
         const messages = [
             { role: "system", content: systemPrompt },
@@ -2837,6 +2865,8 @@ RULES:
                     tool: normalized.tool,
                     raw_intent: parsed.intent || parsed.tool || '',
                     query: parsed.query || parsed.topic || '',
+                    // 🆕 搜索主题（从意图路由提取，用于 Plan 模式自动搜索）
+                    searchTopic: parsed.search_topic || parsed.searchTopic || '',
                     drawPrompt: parsed.draw_prompt || parsed.prompt || parsed.query || '',
                     isSelf: !!parsed.is_self,
                     nsfw: !!parsed.nsfw,
@@ -2856,6 +2886,8 @@ RULES:
                     // 🆕 上下文分析（双层LLM第一层提取的信息）
                     detectedLocation: parsed.detected_location || '',
                     contextAnalysis: parsed.context_analysis || '',
+                    // 🆕 上下文提取（从当前对话中提取的位置/时间/事件等关键信息）
+                    contextExtract: parsed.context_extract || {},
                     // 🆕 缺失信息检测（用于反问用户）
                     missingInfo,
                     shouldAskUser,
@@ -4144,6 +4176,7 @@ app.http('schoolBot', {
             let webSchedule = null;  // 🆕 前端传入的课表数据
             let webMode = null;      // 🆕 前端模式 (Ask/Plan/Class/Search)
             let userPersonaMode = null; // 🆕 用户选择的人格（alice/professional），用于回复风格
+            let webChatHistory = null; // 🆕 前端传入的对话历史（用于上下文记忆）
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
@@ -4265,26 +4298,48 @@ app.http('schoolBot', {
                     };
                 }
 
-                // 非消息且非通知，忽略
-                if (body.post_type !== 'message') {
+                // 🆕 检测是否是来自 Web 前端的请求（campus-ai-web）
+                // Web 请求特征：有 message 字段，但没有 post_type 字段
+                const isWebRequest = !body.post_type && body.message;
+                
+                // 非消息且非通知且非Web请求，忽略
+                if (body.post_type !== 'message' && !isWebRequest) {
                     return {
                         status: 200,
                         jsonBody: { status: 'ok', message: 'non_message_event' }
                     };
                 }
 
-                const rawMsg = body.raw_message || "";
+                // 对于 Web 请求，使用 body.message 作为 raw_message
+                const rawMsg = body.raw_message || body.message || "";
                 scheduleFileLinks = extractScheduleFileLinks(body, rawMsg);
                 
                 // 🆕 从前端 Web 接收课表数据（campus-ai-web 传入）
                 webSchedule = Array.isArray(body.schedule) ? body.schedule : null;
                 webMode = body.mode || null; // Ask/Plan/Class/Search
                 
+                // 🆕 从前端接收对话历史（用于上下文记忆 - 记住之前提到的城市等信息）
+                webChatHistory = Array.isArray(body.chatHistory) ? body.chatHistory : null;
+                
+                // 🔍 调试：打印收到的 chatHistory
+                if (isWebRequest) {
+                    context.log(`[Web请求] chatHistory 收到: ${webChatHistory ? webChatHistory.length + '条' : 'null'}`);
+                    if (webChatHistory && webChatHistory.length > 0) {
+                        context.log(`[Web请求] chatHistory 内容: ${JSON.stringify(webChatHistory.slice(-3))}`);
+                    }
+                }
+                
                 // 🆕 用户可选的人格模式（Alice/Professional）- 由前端 UI 开关控制
                 // 这是面向普通用户的功能，与开发者后门无关
                 userPersonaMode = body.persona || null; // 'alice' | 'professional'
                 
-                if (body.user_id) senderId = String(body.user_id);
+                // 🆕 Web 请求使用 conversationId 作为用户标识
+                if (isWebRequest && body.conversationId) {
+                    senderId = `web_${body.conversationId}`;
+                    context.log(`[Web请求] 使用 conversationId 作为 senderId: ${senderId}`);
+                } else if (body.user_id) {
+                    senderId = String(body.user_id);
+                }
                 dbKey = senderId; // 默认为个人ID
                 if (body.sender && body.sender.nickname) userNickname = body.sender.nickname;
                 
@@ -4624,6 +4679,28 @@ ${scheduleInfo}
                         break;
                     }
                 }
+                
+                // 🆕 2.1.5 如果消息中没找到城市，尝试从对话历史中提取
+                // 注意：此时 history 还未初始化，直接使用 webChatHistory
+                if (!foundInMap && webChatHistory && webChatHistory.length > 0) {
+                    const historyText = webChatHistory.slice(-6).map(h => h.content || '').join(' ');
+                    const cityPattern = /(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛|沈阳|大连|厦门|福州|济南|合肥|昆明|贵阳|南昌|太原|哈尔滨|长春)/;
+                    const cityMatch = historyText.match(cityPattern);
+                    if (cityMatch) {
+                        const historyCity = cityMatch[1];
+                        // 查找对应的拼音
+                        if (CITY_MAP[historyCity]) {
+                            citySearch = CITY_MAP[historyCity];
+                            context.log(`[天气] 从前端对话历史提取城市: ${historyCity} -> ${citySearch}`);
+                            foundInMap = true;
+                        } else {
+                            // 尝试转拼音
+                            citySearch = toPinyinCityName(historyCity);
+                            context.log(`[天气] 从前端对话历史提取城市(转拼音): ${historyCity} -> ${citySearch}`);
+                            foundInMap = true;
+                        }
+                    }
+                }
 
                 // 2.2 字典没找到，正则兜底提取 + 中文转拼音兜底
                 if (!foundInMap) {
@@ -4769,6 +4846,30 @@ ${scheduleInfo}
                 if (resource && resource.history) history = resource.history;
                 if (resource && resource.activity) userActivityData = resource.activity; // 加载活跃度数据
             } catch (err) {}
+        }
+        
+        // 🆕 合并前端传来的对话历史（Web 端的上下文记忆）
+        if (webChatHistory && Array.isArray(webChatHistory) && webChatHistory.length > 0) {
+            // 转换前端格式 [{role, content}] 到后端格式
+            const webHistory = webChatHistory
+                .filter(h => h && (h.role === 'user' || h.role === 'assistant') && h.content)
+                .map(h => ({ role: h.role, content: String(h.content) }));
+            if (webHistory.length > 0) {
+                // 如果 Cosmos 没有历史，直接用 Web 历史
+                if (history.length === 0) {
+                    history = webHistory.slice(-8);
+                } else {
+                    // 否则合并（Web 历史作为补充，避免重复）
+                    const existingContents = new Set(history.map(h => h.content?.slice(0, 50)));
+                    for (const wh of webHistory.slice(-4)) {
+                        if (!existingContents.has(wh.content?.slice(0, 50))) {
+                            history.push(wh);
+                        }
+                    }
+                    history = history.slice(-10); // 保持合理长度
+                }
+                context.log(`[WebHistory] 合并前端对话历史: webLen=${webChatHistory.length} merged=${history.length}`);
+            }
         }
 
         // 统一兜底：新用户/读取失败时 resDoc 可能为空，后续分支会访问其字段
@@ -4971,15 +5072,37 @@ ${scheduleInfo}
         // 感知层意图路由 (Model A)
         let intentResult = null;
         if (INTENT_ROUTER_ENABLED) {
-                const t0 = Date.now();
+            // 🆕 从对话历史中提取上下文线索（如之前提到的城市）
+            let contextHints = '';
+            context.log(`[ContextHints] history长度=${history?.length || 0}`);
+            if (history && history.length > 0) {
+                const recentHistory = history.slice(-6); // 最近3轮对话
+                const historyText = recentHistory.map(h => h.content || '').join(' ');
+                context.log(`[ContextHints] historyText="${historyText.slice(0,100)}"`);
+                // 提取城市/地点
+                const cityMatch = historyText.match(/(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛|沈阳|大连|厦门|福州|济南|合肥|昆明|贵阳|南昌|太原|哈尔滨|长春)/);
+                if (cityMatch) {
+                    contextHints += `之前提到城市:${cityMatch[1]} `;
+                    context.log(`[ContextHints] 找到城市: ${cityMatch[1]}`);
+                }
+                // 提取活动/事件
+                const eventMatch = historyText.match(/(鸿蒙|HarmonyOS|展台|展览|测试|考试|活动|会议|比赛)/i);
+                if (eventMatch) {
+                    contextHints += `之前提到事件:${eventMatch[1]} `;
+                }
+            }
+            context.log(`[ContextHints] 最终值="${contextHints}"`);
+            
+            const t0 = Date.now();
             intentResult = await analyzeIntentRouter(msg, imageUrls, { 
                 userId: senderId, 
                 nickname: userNickname,
-                hasSchedule: !!(webSchedule && webSchedule.length > 0)
+                hasSchedule: !!(webSchedule && webSchedule.length > 0),
+                contextHints: contextHints.trim()
             }, context);
-                context.log(`[RID ${requestId}] intentRouter elapsedMs=${Date.now() - t0} enabled=${INTENT_ROUTER_ENABLED}`);
+            context.log(`[RID ${requestId}] intentRouter elapsedMs=${Date.now() - t0} enabled=${INTENT_ROUTER_ENABLED}${contextHints ? ` contextHints="${contextHints.trim()}"` : ''}`);
             if (intentResult) {
-                context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} needsSchedule=${intentResult.needsSchedule} needsWeather=${intentResult.needsWeather} needsSearch=${intentResult.needsSearch}`);
+                context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} needsSchedule=${intentResult.needsSchedule} needsWeather=${intentResult.needsWeather} needsSearch=${intentResult.needsSearch} searchTopic=${intentResult.searchTopic || ''}`);
             }
         }
 
@@ -5259,8 +5382,27 @@ ${scheduleInfo}
         const toolFetchPromises = [];
         
         // 2. 如果需要天气数据 - 使用第一层LLM检测到的地点
-        const shouldSkipWeatherFetch = !!(intentResult?.shouldAskUser && intentResult?.missingInfo === 'location');
-        const needsWeather = !shouldSkipWeatherFetch && (planWants.weather || intentResult?.needsWeather || intentResult?.tool === 'weather' || intentResult?.tool === 'plan');
+        // 🆕 修复：当有对话历史时，不应该因为"当前消息没有城市"就跳过天气获取
+        let historyHasCity = false;
+        let historyDebugText = '';
+        if (history && history.length > 0) {
+            const historyText = history.slice(-6).map(h => h.content || '').join(' ');
+            historyDebugText = historyText;
+            historyHasCity = /(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛)/.test(historyText);
+        }
+        // 🔍 调试日志
+        context.log(`[Weather决策] historyLen=${history?.length || 0} historyHasCity=${historyHasCity} historyText="${historyDebugText?.slice(0,100)}"`);
+        context.log(`[Weather决策] intentResult: shouldAskUser=${intentResult?.shouldAskUser} missingInfo=${intentResult?.missingInfo} needsWeather=${intentResult?.needsWeather} tool=${intentResult?.tool}`);
+        
+        const shouldSkipWeatherFetch = !!(
+            intentResult?.shouldAskUser && 
+            intentResult?.missingInfo === 'location' && 
+            !historyHasCity  // 🆕 如果历史中有城市，不跳过
+        );
+        // 🆕 Plan 模式默认需要天气（帮用户规划需要考虑天气因素）
+        const isPlanMode = intentResult?.tool === 'plan' || intentResult?.intent === 'plan';
+        const needsWeather = !shouldSkipWeatherFetch && (planWants.weather || intentResult?.needsWeather || intentResult?.tool === 'weather' || isPlanMode);
+        context.log(`[Weather决策] shouldSkip=${shouldSkipWeatherFetch} needsWeather=${needsWeather}`);
         
         if (needsWeather) {
             const weatherPromise = (async () => {
@@ -5271,20 +5413,45 @@ ${scheduleInfo}
                     const plannedWeather = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'weather');
                     const plannedLocation = plannedWeather?.args?.location;
                     let citySearch = "wuhan";
-                    const rawLocation = String(plannedLocation || intentResult?.detectedLocation || '').trim();
-                    if (rawLocation) {
+                    
+                    // 🆕 优先级：当前消息 > 意图提取 > 上下文提取 > 对话历史
+                    const rawLocation = String(
+                        plannedLocation || 
+                        intentResult?.detectedLocation || 
+                        intentResult?.contextExtract?.location ||
+                        ''
+                    ).trim();
+                    
+                    // 🆕 如果以上都没有，从对话历史中提取城市
+                    let historyLocation = '';
+                    if (!rawLocation && history && history.length > 0) {
+                        const historyText = history.slice(-6).map(h => h.content || '').join(' ');
+                        const cityMatch = historyText.match(/(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛|沈阳|大连|厦门|福州|济南|合肥|昆明|贵阳|南昌|太原|哈尔滨|长春)/);
+                        if (cityMatch) {
+                            historyLocation = cityMatch[1];
+                            context.log(`[Weather] 从对话历史提取城市: ${historyLocation}`);
+                        }
+                    }
+                    
+                    const finalLocation = rawLocation || historyLocation;
+                    if (finalLocation) {
                         const cityMap = {
                             '深圳': 'shenzhen', '北京': 'beijing', '上海': 'shanghai',
                             '广州': 'guangzhou', '武汉': 'wuhan', '杭州': 'hangzhou',
-                            '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing'
+                            '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing',
+                            '重庆': 'chongqing', '天津': 'tianjin', '苏州': 'suzhou',
+                            '郑州': 'zhengzhou', '长沙': 'changsha', '青岛': 'qingdao'
                         };
-                        citySearch = cityMap[rawLocation] || rawLocation.toLowerCase() || 'wuhan';
+                        citySearch = cityMap[finalLocation] || finalLocation.toLowerCase() || 'wuhan';
                     }
                     // 🚀 优化: 缩短天气 API 超时 5s → 3s
                     const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
+                    context.log(`[Weather] 请求天气 API: location=${citySearch} finalLocation=${finalLocation}`);
                     const wRes = await fetchBypass(weatherUrl, { timeoutMs: 3000 }, 1);
+                    context.log(`[Weather] API 响应: ok=${wRes?.ok} status=${wRes?.status}`);
                     if (wRes && wRes.ok) {
                         const wData = await wRes.json();
+                        context.log(`[Weather] API 数据: ${JSON.stringify(wData).slice(0,200)}`);
                         const loc = wData.results?.[0]?.location || {};
                         const cur = wData.results?.[0]?.now || {};
                         return {
@@ -5293,6 +5460,8 @@ ${scheduleInfo}
                             weather: cur.text || '未知',
                             formatted: `${loc.name || '武汉'} ${cur.temperature || '?'}℃ ${cur.text || ''}`
                         };
+                    } else {
+                        context.log(`[Weather] API 失败: status=${wRes?.status}`);
                     }
                 } catch (e) {
                     context.log(`[ToolContext] 天气获取失败: ${e.message}`);
@@ -5303,12 +5472,15 @@ ${scheduleInfo}
         }
 
         // 3. 如果需要搜索外部信息
-        const needsSearch = planWants.search || (intentResult?.needsSearch && intentResult?.query);
+        // 🆕 Plan 模式也自动触发搜索（用户规划行程可能需要查外部活动信息）
+        const hasSearchTopic = !!(intentResult?.searchTopic || intentResult?.query);
+        const needsSearch = planWants.search || intentResult?.needsSearch || (isPlanMode && hasSearchTopic);
         if (needsSearch) {
             const searchPromise = (async () => {
                 try {
                     const plannedSearch = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'search');
-                    const searchQuery = String(plannedSearch?.args?.query || intentResult?.query || '').trim();
+                    // 🆕 优先使用 search_topic（意图路由提取的活动关键词）
+                    const searchQuery = String(plannedSearch?.args?.query || intentResult?.searchTopic || intentResult?.query || '').trim();
                     if (!searchQuery) return null;
                     // 🚀 优化: 限制搜索结果数量 3 → 2
                     const searchResult = await hybridSearch(searchQuery, context, { userId: senderId, maxResults: 2 });
@@ -6968,7 +7140,16 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                         safety_category: intentResult?.safetyCategory || '',
                         sourceLabel: sourceLabel,
                         trustLevel: trustLevel,
-                        latencyMs: Date.now() - requestStartTs
+                        latencyMs: Date.now() - requestStartTs,
+                        // 🔍 调试信息
+                        _debug: {
+                            historyLen: history?.length || 0,
+                            webChatHistoryLen: webChatHistory?.length || 0,
+                            detectedLocation: intentResult?.detectedLocation || '',
+                            needsWeather: intentResult?.needsWeather || false,
+                            shouldAskUser: intentResult?.shouldAskUser || false,
+                            hasWeatherData: !!toolContext?.weatherData
+                        }
                     },
                     auto_escape: false
                 })
