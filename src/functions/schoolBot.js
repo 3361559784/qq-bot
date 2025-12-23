@@ -5334,14 +5334,36 @@ ${scheduleInfo}
                     const plannedWeather = toolPlan.find(s => s?.type === 'call_tool' && s?.tool === 'weather');
                     const plannedLocation = plannedWeather?.args?.location;
                     let citySearch = "wuhan";
-                    const rawLocation = String(plannedLocation || intentResult?.detectedLocation || '').trim();
-                    if (rawLocation) {
+                    
+                    // 🆕 优先级：当前消息 > 意图提取 > 上下文提取 > 对话历史
+                    const rawLocation = String(
+                        plannedLocation || 
+                        intentResult?.detectedLocation || 
+                        intentResult?.contextExtract?.location ||
+                        ''
+                    ).trim();
+                    
+                    // 🆕 如果以上都没有，从对话历史中提取城市
+                    let historyLocation = '';
+                    if (!rawLocation && history && history.length > 0) {
+                        const historyText = history.slice(-6).map(h => h.content || '').join(' ');
+                        const cityMatch = historyText.match(/(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛|沈阳|大连|厦门|福州|济南|合肥|昆明|贵阳|南昌|太原|哈尔滨|长春)/);
+                        if (cityMatch) {
+                            historyLocation = cityMatch[1];
+                            context.log(`[Weather] 从对话历史提取城市: ${historyLocation}`);
+                        }
+                    }
+                    
+                    const finalLocation = rawLocation || historyLocation;
+                    if (finalLocation) {
                         const cityMap = {
                             '深圳': 'shenzhen', '北京': 'beijing', '上海': 'shanghai',
                             '广州': 'guangzhou', '武汉': 'wuhan', '杭州': 'hangzhou',
-                            '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing'
+                            '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing',
+                            '重庆': 'chongqing', '天津': 'tianjin', '苏州': 'suzhou',
+                            '郑州': 'zhengzhou', '长沙': 'changsha', '青岛': 'qingdao'
                         };
-                        citySearch = cityMap[rawLocation] || rawLocation.toLowerCase() || 'wuhan';
+                        citySearch = cityMap[finalLocation] || finalLocation.toLowerCase() || 'wuhan';
                     }
                     // 🚀 优化: 缩短天气 API 超时 5s → 3s
                     const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
