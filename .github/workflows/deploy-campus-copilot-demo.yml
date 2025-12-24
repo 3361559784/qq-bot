@@ -1,0 +1,66 @@
+name: Build and deploy campus-ai-web to Azure App Service - campus-copilot-demo
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - campus-ai-web/**
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '20'
+  WEBAPP_NAME: campus-copilot-demo
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: campus-ai-web/package-lock.json
+
+      - name: Install deps
+        working-directory: campus-ai-web
+        run: npm ci
+
+      - name: Build (Next.js standalone)
+        working-directory: campus-ai-web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+
+      - name: Package for App Service (zip)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf deploy deploy.zip
+          mkdir -p deploy
+
+          # Lift `.next/standalone/*` to site root (server.js must be at root for `node server.js`).
+          cp -R campus-ai-web/.next/standalone/* deploy/
+
+          # Ensure static assets live at `deploy/.next/static/*`.
+          mkdir -p deploy/.next
+          cp -R campus-ai-web/.next/static deploy/.next/static
+
+          # Public assets.
+          if [ -d campus-ai-web/public ]; then
+            cp -R campus-ai-web/public deploy/public
+          fi
+
+          (cd deploy && zip -qr ../deploy.zip .)
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE_CAMPUS_COPILOT_DEMO }}
+          package: deploy.zip
