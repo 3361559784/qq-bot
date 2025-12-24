@@ -453,6 +453,18 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const inputAreaRef = useRef<HTMLDivElement | null>(null);
 
+  // 安全解析 JSON，失败时返回 null 并清理损坏数据
+  const safeParseJSON = (key: string, value: string | null): unknown => {
+    if (!value) return null;
+    try {
+      return JSON.parse(value);
+    } catch {
+      console.warn(`⚠️ localStorage['${key}'] 数据损坏，已清理`);
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+      return null;
+    }
+  };
+
   // 初始化时加载课表 + 检查 demo 参数
   useEffect(() => {
     try {
@@ -475,9 +487,9 @@ export default function Home() {
       
       // 🆕 从 Demo 跳转过来时，清除 demo 保存的课表，让用户在完整版重新选择
       if (isFromDemo) {
-        const parsed = saved ? JSON.parse(saved) : null;
+        const parsed = safeParseJSON("campus_schedule", saved);
         // 如果是 demo 保存的课表（带 source: "demo"），清除它
-        if (parsed && !Array.isArray(parsed) && parsed.source === "demo") {
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (parsed as Record<string, unknown>).source === "demo") {
           localStorage.removeItem("campus_schedule");
           console.log("🧹 已清除 Demo 页面保存的临时课表");
         }
@@ -488,16 +500,20 @@ export default function Home() {
       
       // 非 demo 跳转：正常加载已保存的课表
       if (saved) {
-        const parsed = JSON.parse(saved);
-        // 兼容两种格式：数组 或 {schedule: [...], source: "demo"}
-        const scheduleData = Array.isArray(parsed) ? parsed : (parsed.schedule || []);
-        if (scheduleData.length > 0) {
-          setSchedule(scheduleData);
-          console.log("📚 已加载课表:", scheduleData.length, "门课程");
+        const parsed = safeParseJSON("campus_schedule", saved);
+        if (parsed) {
+          // 兼容两种格式：数组 或 {schedule: [...], source: "demo"}
+          const scheduleData = Array.isArray(parsed) ? parsed : ((parsed as Record<string, unknown>).schedule as unknown[] || []);
+          if (scheduleData.length > 0) {
+            setSchedule(scheduleData);
+            console.log("📚 已加载课表:", scheduleData.length, "门课程");
+          }
         }
       }
     } catch (e) {
       console.error("加载课表失败:", e);
+      // 最后一道防线：清理可能损坏的数据
+      try { localStorage.removeItem("campus_schedule"); } catch { /* ignore */ }
     }
   }, []);
 
