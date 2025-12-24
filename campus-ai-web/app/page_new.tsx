@@ -22,7 +22,12 @@ import JudgePanel, { JUDGE_DEMO_SCHEDULE } from "../components/JudgePanel";
 //   - localStorage.setItem('enable_streaming','true')  开启
 // - 同时兼容 NEXT_PUBLIC_ENABLE_STREAMING=true 作为显式开启
 const ENABLE_STREAMING = typeof window !== 'undefined' && (() => {
-  const forced = localStorage.getItem('enable_streaming');
+  let forced: string | null = null;
+  try {
+    forced = localStorage.getItem('enable_streaming');
+  } catch {
+    forced = null;
+  }
   if (forced === 'false') return false;
   if (forced === 'true') return true;
   if (process.env.NEXT_PUBLIC_ENABLE_STREAMING === 'true') return true;
