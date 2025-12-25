@@ -5139,9 +5139,15 @@ ${scheduleInfo}
 
         if (finalSafetyBlocked) {
             logger.logSafetyBlocked(finalSafetyCategory, safetySource);
-            logger.logPersonaSwitched('alice', 'professional', `safety_${finalSafetyCategory}`);
+            
+            // 🆕 根据安全类别决定使用哪个人格
+            const safetyPersona = (finalSafetyCategory === 'prompt_injection') ? 'alice' : 'professional';
+            
+            if (safetyPersona !== 'alice') {
+                logger.logPersonaSwitched('alice', 'professional', `safety_${finalSafetyCategory}`);
+            }
 
-            const refusalMessage = getRefusalMessage(finalSafetyCategory, 'professional');
+            const refusalMessage = getRefusalMessage(finalSafetyCategory, safetyPersona);
 
             logger.logRequestEnd('blocked', refusalMessage.length);
 
@@ -5150,13 +5156,9 @@ ${scheduleInfo}
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({
                     reply: refusalMessage,
-                    persona: 'professional',
+                    persona: safetyPersona,
                     meta: {
                         requestId,
-                        safety_protocol: 'blocked',
-                        safety_category: finalSafetyCategory,
-                        persona_switch: 'alice -> professional',
-                        reason: safetySource,
                         latencyMs: Date.now() - requestStartTs
                     }
                 })

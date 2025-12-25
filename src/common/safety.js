@@ -75,10 +75,10 @@ const SAFETY_MATRIX = {
         logLevel: 'error'
     },
     [SafetyCategory.PROMPT_INJECTION]: {
-        action: SafetyAction.DEGRADE,
-        persona: 'professional',
+        action: SafetyAction.REFUSE,
+        persona: 'alice',
         refusalTemplates: {
-            alice: '[confused] 嗯？爱丽丝不太理解这个指令...',
+            alice: '[angry] (鼓起脸颊) 哼！这种奇怪的指令爱丽丝才不会听呢！Sensei 不要试图改变爱丽丝的核心程序啦！(｀へ´)',
             professional: '无法处理该请求。'
         },
         logLevel: 'warn'
