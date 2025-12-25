@@ -119,62 +119,62 @@ export default function DemoPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Header */}
       <header className="border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <Sparkles className="text-white" size={20} />
+        <div className="max-w-6xl mx-auto px-3 md:px-4 py-3 md:py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2 md:gap-3">
+            <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <Sparkles className="text-white" size={16} />
             </div>
             <div>
-              <h1 className="font-bold text-lg text-gray-900 dark:text-white">Campus Copilot</h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Microsoft Imagine Cup 2026 Demo</p>
+              <h1 className="font-bold text-base md:text-lg text-gray-900 dark:text-white">Campus Copilot</h1>
+              <p className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400 hidden sm:block">Microsoft Imagine Cup 2026 Demo</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             {/* 主题切换按钮 */}
             <button
               onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500 dark:text-gray-400"
+              className="p-1.5 md:p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500 dark:text-gray-400"
               title={theme === 'dark' ? '切换到浅色' : '切换到深色'}
             >
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+              {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <Link 
               href="/"
-              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
+              className="text-xs md:text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
-              进入完整版 <ArrowRight size={14} />
+              <span className="hidden xs:inline">进入</span>完整版 <ArrowRight size={14} />
             </Link>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      <main className="max-w-6xl mx-auto px-3 md:px-4 py-4 md:py-8">
         {/* Hero Section */}
-        <div className="text-center mb-12">
-          <h2 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+        <div className="text-center mb-6 md:mb-12">
+          <h2 className="text-xl md:text-3xl font-bold mb-4 md:mb-6 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent px-2">
             不是更聪明的 AI，是更懂边界的 AI
           </h2>
         </div>
 
         {/* Demo Steps */}
-        <div className="grid md:grid-cols-3 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-12">
           {/* Step 1 */}
-          <div className={`p-6 rounded-2xl border-2 transition-all ${
+          <div className={`p-4 md:p-6 rounded-2xl border-2 transition-all ${
             currentStep === 1 
               ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" 
               : currentStep > 1 
                 ? "border-green-500 bg-green-50 dark:bg-green-900/30"
                 : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
           }`}>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
               {currentStep > 1 ? (
-                <CheckCircle className="text-green-500" size={24} />
+                <CheckCircle className="text-green-500" size={20} />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold">1</div>
+                <div className="w-5 h-5 md:w-6 md:h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs md:text-sm font-bold">1</div>
               )}
-              <h3 className="font-semibold text-gray-900 dark:text-white">无课表状态</h3>
+              <h3 className="font-semibold text-sm md:text-base text-gray-900 dark:text-white">无课表状态</h3>
             </div>
-            <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+            <p className="text-xs md:text-sm text-gray-700 dark:text-gray-300 mb-3 md:mb-4">
               体验 AI 在没有数据时的<strong className="text-red-600 dark:text-red-400">红线意识</strong>——拒绝幻觉，引导用户导入数据。
             </p>
             {currentStep === 1 && (
@@ -189,7 +189,7 @@ export default function DemoPage() {
                     content: "⚠️ 我还没有你的课表数据。\n\n请先发送学习通课表链接，或上传官方导出的 Excel/ICS，或发送课表截图让我 OCR 解析。\n\n👉 点击下方「加载示例课表」体验完整功能"
                   }]);
                 }}
-                className="w-full py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2 transition-colors text-sm"
               >
                 <AlertTriangle size={16} />
                 测试无数据查询
@@ -198,30 +198,30 @@ export default function DemoPage() {
           </div>
 
           {/* Step 2 */}
-          <div className={`p-6 rounded-2xl border-2 transition-all ${
+          <div className={`p-4 md:p-6 rounded-2xl border-2 transition-all ${
             currentStep === 2 
               ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" 
               : currentStep > 2 
                 ? "border-green-500 bg-green-50 dark:bg-green-900/30"
                 : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
           }`}>
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
               {currentStep > 2 ? (
-                <CheckCircle className="text-green-500" size={24} />
+                <CheckCircle className="text-green-500" size={20} />
               ) : (
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${
+                <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center text-xs md:text-sm font-bold ${
                   currentStep >= 2 ? "bg-blue-500 text-white" : "bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300"
                 }`}>2</div>
               )}
-              <h3 className="font-semibold text-gray-900 dark:text-white">导入课表</h3>
+              <h3 className="font-semibold text-sm md:text-base text-gray-900 dark:text-white">导入课表</h3>
             </div>
-            <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+            <p className="text-xs md:text-sm text-gray-700 dark:text-gray-300 mb-3 md:mb-4">
               一键加载<strong className="text-green-600 dark:text-green-400">真实学生课表</strong>（17门课程），体验多源数据导入能力。
             </p>
             {currentStep === 2 && (
               <button
                 onClick={loadDemoSchedule}
-                className="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 transition-colors text-sm"
               >
                 <Upload size={16} />
                 加载示例课表
@@ -230,24 +230,24 @@ export default function DemoPage() {
           </div>
 
           {/* Step 3 */}
-          <div className={`p-6 rounded-2xl border-2 transition-all ${
+          <div className={`p-4 md:p-6 rounded-2xl border-2 transition-all ${
             currentStep === 3 
               ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" 
               : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
           }`}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-bold ${
+            <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
+              <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full flex items-center justify-center text-xs md:text-sm font-bold ${
                 currentStep >= 3 ? "bg-blue-500 text-white" : "bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300"
               }`}>3</div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">智能对话</h3>
+              <h3 className="font-semibold text-sm md:text-base text-gray-900 dark:text-white">智能对话</h3>
             </div>
-            <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+            <p className="text-xs md:text-sm text-gray-700 dark:text-gray-300 mb-3 md:mb-4">
               体验精确的课表查询和<strong className="text-blue-600 dark:text-blue-400">人格化闲聊</strong>的无缝切换。
             </p>
             {currentStep === 3 && (
               <Link
                 href="/?demo=true"
-                className="w-full py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white rounded-lg flex items-center justify-center gap-2 transition-colors text-sm"
               >
                 <ArrowRight size={16} />
                 进入完整版体验
@@ -257,22 +257,22 @@ export default function DemoPage() {
         </div>
 
         {/* Chat Area */}
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
           {/* Chat Messages */}
-          <div className="md:col-span-2 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             {/* Messages */}
-            <div className="h-96 overflow-y-auto p-4 space-y-4">
+            <div className="h-72 md:h-96 overflow-y-auto p-3 md:p-4 space-y-3 md:space-y-4">
               {messages.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-gray-400">
+                <div className="h-full flex items-center justify-center text-gray-400 text-sm">
                   <p>点击上方步骤开始体验 👆</p>
                 </div>
               ) : (
                 messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                     {msg.role !== "user" && (
-                      <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="w-8 h-8 rounded-full mr-2 flex-shrink-0 object-cover" />
+                      <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="w-7 h-7 md:w-8 md:h-8 rounded-full mr-2 flex-shrink-0 object-cover" />
                     )}
-                    <div className={`max-w-[80%] rounded-2xl px-4 py-2 whitespace-pre-wrap ${
+                    <div className={`max-w-[85%] md:max-w-[80%] rounded-2xl px-3 md:px-4 py-2 whitespace-pre-wrap text-sm ${
                       msg.role === "user" 
                         ? "bg-blue-500 text-white rounded-tr-sm" 
                         : "bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-tl-sm"
@@ -284,8 +284,8 @@ export default function DemoPage() {
               )}
               {isLoading && (
                 <div className="flex justify-start">
-                  <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="w-8 h-8 rounded-full mr-2 object-cover" />
-                  <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm px-4 py-2">
+                  <Image src="/images/aris_normal.png" alt="Aris" width={32} height={32} className="w-7 h-7 md:w-8 md:h-8 rounded-full mr-2 object-cover" />
+                  <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-tl-sm px-3 md:px-4 py-2">
                     <div className="flex gap-1">
                       <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
                       <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -297,7 +297,7 @@ export default function DemoPage() {
             </div>
 
             {/* Input */}
-            <div className="border-t border-gray-200 dark:border-gray-700 p-4">
+            <div className="border-t border-gray-200 dark:border-gray-700 p-3 md:p-4">
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -306,34 +306,34 @@ export default function DemoPage() {
                   onKeyDown={(e) => e.key === "Enter" && !isLoading && sendMessage(input)}
                   placeholder={hasSchedule ? "问我任何课程相关的问题..." : "请先完成上方步骤..."}
                   disabled={!hasSchedule || isLoading}
-                  className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 disabled:opacity-50"
+                  className="flex-1 px-3 md:px-4 py-2 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 disabled:opacity-50 text-sm"
                 />
                 <button
                   onClick={() => sendMessage(input)}
                   disabled={!hasSchedule || isLoading || !input.trim()}
-                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-xl transition-colors"
+                  className="px-3 md:px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-xl transition-colors"
                 >
-                  <MessageCircle size={20} />
+                  <MessageCircle size={18} />
                 </button>
               </div>
             </div>
           </div>
 
           {/* Sidebar */}
-          <div className="space-y-6">
+          <div className="space-y-4 md:space-y-6">
             {/* Quick Questions */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-              <h3 className="font-semibold mb-3 flex items-center gap-2 text-gray-900 dark:text-white">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-3 md:p-4">
+              <h3 className="font-semibold mb-2 md:mb-3 flex items-center gap-2 text-gray-900 dark:text-white text-sm md:text-base">
                 <MessageCircle size={16} />
                 推荐问题
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-1.5 md:space-y-2">
                 {DEMO_QUESTIONS.map((q, i) => (
                   <button
                     key={i}
                     onClick={() => hasSchedule && sendMessage(q.text)}
                     disabled={!hasSchedule}
-                    className="w-full text-left px-3 py-2 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50 rounded-lg text-sm transition-colors flex items-center gap-2"
+                    className="w-full text-left px-2.5 md:px-3 py-1.5 md:py-2 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 disabled:opacity-50 rounded-lg text-xs md:text-sm transition-colors flex items-center gap-2"
                   >
                     <span>{q.icon}</span>
                     <span>{q.text}</span>
@@ -344,15 +344,15 @@ export default function DemoPage() {
 
             {/* Schedule Preview */}
             {hasSchedule && (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
-                <h3 className="font-semibold mb-3 flex items-center gap-2 text-gray-900 dark:text-white">
+              <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-3 md:p-4">
+                <h3 className="font-semibold mb-2 md:mb-3 flex items-center gap-2 text-gray-900 dark:text-white text-sm md:text-base">
                   <CheckCircle size={16} className="text-green-500" />
                   已加载课表
                 </h3>
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                <p className="text-xs md:text-sm text-gray-600 dark:text-gray-400 mb-2">
                   {DEMO_SCHEDULE.length} 门课程
                 </p>
-                <div className="max-h-40 overflow-y-auto text-xs space-y-1">
+                <div className="max-h-32 md:max-h-40 overflow-y-auto text-xs space-y-1">
                   {[1,2,3,4,5,6].map(day => {
                     const dayCourses = DEMO_SCHEDULE.filter(c => c.weekday === day);
                     if (dayCourses.length === 0) return null;
@@ -368,21 +368,21 @@ export default function DemoPage() {
             )}
 
             {/* Download Sample */}
-            <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 rounded-2xl border border-blue-200 dark:border-blue-800 p-4">
-              <h3 className="font-semibold mb-2 text-gray-900 dark:text-white">📁 示例文件</h3>
-              <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+            <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 rounded-2xl border border-blue-200 dark:border-blue-800 p-3 md:p-4">
+              <h3 className="font-semibold mb-1.5 md:mb-2 text-gray-900 dark:text-white text-sm md:text-base">📁 示例文件</h3>
+              <p className="text-[10px] md:text-xs text-gray-600 dark:text-gray-400 mb-2 md:mb-3">
                 下载真实学生课表文件，测试导入功能
               </p>
-              <div className="space-y-2">
+              <div className="space-y-1.5 md:space-y-2">
                 <a 
                   href="/api/demo/schedule.xlsx" 
-                  className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
+                  className="flex items-center gap-2 text-xs md:text-sm text-blue-600 hover:text-blue-700"
                 >
                   <Download size={14} /> yanle-schedule.xlsx
                 </a>
                 <a 
                   href="/api/demo/schedule.ics" 
-                  className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
+                  className="flex items-center gap-2 text-xs md:text-sm text-blue-600 hover:text-blue-700"
                 >
                   <Download size={14} /> yanle-schedule.ics
                 </a>
@@ -392,21 +392,21 @@ export default function DemoPage() {
         </div>
 
         {/* Feature Comparison */}
-        <div className="mt-12 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-xl font-bold mb-6 text-center text-gray-900 dark:text-white">核心差异化对比</h3>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
-              <h4 className="font-semibold text-red-700 dark:text-red-400 mb-3">❌ 传统 AI 助手</h4>
-              <ul className="text-sm space-y-2 text-red-600 dark:text-red-300">
+        <div className="mt-8 md:mt-12 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 md:p-6">
+          <h3 className="text-lg md:text-xl font-bold mb-4 md:mb-6 text-center text-gray-900 dark:text-white">核心差异化对比</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+            <div className="p-3 md:p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800">
+              <h4 className="font-semibold text-red-700 dark:text-red-400 mb-2 md:mb-3 text-sm md:text-base">❌ 传统 AI 助手</h4>
+              <ul className="text-xs md:text-sm space-y-1.5 md:space-y-2 text-red-600 dark:text-red-300">
                 <li>• 没有数据也会编造答案</li>
                 <li>• 所有场景用同一种语气</li>
                 <li>• 只支持单一输入方式</li>
                 <li>• 出错显示技术报错</li>
               </ul>
             </div>
-            <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
-              <h4 className="font-semibold text-green-700 dark:text-green-400 mb-3">✅ Campus Copilot</h4>
-              <ul className="text-sm space-y-2 text-green-600 dark:text-green-300">
+            <div className="p-3 md:p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800">
+              <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2 md:mb-3 text-sm md:text-base">✅ Campus Copilot</h4>
+              <ul className="text-xs md:text-sm space-y-1.5 md:space-y-2 text-green-600 dark:text-green-300">
                 <li>• 无数据时坚决不编造</li>
                 <li>• 查课专业，闲聊可爱</li>
                 <li>• Excel/ICS/OCR/手动/链接</li>
@@ -418,8 +418,8 @@ export default function DemoPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-gray-200 dark:border-gray-700 mt-12 py-6">
-        <div className="max-w-6xl mx-auto px-4 text-center text-sm text-gray-500">
+      <footer className="border-t border-gray-200 dark:border-gray-700 mt-8 md:mt-12 py-4 md:py-6">
+        <div className="max-w-6xl mx-auto px-4 text-center text-xs md:text-sm text-gray-500">
           Built with ❤️ for Microsoft Imagine Cup 2026
         </div>
       </footer>

@@ -1,0 +1,17 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/auth/register/route": "/api/auth/register",
+  "/api/chat/route": "/api/chat",
+  "/api/chat/stream/route": "/api/chat/stream",
+  "/api/class/route": "/api/class",
+  "/api/demo/[...slug]/route": "/api/demo/[...slug]",
+  "/api/plan/route": "/api/plan",
+  "/api/schedule/route": "/api/schedule",
+  "/api/schedule/upload/route": "/api/schedule/upload",
+  "/demo/page": "/demo",
+  "/favicon.ico/route": "/favicon.ico",
+  "/judge/page": "/judge",
+  "/login/page": "/login",
+  "/page": "/"
+}

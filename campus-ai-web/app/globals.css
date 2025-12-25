@@ -143,3 +143,108 @@ textarea, input, button {
 .animate-bounce-in {
   animation: bounce-in 0.3s ease-out forwards;
 }
+
+/* ============================================
+   移动端优化样式
+   ============================================ */
+
+/* 安全区域适配（刘海屏、底部条） */
+@supports (padding: max(0px)) {
+  .safe-area-inset-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+  .safe-area-inset-top {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+}
+
+/* 移动端滚动条隐藏 */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* 触摸设备优化 */
+@media (hover: none) and (pointer: coarse) {
+  /* 增大点击区域 */
+  button, a, [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* 禁用 hover 效果防止粘滞 */
+  button:hover, a:hover {
+    transition: none;
+  }
+}
+
+/* 小屏幕优化 */
+@media (max-width: 640px) {
+  /* 减小默认字体大小 */
+  html {
+    font-size: 15px;
+  }
+  
+  /* 确保输入框不会触发缩放 */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+  
+  /* 优化滚动性能 */
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* 超小屏幕（iPhone SE等） */
+@media (max-width: 375px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+/* 自定义 xs 断点（Tailwind 默认没有） */
+@media (min-width: 480px) {
+  .xs\:inline {
+    display: inline;
+  }
+  .xs\:block {
+    display: block;
+  }
+  .xs\:hidden {
+    display: none;
+  }
+}
+
+/* 深色模式下的触摸反馈 */
+.dark button:active,
+.dark a:active {
+  opacity: 0.8;
+}
+
+/* 防止文本选择时出现蓝色背景 */
+.no-select {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 流畅的页面过渡 */
+.page-transition {
+  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+}
+
+/* 底部输入框固定样式 */
+.fixed-bottom-input {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: inherit;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}

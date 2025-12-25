@@ -268,17 +268,17 @@ function ChatInput({
   }, [input]);
 
   return (
-    <div className={isCenter ? "w-full" : "w-full bg-white dark:bg-gray-950 pb-6 pt-2 px-4"}>
+    <div className={isCenter ? "w-full" : "w-full bg-white dark:bg-gray-950 pb-4 md:pb-6 pt-2 px-3 md:px-4 safe-area-inset-bottom"}>
       <div className={isCenter ? "w-full" : "max-w-3xl mx-auto"}>
         <div
-          className={`relative rounded-[2rem] transition-all duration-200 border backdrop-blur-xl shadow-lg ${
-            input.trim() ? "rounded-[1.5rem]" : ""
+          className={`relative rounded-[1.5rem] md:rounded-[2rem] transition-all duration-200 border backdrop-blur-xl shadow-lg ${
+            input.trim() ? "rounded-[1.25rem] md:rounded-[1.5rem]" : ""
           } bg-white/70 dark:bg-gray-900/50 border-gray-200/70 dark:border-gray-700/60`}
         >
-          <div className="flex items-end px-4 py-3 min-h-[56px]" ref={inputAreaRef}>
+          <div className="flex items-end px-3 md:px-4 py-2.5 md:py-3 min-h-[48px] md:min-h-[56px]" ref={inputAreaRef}>
             <textarea
               ref={textareaRef}
-              className="flex-1 bg-transparent border-none focus:ring-0 p-0 text-base leading-6 resize-none max-h-32 text-gray-800 dark:text-gray-100 placeholder-gray-500 py-1 scrollbar-hide focus:outline-none"
+              className="flex-1 bg-transparent border-none focus:ring-0 p-0 text-[16px] md:text-base leading-6 resize-none max-h-32 text-gray-800 dark:text-gray-100 placeholder-gray-500 py-1 scrollbar-hide focus:outline-none"
               placeholder={`问问 ${currentModeLabel} 的爱丽丝...`}
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -292,29 +292,29 @@ function ChatInput({
               }}
             />
 
-            <div className="flex items-center gap-2 ml-2 pb-0.5">
+            <div className="flex items-center gap-1.5 md:gap-2 ml-2 pb-0.5">
               {!input.trim() && (
                 <>
                   <div className="relative">
                     <button
-                      className="flex items-center gap-1 px-3 py-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
+                      className="flex items-center gap-0.5 md:gap-1 px-2 md:px-3 py-1.5 md:py-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-700 dark:text-gray-200 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
                       onClick={toggleModeMenu}
                     >
-                      <CurrentModeIcon size={16} />
-                      <span className="text-sm font-medium">{currentMode}</span>
+                      <CurrentModeIcon size={14} className="md:w-4 md:h-4" />
+                      <span className="text-xs md:text-sm font-medium hidden xs:inline">{currentMode}</span>
                       <ChevronDown
-                        size={14}
+                        size={12}
                         className={`transition-transform duration-200 ${isModeMenuOpen ? 'rotate-180' : ''}`}
                       />
                     </button>
 
                     {isModeMenuOpen && (
-                      <div className="absolute bottom-full right-0 mb-3 w-56 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
-                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">切换模式</div>
+                      <div className="absolute bottom-full right-0 mb-2 md:mb-3 w-48 md:w-56 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
+                        <div className="px-3 md:px-4 py-1.5 md:py-2 text-[10px] md:text-xs font-semibold text-gray-400 uppercase tracking-wider">切换模式</div>
                         {MODES.map((mode) => (
                           <button
                             key={mode.name}
-                            className={`w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors ${
+                            className={`w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors ${
                               currentMode === mode.name
                                 ? 'bg-blue-50/70 dark:bg-blue-900/20 text-blue-600'
                                 : 'text-gray-700 dark:text-gray-200'
@@ -326,17 +326,17 @@ function ChatInput({
                             }}
                           >
                             <div
-                              className={`p-1.5 rounded-lg ${
+                              className={`p-1 md:p-1.5 rounded-lg ${
                                 currentMode === mode.name
                                   ? 'bg-blue-100/70 dark:bg-blue-800/60'
                                   : 'bg-gray-100/70 dark:bg-gray-700/60'
                               }`}
                             >
-                              <mode.icon size={16} />
+                              <mode.icon size={14} className="md:w-4 md:h-4" />
                             </div>
                             <div className="flex flex-col items-start">
                               <span className="font-medium">{mode.name}</span>
-                              <span className="text-xs text-gray-500 dark:text-gray-400">{mode.label}</span>
+                              <span className="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">{mode.label}</span>
                             </div>
                           </button>
                         ))}
@@ -346,31 +346,31 @@ function ChatInput({
 
                   <div className="relative">
                     <button
-                      className="p-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-600 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
+                      className="p-1.5 md:p-2 bg-white/60 dark:bg-gray-800/70 border border-gray-200/60 dark:border-gray-700/60 rounded-full text-gray-600 dark:text-gray-300 hover:bg-white/80 dark:hover:bg-gray-700/70 transition-colors"
                       onClick={toggleAttachmentMenu}
                     >
-                      <Plus size={20} className={`transition-transform duration-300 ${isAttachmentMenuOpen ? 'rotate-45' : ''}`} />
+                      <Plus size={18} className={`md:w-5 md:h-5 transition-transform duration-300 ${isAttachmentMenuOpen ? 'rotate-45' : ''}`} />
                     </button>
 
                     {isAttachmentMenuOpen && (
-                      <div className="absolute bottom-full right-0 mb-3 w-48 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
-                        <div className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">上传</div>
+                      <div className="absolute bottom-full right-0 mb-2 md:mb-3 w-40 md:w-48 bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl rounded-2xl shadow-xl border border-gray-100/70 dark:border-gray-700/70 overflow-hidden py-2 animate-in fade-in slide-in-from-bottom-4 z-50">
+                        <div className="px-3 md:px-4 py-1.5 md:py-2 text-[10px] md:text-xs font-semibold text-gray-400 uppercase tracking-wider">上传</div>
                         <button 
                           onClick={() => {
                             onOpenScheduleImport?.();
                             setIsAttachmentMenuOpen(false);
                           }}
-                          className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors"
+                          className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors"
                         >
-                          <Calendar size={16} />
+                          <Calendar size={14} />
                           <span>导入课表</span>
                         </button>
-                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
-                          <ImageIcon size={16} />
+                        <button className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
+                          <ImageIcon size={14} />
                           <span>图片</span>
                         </button>
-                        <button className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
-                          <FileText size={16} />
+                        <button className="w-full flex items-center gap-2 md:gap-3 px-3 md:px-4 py-2.5 md:py-3 text-xs md:text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50/70 dark:hover:bg-gray-700/60 transition-colors">
+                          <FileText size={14} />
                           <span>文件</span>
                         </button>
                       </div>
@@ -924,8 +924,8 @@ export default function Home() {
       >
         
         {/* 顶部导航 (极简) */}
-        <div className="h-16 flex items-center justify-between px-6 sticky top-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-md z-20">
-           <div className="flex items-center gap-3">
+        <div className="h-14 md:h-16 flex items-center justify-between px-3 md:px-6 sticky top-0 bg-white/80 dark:bg-gray-950/80 backdrop-blur-md z-20">
+           <div className="flex items-center gap-2 md:gap-3">
               {/* 左侧边栏切换按钮 - 始终显示三横线图标 */}
               <button 
                 onClick={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
@@ -935,14 +935,14 @@ export default function Home() {
                 <Menu size={22} />
               </button>
               
-              <div className="flex items-center gap-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 cursor-pointer transition-colors">
-                <span className="font-medium text-lg">Tendon Arisu</span>
-                <ChevronDown size={16} />
+              <div className="flex items-center gap-1 md:gap-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 cursor-pointer transition-colors">
+                <span className="font-medium text-base md:text-lg">Tendon Arisu</span>
+                <ChevronDown size={16} className="hidden sm:block" />
               </div>
            </div>
-           <div className="flex items-center gap-4">
-              {/* 🆕 人格模式切换：Alice Mode / Professional Mode */}
-              <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-0.5" title="由系统决策引擎自动切换">
+           <div className="flex items-center gap-2 md:gap-4">
+              {/* 🆕 人格模式切换：Alice Mode / Professional Mode - 在移动端隐藏 */}
+              <div className="hidden sm:flex items-center bg-gray-100 dark:bg-gray-800 rounded-full p-0.5" title="由系统决策引擎自动切换">
                 <button
                   type="button"
                   disabled
@@ -970,17 +970,17 @@ export default function Home() {
               {/* 评委体验入口 */}
               <a
                 href="/demo"
-                className="px-3 py-1.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-sm font-medium rounded-full transition-all shadow-sm hover:shadow-md flex items-center gap-1.5"
+                className="px-2 py-1 md:px-3 md:py-1.5 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white text-xs md:text-sm font-medium rounded-full transition-all shadow-sm hover:shadow-md flex items-center gap-1 md:gap-1.5"
                 title="评委快速体验 Demo"
               >
                 <Zap size={14} />
-                Demo
+                <span className="hidden xs:inline">Demo</span>
               </a>
 
-              {/* 右侧面板切换按钮 */}
+              {/* 右侧面板切换按钮 - 在移动端隐藏 */}
               <button 
                 onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
+                className="hidden md:block p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
                 title={isRightPanelOpen ? "隐藏上下文" : "显示上下文"}
               >
                 <PanelRightClose size={20} className={isRightPanelOpen ? "" : "rotate-180"} />
@@ -992,10 +992,10 @@ export default function Home() {
                 className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
                 title={theme === 'dark' ? '切换到浅色' : '切换到深色'}
               >
-                {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+                {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
               </button>
               
-              <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500">
+              <button className="hidden sm:block p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500">
                 <Settings size={20} />
               </button>
               <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
@@ -1005,33 +1005,33 @@ export default function Home() {
         </div>
 
         {/* 消息列表 */}
-        <div className="flex-1 overflow-y-auto px-4 scroll-smooth">
+        <div className="flex-1 overflow-y-auto px-3 md:px-4 scroll-smooth">
           {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center max-w-3xl mx-auto py-8">
+            <div className="h-full flex flex-col items-center justify-center max-w-3xl mx-auto py-4 md:py-8 px-2">
               {/* 产品身份说明：让评委30秒内看懂 */}
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-2 md:gap-3 mb-3 md:mb-4">
                 <img 
                   src={personaMode === 'professional' ? "/images/aris_calm.png" : "/images/aris_normal.png"}
                   alt="Aris"
-                  className={`w-10 h-10 rounded-full shadow-md ${personaMode === 'professional' ? 'ring-2 ring-blue-500' : ''}`}
+                  className={`w-8 h-8 md:w-10 md:h-10 rounded-full shadow-md ${personaMode === 'professional' ? 'ring-2 ring-blue-500' : ''}`}
                 />
-                <div className="text-sm text-gray-500 dark:text-gray-400">
+                <div className="text-xs md:text-sm text-gray-500 dark:text-gray-400">
                   <span className={`font-medium ${personaMode === 'professional' ? 'text-blue-600' : 'text-blue-500'}`}>
                     {personaMode === 'professional' ? 'Campus Copilot' : '爱丽丝'}
                   </span> · 你的校园 AI 助手
                 </div>
               </div>
-              <h1 className={`text-5xl font-medium bg-clip-text text-transparent mb-2 text-center ${
+              <h1 className={`text-3xl md:text-5xl font-medium bg-clip-text text-transparent mb-1 md:mb-2 text-center ${
                 personaMode === 'professional' 
                   ? 'bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-400' 
                   : 'bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500'
               }`}>
                 {personaMode === 'professional' ? '您好' : '你好，同学'}
               </h1>
-              <h2 className="text-4xl font-medium text-gray-700 dark:text-gray-300 mb-3 text-center">
+              <h2 className="text-2xl md:text-4xl font-medium text-gray-700 dark:text-gray-300 mb-2 md:mb-3 text-center">
                 {schedule.length > 0 ? '今天想做点什么？' : '我能帮你做这些'}
               </h2>
-              <p className="text-base text-gray-500 dark:text-gray-400 mb-6 text-center">
+              <p className="text-sm md:text-base text-gray-500 dark:text-gray-400 mb-4 md:mb-6 text-center px-4">
                 {schedule.length > 0 
                   ? '选择下面的快捷入口，或直接在输入框提问'
                   : '📅 查课表 · ✨ 做计划 · 💬 答疑解惑 · 🔍 联网搜索'}
@@ -1039,13 +1039,13 @@ export default function Home() {
               
               {/* 空状态时显示明显的导入按钮 */}
               {schedule.length === 0 && (
-                <div className="mb-6 flex flex-col items-center gap-4 w-full">
-                  <div className="flex flex-wrap justify-center gap-3">
+                <div className="mb-4 md:mb-6 flex flex-col items-center gap-3 md:gap-4 w-full">
+                  <div className="flex flex-col sm:flex-row justify-center gap-2 md:gap-3 w-full px-4 sm:px-0">
                     <button
                       onClick={() => setShowScheduleImport(true)}
-                      className="px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-medium transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
+                      className="w-full sm:w-auto px-4 md:px-6 py-2.5 md:py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full font-medium transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 text-sm md:text-base"
                     >
-                      <Calendar size={20} />
+                      <Calendar size={18} />
                       导入学习通课表
                     </button>
                     <button
@@ -1054,13 +1054,13 @@ export default function Home() {
                         localStorage.setItem("campus_schedule", JSON.stringify(DEMO_SCHEDULE));
                         setMessages([{ role: 'assistant', content: '📚 已加载示例课表！\n\n你可以试试：\n• 「下周课表是什么」\n• 「帮我安排明天的学习计划」\n• 或直接问我任何问题～' }]);
                       }}
-                      className="px-6 py-3 border-2 border-blue-500 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full font-medium transition-colors flex items-center gap-2"
+                      className="w-full sm:w-auto px-4 md:px-6 py-2.5 md:py-3 border-2 border-blue-500 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full font-medium transition-colors flex items-center justify-center gap-2 text-sm md:text-base"
                     >
-                      <Zap size={20} />
+                      <Zap size={18} />
                       快速体验（无需登录）
                     </button>
                   </div>
-                  <p className="text-xs text-gray-400 mt-2">
+                  <p className="text-xs text-gray-400 mt-1 md:mt-2 text-center px-4">
                     💡 提示：没有课表也能正常聊天，课表只是让我更懂你的时间安排
                   </p>
                 </div>
@@ -1068,44 +1068,44 @@ export default function Home() {
               
               {/* 已有课表时显示快捷操作 */}
               {schedule.length > 0 && (
-                <div className="mb-6 flex flex-col items-center gap-4">
-                  <div className="flex flex-wrap justify-center gap-3">
+                <div className="mb-4 md:mb-6 flex flex-col items-center gap-3 md:gap-4">
+                  <div className="flex flex-wrap justify-center gap-2 md:gap-3 px-2">
                     <button
                       onClick={() => { setCurrentMode('Class'); setInput('下一节课是什么'); }}
-                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                      className="px-3 md:px-4 py-1.5 md:py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs md:text-sm transition-colors"
                     >
                       📚 下一节课是什么
                     </button>
                     <button
                       onClick={() => { setCurrentMode('Class'); setInput('下周课表是什么'); }}
-                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                      className="px-3 md:px-4 py-1.5 md:py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs md:text-sm transition-colors"
                     >
                       📅 下周课表
                     </button>
                     <button
                       onClick={() => { setCurrentMode('Plan'); setInput('帮我安排今天的学习计划'); }}
-                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                      className="px-3 md:px-4 py-1.5 md:py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs md:text-sm transition-colors"
                     >
                       ✨ 生成学习计划
                     </button>
                     <button
                       onClick={() => { setCurrentMode('Ask'); setInput(''); }}
-                      className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-sm transition-colors"
+                      className="px-3 md:px-4 py-1.5 md:py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-xs md:text-sm transition-colors"
                     >
                       💬 随便聊聊
                     </button>
                   </div>
                   {/* 课表管理按钮 */}
-                  <div className="flex gap-2 text-xs">
+                  <div className="flex flex-wrap justify-center gap-1.5 md:gap-2 text-xs px-2">
                     <button
                       onClick={() => {
                         setSchedule(JUDGE_DEMO_SCHEDULE);
                         localStorage.setItem("campus_schedule", JSON.stringify(JUDGE_DEMO_SCHEDULE));
                         setMessages([{ role: 'assistant', content: '📚 已加载演示课表（27门课程）！' }]);
                       }}
-                      className="px-3 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors border border-blue-300 dark:border-blue-700"
+                      className="px-2 md:px-3 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors border border-blue-300 dark:border-blue-700 text-[10px] md:text-xs"
                     >
-                      🎯 加载演示课表
+                      🎯 演示课表
                     </button>
                     <button
                       onClick={() => {
@@ -1114,15 +1114,15 @@ export default function Home() {
                         localStorage.removeItem("campus_curriculum_uuid");
                         setMessages([{ role: 'assistant', content: '🗑️ 课表已清除！你可以重新导入真实课表，或继续和爱丽丝聊天～' }]);
                       }}
-                      className="px-3 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-red-300 dark:border-red-700"
+                      className="px-2 md:px-3 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-red-300 dark:border-red-700 text-[10px] md:text-xs"
                     >
-                      🗑️ 取消绑定课表
+                      🗑️ 取消绑定
                     </button>
                     <button
                       onClick={() => setShowScheduleImport(true)}
-                      className="px-3 py-1 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors border border-green-300 dark:border-green-700"
+                      className="px-2 md:px-3 py-1 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-lg transition-colors border border-green-300 dark:border-green-700 text-[10px] md:text-xs"
                     >
-                      📤 导入真实课表
+                      📤 导入课表
                     </button>
                   </div>
                 </div>
@@ -1228,15 +1228,15 @@ export default function Home() {
         onOpenImport={() => setShowScheduleImport(true)}
       />
 
-      {/* 爱丽丝 Avatar (固定在右下角，右侧面板打开时隐藏) */}
-      <div className={`fixed bottom-28 z-50 pointer-events-none transition-all duration-300 ${isRightPanelOpen ? 'right-96 opacity-80' : 'right-8'}`}>
-        <div className="flex flex-col items-end gap-3 pointer-events-auto">
+      {/* 爱丽丝 Avatar (固定在右下角，右侧面板打开时隐藏，移动端缩小) */}
+      <div className={`fixed bottom-20 md:bottom-28 z-50 pointer-events-none transition-all duration-300 ${isRightPanelOpen ? 'right-96 opacity-80' : 'right-4 md:right-8'}`}>
+        <div className="flex flex-col items-end gap-2 md:gap-3 pointer-events-auto">
           {/* 3D 容器：使用 Framer Motion 实现流畅的弹簧动画 */}
           <AnimatePresence mode="wait">
             {isAvatarExpanded && (
               <motion.div
                 ref={avatarWrapRef}
-                className="w-48 h-48 origin-bottom-right"
+                className="w-32 h-32 md:w-48 md:h-48 origin-bottom-right"
                 initial={{ 
                   opacity: 0, 
                   scale: 0.3, 
@@ -1279,15 +1279,15 @@ export default function Home() {
             type="button"
             onClick={toggleAvatar}
             aria-label={isAvatarExpanded ? "坍缩爱丽丝" : "展开爱丽丝"}
-            className="relative w-14 h-14 rounded-full bg-white/70 dark:bg-gray-900/60 border border-gray-200/70 dark:border-gray-700/60 backdrop-blur-xl shadow-lg hover:bg-white/85 dark:hover:bg-gray-800/70 transition-colors"
+            className="relative w-10 h-10 md:w-14 md:h-14 rounded-full bg-white/70 dark:bg-gray-900/60 border border-gray-200/70 dark:border-gray-700/60 backdrop-blur-xl shadow-lg hover:bg-white/85 dark:hover:bg-gray-800/70 transition-colors"
             whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.92 }}
             transition={{ type: "spring", stiffness: 400, damping: 17 }}
           >
             <svg
               className="absolute inset-0"
-              width="56"
-              height="56"
+              width="100%"
+              height="100%"
               viewBox="0 0 56 56"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"

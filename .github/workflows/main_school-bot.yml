@@ -4,13 +4,14 @@
 name: Build and deploy Node.js project to Azure Function App - school-bot
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '3361559784/**'
-      - 'campus-ai-web/**'
-      - '*.md'
+  # 🚫 暂时禁用自动构建，改用 Azure CLI 手动部署
+  # push:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - '3361559784/**'
+  #     - 'campus-ai-web/**'
+  #     - '*.md'
   workflow_dispatch:
 
 env:

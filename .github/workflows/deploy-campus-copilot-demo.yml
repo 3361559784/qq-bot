@@ -1,14 +1,15 @@
 name: Build and deploy campus-ai-web to Azure App Service - campus-copilot-demo
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - campus-ai-web/**
-    paths-ignore:
-      - '3361559784/**'
-      - '*.md'
+  # 🚫 暂时禁用自动构建，改用 Azure CLI 手动部署
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - campus-ai-web/**
+  #   paths-ignore:
+  #     - '3361559784/**'
+  #     - '*.md'
   workflow_dispatch:
 
 env:
