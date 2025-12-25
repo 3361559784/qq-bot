@@ -1,3 +1,51 @@
+name: Build and deploy Node.js project to Azure Function App - school-bot
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: '18'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          cd src/functions
+          npm ci
+
+      - name: Run tests (optional)
+        run: |
+          echo "No unit tests configured for Functions; skipping"
+
+      - name: Zip function app package
+        run: |
+          cd src/functions
+          zip -r ../functions-deploy.zip .
+
+      - name: Deploy to Azure Function App
+        uses: azure/functions-action@v1
+        with:
+          app-name: 'school-bot'
+          package: 'src/functions'
+        env:
+          # Option 1: using publish profile secret (recommended)
+          AZURE_WEBAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+
+      - name: Notify
+        run: echo "Deployment finished"
 # Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
