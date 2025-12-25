@@ -64,3 +64,8 @@ coverage/
 node_modules/
 **/node_modules/
 **/node_modules
+
+# Azure CLI 本地部署产物
+deploy/
+deploy.zip
+campus-ai-web/.next/
