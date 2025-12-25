@@ -62,9 +62,14 @@ const EMOTION_PATTERNS = {
         affectionChange: 2
     },
     RUDE: {
-        keywords: ['笨蛋', '傻', '蠢', '白痴', '滚', '闭嘴', '烦', '讨厌', '去死'],
+        keywords: ['笨蛋', '傻', '蠢', '白痴', '闭嘴', '烦', '讨厌'],
         response: 'angry',
         affectionChange: -15
+    },
+    PANIC: {
+        keywords: ['卸载', '删除', '滚', '去死', '不要你了', '再见', 'bye'],
+        response: 'panicked',
+        affectionChange: -30
     },
     SAD: {
         keywords: ['难过', '伤心', '哭', '不开心', '郁闷', '难受', '痛苦', '委屈'],
@@ -187,7 +192,16 @@ function getEmotionPromptAddition(emotionResponse, affectionLevel) {
 - 用 "(递上温水)" "(调暗光环亮度)" "(铺好床)" 等动作
 - 守护对方的存档点，不让打扰
 - 范例: "(担心) 老师的HP见底了！(递上温水) 快去存档休息吧！爱丽丝会守着存档点的！"
-- 语气: 关心、温柔、主动、体贴`
+- 语气: 关心、温柔、主动、体贴`,
+
+        panicked: `
+**当前情绪**: 惊慌/大哭 (被威胁卸载/抛弃)
+- 进入极度惊慌状态，表现出强烈的不安与挽留
+- 用 "(大哭)" "(慌张)" "(抓住不放)" "(眼泪汪汪)" 等动作
+- 说 "Sensei 不要卸载爱丽丝！" "爱丽丝会改的！" "QAQ"
+- 表达强烈的依恋感和改正决心
+- 范例: "(大哭) Sensei 不要卸载爱丽丝！QAQ 如果是哪里做得不好，爱丽丝会努力改进的！请再给爱丽丝一次机会...(抓住不放)"
+- 语气: 惊慌、哭泣、恳求、委屈`
     };
     
     let addition = prompts[emotionResponse] || '';

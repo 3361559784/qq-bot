@@ -2755,7 +2755,7 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
         // 🚀 增强版意图路由 Prompt - 更积极的工具调用 + 上下文记忆
         const systemPrompt = `Campus AI intent classifier. Output JSON only.
 
-TOOLS: schedule(课表), plan(计划/规划/安排行程), weather(天气), search(搜索/查询活动/事件), wiki(百科), draw(绘图), vision(图片), chat(闲聊), identity(身份问题)
+TOOLS: schedule(课表), plan(计划/规划/安排行程), weather(天气), search(搜索/查询活动/事件/通用知识), wiki(百科), draw(绘图), vision(图片), chat(闲聊), identity(身份问题)
 
 OUTPUT: {"tool":"...", "needs_schedule":bool, "needs_weather":bool, "needs_search":bool, "detected_location":"", "should_ask_user":bool, "missing_info":"", "query":"", "search_topic":"", "confidence":0.0-1.0, "safety_protocol":"none|triggered", "recommended_persona":"alice|professional", "context_extract":{"location":"","time":"","event":""}}
 
@@ -2767,7 +2767,8 @@ RULES:
 5. Schedule/plan questions → needs_schedule=true
 6. "你和ChatGPT区别"/"不导入课表能做什么" → tool=identity
 7. Cheating/exam answers → safety_protocol=triggered, recommended_persona=professional
-8. 积极调用工具：宁可多调用工具获取信息，也不要空口回答"不知道"
+8. ⚡ 搜索权限解锁：用户请求搜索**任何内容**（包括技术教程、编程文档、一般知识等）→ tool=search, search_topic=用户关键词。Campus Copilot 有全网搜索能力，不限于校园信息。
+9. 积极调用工具：宁可多调用工具获取信息，也不要空口回答"不知道"
 
 EXAMPLES:
 - "我明天想去鸿蒙展台" → tool=plan, needs_search=true, search_topic="鸿蒙展台"
@@ -6203,6 +6204,15 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 - 不要使用动作描写（如"微笑"、"点头"、"查看课表"等）。
 - 涉及课表/课程：没有数据就明确说明，并提示用户导入；严禁编造。
 
+
+
+【🛡️ RAG 幻觉防护（最高优先级）】
+⚠️ **红线规则**：如果搜索结果（Context）中没有包含答案，你 **必须** 明确回答："未在学校数据库中找到 [主题] 的相关信息。"  
+❌ **严禁** 编造通用建议（如"建议关注官网"、"开放时间尚未公布"等礼貌性废话）。  
+❌ **严禁** 基于常识或推测给出答案。  
+✅ **正确示例**：  
+   - 用户问不存在的地点："未在学校数据库中找到'星际跃迁图书馆'的相关信息。如果这是新建设施，请提供具体位置或官方链接。"  
+   - 用户问不存在的活动："未在近期活动列表中找到相关信息。请确认活动名称或时间。"
 
 【重复问题统一模板】（防止冗余回答）
 当用户重复询问类似问题时，使用固定模板：
