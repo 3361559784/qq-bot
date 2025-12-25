@@ -7,6 +7,10 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '3361559784/**'
+      - 'campus-ai-web/**'
+      - '*.md'
   workflow_dispatch:
 
 env:

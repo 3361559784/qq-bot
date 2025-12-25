@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - campus-ai-web/**
+    paths-ignore:
+      - '3361559784/**'
+      - '*.md'
   workflow_dispatch:
 
 env:
@@ -48,8 +51,7 @@ jobs:
           cp -R campus-ai-web/.next/standalone/* deploy/
 
           # Ensure static assets live at `deploy/.next/static/*`.
-          mkdir -p deploy/.next
-          cp -R campus-ai-web/.next/static deploy/.next/static
+          cp -R campus-ai-web/.next/static deploy/.next/
 
           # Public assets.
           if [ -d campus-ai-web/public ]; then
