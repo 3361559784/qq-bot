@@ -9,7 +9,7 @@ set -euo pipefail
 
 # 配置变量
 FUNCTION_APP_NAME="school-bot"
-RESOURCE_GROUP="DefaultResourceGroup-EUS"  # 根据实际情况修改
+RESOURCE_GROUP="aris-bot-rg"
 NODE_VERSION="22"
 
 # 颜色输出函数

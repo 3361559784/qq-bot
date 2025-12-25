@@ -9,7 +9,7 @@ set -euo pipefail
 
 # 配置变量
 WEBAPP_NAME="campus-copilot-demo"
-RESOURCE_GROUP="DefaultResourceGroup-EUS"  # 根据实际情况修改
+RESOURCE_GROUP="aris-bot-rg"
 NODE_VERSION="20"
 
 # 颜色输出函数
