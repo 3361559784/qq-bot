@@ -7,9 +7,10 @@
 
 set -euo pipefail
 
-# 配置变量
-FUNCTION_APP_NAME="school-bot"
-RESOURCE_GROUP="aris-bot-rg"
+# 配置变量（支持通过环境变量覆盖）
+FUNCTION_APP_NAME="${FUNCTION_APP_NAME:-school-bot}"
+# 注意：后端 Function App 可能不在同一个资源组中（例如 school-bot 在 qq-bot-rg）
+RESOURCE_GROUP="${RESOURCE_GROUP:-}"
 NODE_VERSION="22"
 
 # 颜色输出函数
@@ -69,6 +70,26 @@ function check_azure_login() {
     log_success "已登录 Azure: $account_name"
 }
 
+# 自动探测 Function App 所在资源组
+function detect_resource_group_if_needed() {
+    if [ -n "${RESOURCE_GROUP}" ]; then
+        return 0
+    fi
+
+    log_info "自动探测 Function App 所在资源组..."
+    local detected_rg
+    detected_rg=$(az functionapp list --query "[?name=='${FUNCTION_APP_NAME}'].resourceGroup | [0]" -o tsv 2>/dev/null || true)
+
+    if [ -z "${detected_rg}" ] || [ "${detected_rg}" = "null" ]; then
+        log_error "未找到名为 '${FUNCTION_APP_NAME}' 的 Function App（无法自动探测资源组）"
+        log_info "请在 Azure Portal 创建 Function App，或通过环境变量指定: RESOURCE_GROUP=<rg> FUNCTION_APP_NAME=<name> ./deploy-functions.sh"
+        exit 1
+    fi
+
+    RESOURCE_GROUP="${detected_rg}"
+    log_success "已探测到资源组: ${RESOURCE_GROUP}"
+}
+
 # 安装 Function App 依赖
 function install_dependencies() {
     log_info "安装 Function App 依赖..."
@@ -110,17 +131,20 @@ function validate_functions() {
 # 部署到 Azure Function App
 function deploy_to_azure() {
     log_info "部署到 Azure Function App: $FUNCTION_APP_NAME"
+
+    detect_resource_group_if_needed
     
     # 检查 Function App 是否存在
     if ! az functionapp show --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP" &> /dev/null; then
         log_error "Function App '$FUNCTION_APP_NAME' 在资源组 '$RESOURCE_GROUP' 中不存在"
-        log_info "请先在 Azure Portal 中创建 Function App，或修改脚本中的配置"
+        log_info "请确认 Function App 名称/资源组是否正确，或设置环境变量: RESOURCE_GROUP=<rg> FUNCTION_APP_NAME=<name>"
         exit 1
     fi
     
     # 使用 Azure Functions Core Tools 部署
     log_info "正在上传和部署 Functions..."
-    func azure functionapp publish "$FUNCTION_APP_NAME" --node
+    # Flex Consumption / Linux 环境下建议使用远端构建（Oryx），避免 .funcignore 排除 node_modules 导致线上缺依赖
+    func azure functionapp publish "$FUNCTION_APP_NAME" --node --build remote
     
     log_success "部署完成！"
     
@@ -132,6 +156,8 @@ function deploy_to_azure() {
 # 显示 Function 信息
 function show_function_info() {
     log_info "获取 Function 信息..."
+
+    detect_resource_group_if_needed
     
     # 列出所有 Functions
     local functions=$(az functionapp function list --name "$FUNCTION_APP_NAME" --resource-group "$RESOURCE_GROUP" --query "[].name" -o tsv)
@@ -152,6 +178,8 @@ function show_function_info() {
 # 测试部署结果
 function test_deployment() {
     log_info "测试部署结果..."
+
+    detect_resource_group_if_needed
     
     # 获取 schoolBot function 的 URL
     local func_url=$(az functionapp function show \

@@ -38,7 +38,7 @@ const nextConfig: NextConfig = {
   },
   // 环境变量
   env: {
-    NEXT_PUBLIC_AZURE_FUNCTION_URL: process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL || 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net',
+    NEXT_PUBLIC_AZURE_FUNCTION_URL: process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL || 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot',
   }
 };
 

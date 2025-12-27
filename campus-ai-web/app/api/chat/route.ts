@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     const azureFunctionUrl =
       process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
       process.env.AZURE_FUNCTION_URL ||
-      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolBot';
+      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot';
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);

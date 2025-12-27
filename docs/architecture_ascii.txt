@@ -1,0 +1,30 @@
+Campus Copilot Architecture (ASCII)
+
+[ Local Dev (laptop) ]
+         |
+         |  (1) build & deploy scripts (./deploy-frontend.sh, ./deploy-functions.sh)
+         v
+[ Deploy Scripts ] ---> zipdeploy/Kudu (remote build)
+         |
+         |---> App Service (Frontend) : campus-copilot-demo
+         |           - Next.js 16 (standalone)
+         |           - Serves UI, server routes under /api/*
+         |
+         |---> Azure Functions (Backend) : school-bot (Flex Consumption)
+                     - HTTP Trigger: schoolBot  -> /api/schoolbot  (anonymous)
+                     - HTTP Trigger: ocrCourse  -> /api/ocrcourse  (function key)
+                     - Host root: https://school-bot-...azurewebsites.net
+
+External services:
+ - Azure Cosmos DB  (optional)  <-- used by Functions for context / RAG
+ - Azure Blob Storage            <-- uploads/static
+ - 3rd-party APIs (Weather, OCR providers, Search)
+
+Data flow (common):
+  User -> Frontend (App Service) -> POST /api/chat -> Frontend API Route forwards -> /api/schoolbot -> Azure Functions
+  Functions may call Cosmos/Blob/External APIs and return response.
+
+Notes:
+ - Deploy uses Oryx remote build to ensure node_modules installed on server (func publish --build remote).
+ - .funcignore excludes node_modules locally; remote build is required for proper function indexing.
+ - Frontend API routes were updated to lowercase endpoints (/api/schoolbot, /api/ocrcourse) to match Functions triggers.

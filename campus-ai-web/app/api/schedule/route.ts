@@ -150,11 +150,11 @@ export async function POST(req: NextRequest) {
     else if (imageUrl && typeof imageUrl === 'string') {
       // const isDev = process.env.NODE_ENV !== 'production';
       // const backendUrl = isDev
-      //   ? 'http://127.0.0.1:7071/api/ocrCourse'
-      //   : (process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL?.replace('/schoolBot', '/ocrCourse') || 
-      //      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrCourse');
+      //   ? 'http://127.0.0.1:7071/api/ocrcourse'
+      //   : (process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL?.replace('/schoolbot', '/ocrcourse') || 
+      //      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrcourse');
       
-      const backendUrl = 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrCourse';
+      const backendUrl = 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrcourse';
 
       // 生成临时 userId 用于后端调用（前端无真实用户体系时使用匿名ID）
       const tempUserId = `web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
