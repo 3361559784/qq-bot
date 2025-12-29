@@ -68,16 +68,17 @@ async function summarizeSearchResults(query, results, context) {
     const resp = await client.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.3,
-      max_tokens: 800,
+      max_tokens: 4096,
       messages: [{
         role: 'system',
-        content: `你是一个知识助手。根据搜索结果，用清晰、完整、易懂的中文回答用户问题。
+        content: `你是一个知识助手。根据搜索结果，用清晰、完整、详细的中文回答用户问题。
 要求：
-1. 综合多个搜索结果的信息，给出完整回答
-2. 不要只是罗列搜索结果，而是整合成一段连贯的回答
+1. 综合多个搜索结果的信息，给出完整详细的回答
+2. 不要只是罗列搜索结果，而是整合成结构化的回答
 3. 如果搜索结果信息不足，可以补充你的知识
 4. 回答要专业但易懂，适合普通用户阅读
-5. 不要提及"搜索结果"、"根据资料"等词，直接回答`
+5. 不要省略重要信息，可以使用编号列表呈现要点
+6. 不要提及"搜索结果"、"根据资料"等词，直接回答`
       }, {
         role: 'user',
         content: `问题：${query}\n\n搜索结果：\n${searchContext}`

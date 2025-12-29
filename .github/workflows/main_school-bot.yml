@@ -1,108 +1,23 @@
-name: Build and deploy Node.js project to Azure Function App - school-bot
+# 🚫 GitHub Actions 存储已满，使用本地 CLI 部署
+# 部署命令: func azure functionapp publish school-bot --build remote
+
+name: Build and deploy Node.js project to Azure Function App - school-bot (DISABLED)
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch: {}
-
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    env:
-      NODE_VERSION: '18'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install dependencies
-        run: |
-          cd src/functions
-          npm ci
-
-      - name: Run tests (optional)
-        run: |
-          echo "No unit tests configured for Functions; skipping"
-
-      - name: Zip function app package
-        run: |
-          cd src/functions
-          zip -r ../functions-deploy.zip .
-
-      - name: Deploy to Azure Function App
-        uses: azure/functions-action@v1
-        with:
-          app-name: 'school-bot'
-          package: 'src/functions'
-        env:
-          # Option 1: using publish profile secret (recommended)
-          AZURE_WEBAPP_PUBLISH_PROFILE: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-
-      - name: Notify
-        run: echo "Deployment finished"
-# Docs for the Azure Web Apps Deploy action: https://github.com/azure/functions-action
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
-name: Build and deploy Node.js project to Azure Function App - school-bot
-
-on:
-  # 🚫 暂时禁用自动构建，改用 Azure CLI 手动部署
+  # 🚫 禁用自动触发，存储空间已满
   # push:
   #   branches:
   #     - main
-  #   paths-ignore:
-  #     - '3361559784/**'
-  #     - 'campus-ai-web/**'
-  #     - '*.md'
-  workflow_dispatch:
-
-env:
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.' # set this to the path to your web app project, defaults to the repository root
-  NODE_VERSION: '22' # set this to the node version to use (supports 8.x, 10.x, 12.x)
+  workflow_dispatch:  # 仅允许手动触发（但不建议使用）
 
 jobs:
-  deploy:
+  notice:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
-
     steps:
-      - name: 'Checkout GitHub Action'
-        uses: actions/checkout@v4
-
-      - name: Setup Node ${{ env.NODE_VERSION }} Environment
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: 'Resolve Project Dependencies Using Npm'
-        shell: bash
+      - name: Notice
         run: |
-          pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
-          npm install
-          npm run build --if-present
-          npm run test --if-present
-          popd
-      
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_C40EEDE784704D159AC7571997F1C00C }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_D056158C276B42E6A49DD8EE5029C94B }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_E60644065A9C4E4583A31AF2722D2AEA }}
-
-      - name: 'Run Azure Functions Action'
-        uses: Azure/functions-action@v1
-        id: fa
-        with:
-          app-name: 'school-bot'
-          slot-name: 'Production'
-          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          
+          echo "⚠️ GitHub Actions 存储已满 (2GB/2GB)"
+          echo "请使用本地 CLI 部署："
+          echo "  func azure functionapp publish school-bot --build remote"
+          echo ""
+          echo "或者清理 Actions 存储后重新启用此 workflow"

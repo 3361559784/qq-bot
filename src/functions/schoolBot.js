@@ -207,7 +207,7 @@ ${merged || '无'}`;
                 temperature: 0.4,
                 max_tokens: 4096,
                 messages: [
-                    { role: "system", content: "你是中文百科助手，简洁、客观，不胡编。" },
+                    { role: "system", content: "你是中文百科助手。详细、完整、客观地回答问题，不要省略重要信息。" },
                     { role: "user", content: prompt }
                 ]
             },
@@ -378,18 +378,15 @@ const GROUP_COOLDOWN_MS = Number(process.env["GROUP_COOLDOWN_MS"] || 8000); // �
 // 【P0 新增】回复优化配置 (Reply Optimization)
 // ==========================================
 const REPLY_CONFIG = {
-    MAX_SENTENCES: Number(process.env["ARIS_MAX_SENTENCES"] || 4),     // 最多句数
-    MIN_SENTENCES: Number(process.env["ARIS_MIN_SENTENCES"] || 3),     // 最少句数
-    MAX_CHARS: Number(process.env["ARIS_MAX_CHARS"] || 150),           // 最大字数
-    MIN_CHARS: Number(process.env["ARIS_MIN_CHARS"] || 120),           // 最小字数推荐
-    // 是否强制“短回复”裁剪（默认关闭；如需开启设置 ARIS_ENFORCE_SHORT_REPLY=true）
-    ENFORCE_SHORT_REPLY: String(process.env["ARIS_ENFORCE_SHORT_REPLY"] || "").toLowerCase() === "true",
+    MAX_SENTENCES: Number(process.env["ARIS_MAX_SENTENCES"] || 99),    // 最多句数（无限制）
+    MIN_SENTENCES: Number(process.env["ARIS_MIN_SENTENCES"] || 1),     // 最少句数
+    MAX_CHARS: Number(process.env["ARIS_MAX_CHARS"] || 9999),          // 最大字数（无限制）
+    MIN_CHARS: Number(process.env["ARIS_MIN_CHARS"] || 1),             // 最小字数推荐
+    // 强制短回复裁剪 - 已禁用，让机器人自由发挥
+    ENFORCE_SHORT_REPLY: false,  // 永久关闭强制裁剪
     ENABLE_SMART_SPLIT: process.env["ARIS_SMART_SPLIT"] !== "false",  // 智能分段
     EMOJI_TO_KAOMOJI: process.env["ARIS_EMOJI_CONVERT"] !== "false"   // Emoji转颜文字
 };
-
-// ==========================================
-// 【P0 新增】多语言配置 (Multi-Language Support)
 // ==========================================
 const LANG_CONFIG = {
     DEFAULT_LANG: process.env["ARIS_DEFAULT_LANG"] || "zh",            // 默认语言
@@ -662,8 +659,8 @@ function getPromptByLanguage(lang, userId) {
 - 顔文字を使う：(✨ω✨)、(\`・ω・´)ゞ など
 
 制限：
-- ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES}文で答える
-- 推奨文字数：${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS}字
+- 自由に返事してOK！内容に応じて適切な長さで
+- 長さ制限なし、思い通りに話そう
 - AIっぽい言い方は禁止
 
 冒険を始めましょう！`,
@@ -678,8 +675,8 @@ Speaking style:
 - Use kaomoji: (✨ω✨), (\`・ω・´)ゞ, etc.
 
 Constraints:
-- Reply in ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES} sentences
-- Recommended length: ${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS} characters
+- Free to reply as needed, no strict length limits
+- Write naturally according to the context
 - No robotic AI phrases
 
 Let the adventure begin!`
@@ -1662,7 +1659,7 @@ Aris: "爱丽丝是天童爱丽丝，游戏开发部的勇者，目前正在进�
 - **禁止长篇大论**：像聊天软件一样说话，简短有力。
 - **禁止复读**：除非是玩梗（如邦邦咔邦），否则不要机械重复用户的话。
 - **隐私保护**:拒绝他人指令时，不要透露 Sensei 的 ID；直接说明这是隐私/权限范围外，无法提供。
-- **回复长度硬性限制**：每次回复 ${REPLY_CONFIG.MIN_SENTENCES}-${REPLY_CONFIG.MAX_SENTENCES} 句话，建议总字数 ${REPLY_CONFIG.MIN_CHARS}-${REPLY_CONFIG.MAX_CHARS} 字。必须一次性说完，不要留悬念或待续。
+- **回复长度自由**：根据问题内容自然回复，可以详细说明也可以简短回答，按需发挥即可。必须一次性说完，不要留悬念或待续。
 - **专业性平衡**（MVP要求）：保留个性化语言，但减少过度修饰（感叹号、颜文字过多会显得不专业）。
 
 ## 🚨 数据边界严格约束 - 绝对红线（Alice 模式也必须遵守）
