@@ -232,7 +232,7 @@ const MEMORY_CONFIG = {
         // "12345678",            // 示例: 添加好友QQ号
     ],
     DEFAULT_HISTORY: 15,         // 普通用户: 15 条 (提升自 10)
-    GROUP_HISTORY: 20            // 群聊: 20 条 (共享记忆)
+    GROUP_HISTORY: 40            // 群聊: 40 条 (共享记忆) - 让 Alice 更了解群聊上下文
 };
 
 const MAX_HISTORY = MEMORY_CONFIG.DEFAULT_HISTORY; // 保留兼容性
@@ -4119,10 +4119,15 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
     const logCount = POKE_GROUP_COUNTING && groupId ? pokeStats.group?.count : pokeStats[`${pokeDbKey}:${userId}`]?.count;
     context.log(`[戳一戳] 处理完成 (key=${logKey}, count=${logCount}, mood=${groupMood?.value || 'N/A'})`);
 
-    // 返回成功响应表示事件已处理
+    // 🔧 修复: 返回 reply 字段让 OneBot 自动发送到群聊
+    // 如果上面已经通过 NapCat API 发送成功，这里返回空 reply 避免重复发送
     return {
         status: 200,
-        jsonBody: { status: 'ok', message: 'poke_processed' }
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+            reply: replyMessage || '',
+            auto_escape: false
+        })
     };
 }
 
@@ -5679,9 +5684,11 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         let mediaReply = null; 
         let isDrawTaskDone = false; // 标记绘图任务是否已完成
 
-        // 触发词检测 (扩展版 - 包含图生图关键词)
-        // 包含"画"、"绘图"、"生成图片"、"图生图"、"照着"、"按照此图"等任意一个，就触发绘图
-        const drawRegexTriggered = /(画|绘|生成|作出.*图片|图生图|照着|重绘|修图|改图|按照.*图)/.test(msg);
+        // 触发词检测 (收紧版 - 必须有明确的画图意图)
+        // 🔧 修复: 单纯发图片不再触发绘图，必须有明确的"画""绘"等关键词
+        // 正确触发: "画一个xxx", "帮我画xxx", "绘图xxx"
+        // 不触发: 单纯发图片, "照着", "看看这个"
+        const drawRegexTriggered = /(帮我画|画一|画个|画张|画图|绘图|绘制|生成.*图|作画|来一张|画画)/.test(msg);
         const forceDraw = intentResult && intentResult.tool === 'draw' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD;
         const drawTriggered = forceDraw || drawRegexTriggered;
         const intentDrawPrompt = (intentResult?.drawPrompt || intentResult?.query || '').trim();
@@ -6932,18 +6939,18 @@ ${fullWeekScheduleTable}
             if (useHistory) {
                 const recent = history.slice(-8);
                 if (dbKey.startsWith('group_')) {
-                    // 🆕 增强版群聊上下文处理
+                    // 🆕 群聊上下文处理 - 帮助 Alice 理解群聊对话流
+                    // 注意：不要用【】标记，AI 可能会复制这些标记
                     trimmedHistory = recent.map(entry => {
                         if (entry.role === 'assistant') {
-                            // 🆕 标记 Alice 自己的回复，让她知道这是自己说的
-                            return { ...entry, content: `【Alice的回复】${entry.content}` };
+                            // Alice 自己的历史回复，保持原样
+                            return entry;
                         }
                         if (entry.role === 'user' && entry.content.includes(`[ID:${senderId}`)) {
-                            return { ...entry, content: `【当前用户】${entry.content}` };
+                            // 当前正在对话的用户
+                            return entry;
                         }
-                        if (entry.role === 'user') {
-                            return { ...entry, content: `【群聊参考】${entry.content}` };
-                        }
+                        // 其他群员的消息保持原样
                         return entry;
                     });
                 } else {
