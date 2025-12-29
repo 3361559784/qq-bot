@@ -2695,6 +2695,13 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
         return { intent: 'schedule_query', tool: 'schedule', needsSchedule: true, confidence: 0.92, reason: 'fast-path schedule' };
     }
     
+    // 🆕 学术/技术问题 - 自动触发搜索 (解决 "未在学校数据库找到" 问题)
+    // 检测：专业术语、学术概念、技术问题等
+    if (/催化|反应|化学|物理|量子|电子|分子|原子|机制|原理|算法|编程|代码|工程|设计|材料|生物|医学|经济|数学|定理|公式|方程|实验|研究|论文/i.test(trimmed)) {
+        context?.log?.('[IntentRouter] fast-path: academic/technical question → auto search');
+        return { intent: 'search', tool: 'search', needsSearch: true, searchTopic: trimmed, confidence: 0.88, reason: 'fast-path academic' };
+    }
+    
     // 天气相关
     const weatherMatch = trimmed.match(/(.{1,10})?天气|温度|带伞|下雨|气温/);
     if (weatherMatch) {
@@ -2913,12 +2920,12 @@ EXAMPLES:
 // 辅助函数: 智能识别用户意图（翻译/分析/识图）
 // ==========================================
 function detectImageIntent(userMessage) {
-    if (!userMessage) return 'auto'; // 默认自动模式
+    if (!userMessage) return 'none'; // 🆕 默认不触发识图，必须有明确意图
     
     const lowerMsg = userMessage.toLowerCase();
     
     // 🔍 识别查询模式（用户主动问"他是谁" - 降低阈值大胆猜测）
-    if (/他是谁|她是谁|这是谁|谁啊|什么角色|哪个角色|名字|认出|识别|出处|who is|who are|character name/.test(lowerMsg)) {
+    if (/他是谁|她是谁|这是谁|谁啊|什么角色|哪个角色|名字|认出|识别|出处|who is|who are|character name|这图|看看这|帮我看|识图/.test(lowerMsg)) {
         return 'identify';
     }
     
@@ -2932,8 +2939,8 @@ function detectImageIntent(userMessage) {
         return 'analyze';
     }
     
-    // 🤖 默认自动模式：高阈值过滤
-    return 'auto';
+    // 🆕 不再无差别触发识图，用户发图但没说要识别时，不启动识图引擎
+    return 'none';
 }
 
 // ==========================================
@@ -5768,6 +5775,12 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             }
             context.log(`[识图] 用户意图: ${userIntent}`);
 
+            // 🆕 如果没有明确识图意图，跳过识图引擎（解决无差别识图问题）
+            if (userIntent === 'none') {
+                context.log(`[识图] ⏭️ 跳过识图 - 用户没有明确要求识别图片`);
+                // 不启动任何识图引擎，直接跳过后续的识图处理
+            }
+
             // 1. 根据意图选择性启动识别引擎 + 动态阈值调整
             let [animeData, cvData, customData] = [null, null, null];
             try {
@@ -5783,15 +5796,9 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                         checkComputerVision(imageUrls[0], context),
                         checkCustomVision(imageUrls[0], context)
                     ]);
-                } else {
-                    // 自动模式：高阈值(0.7)过滤，只返回确信结果
-                    context.log(`[识图] 自动模式 (高阈值过滤 0.7) - 启动三引擎侦察系统...`);
-                    [animeData, cvData, customData] = await Promise.all([
-                        checkAnimeDB(imageUrls[0], context, 0.7),  // 高阈值
-                        checkComputerVision(imageUrls[0], context),
-                        checkCustomVision(imageUrls[0], context)
-                    ]);
                 }
+                // 🆕 移除 else 分支 - 不再无差别启动识图
+                // 只有明确意图(translate/analyze/identify)才触发识图引擎
             } catch (e) { context.log("[识图] 并行请求异常", e.message); }
 
             // 安全策略：如果识别到是爱丽丝本人，为了防止 Azure 图片审查误杀，
