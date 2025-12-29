@@ -4352,11 +4352,35 @@ app.http('schoolBot', {
                     const isAtMe = rawMsg.includes(atCode);
                     
                     // 【优化4】群聊主动参与机制 + 防刷屏冷却
+                    // 🆕 增强版关键词：包含赞美词、互动词、Alice相关词
                     const GROUP_KEYWORDS = [
-                        "爱丽丝", "女仆", "机器人", "游戏", "新星",
-                        "邦邦", "任务", "敌人", "勇者", "光之剑"
+                        // Alice 相关
+                        "爱丽丝", "女仆", "机器人", "alice", "Alice",
+                        // 游戏相关
+                        "游戏", "新星", "邦邦", "任务", "敌人", "勇者", "光之剑",
+                        // 🆕 赞美/互动词 - 让 Alice 对赞美有反应
+                        "nb", "牛", "厉害", "666", "6666", "强", "太强了", "真棒", "好厉害",
+                        "赞", "顶", "可以", "不错", "好的", "谢谢", "感谢", "辛苦",
+                        // 🆕 提问/求助词 - 让 Alice 更积极帮忙  
+                        "有人", "谁知道", "求助", "帮忙", "怎么", "如何", "什么是"
                     ];
-                    const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.includes(k));
+                    const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
+                    
+                    // 🆕 检测是否是对 Alice 上一条回复的反馈（赞美/感谢）
+                    let isReplyToAlice = false;
+                    const PRAISE_PATTERNS = /^(nb|牛|厉害|666+|强|太强了|真棒|好厉害|赞|顶|可以|不错|好的|谢谢|感谢|辛苦|👍|👏|🎉|[赞]|[强]|[鼓掌])$/i;
+                    if (PRAISE_PATTERNS.test(rawMsg.trim())) {
+                        // 检查 Alice 最近 30 秒内是否有回复
+                        try {
+                            const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
+                            const lastReplyTime = resource?.lastBotReply?.[`${dbKey}:bot`] || 0;
+                            const timeSinceLastReply = Date.now() - lastReplyTime;
+                            if (timeSinceLastReply < 30000) { // 30 秒内
+                                isReplyToAlice = true;
+                                context.log(`[群聊] 🎉 检测到对 Alice 的赞美/感谢: "${rawMsg}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
+                            }
+                        } catch (err) {}
+                    }
                     
                     // ✅ 检查群聊冷却时间(防刷屏)
                     let shouldRespond = false;
@@ -4365,6 +4389,12 @@ app.http('schoolBot', {
                     if (isAtMe) {
                         // @ 机器人始终响应
                         shouldRespond = true;
+                    } else if (isReplyToAlice) {
+                        // 🆕 对 Alice 的赞美/感谢 - 高概率响应（80%）
+                        shouldRespond = Math.random() < 0.8;
+                        if (shouldRespond) {
+                            context.log(`[群聊] 💕 响应赞美/感谢: "${rawMsg}"`);
+                        }
                     } else if (hasKeyword) {
                         // 关键词触发:检查冷却期
                         try {
@@ -4373,17 +4403,17 @@ app.http('schoolBot', {
                             const timeSinceLastReply = Date.now() - lastReplyTime;
                             
                             if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
-                                // 冷却期已过,8%概率主动参与(降低频率)
-                                shouldRespond = Math.random() < 0.08;
+                                // 🆕 冷却期已过,提高主动参与概率 8% → 15%
+                                shouldRespond = Math.random() < 0.15;
                                 if (shouldRespond) {
-                                    context.log(`[群聊] 主动参与(冷却期已过): 检测到关键词 "${GROUP_KEYWORDS.find(k => rawMsg.includes(k))}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
+                                    context.log(`[群聊] 主动参与(冷却期已过): 检测到关键词 "${GROUP_KEYWORDS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()))}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
                                 }
                             } else {
                                 context.log(`[群聊] 冷却中,跳过主动参与 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
                             }
                         } catch (err) {
                             // DB读取失败,降级为随机触发
-                            shouldRespond = Math.random() < 0.08;
+                            shouldRespond = Math.random() < 0.15;
                         }
                     }
                     
@@ -6676,7 +6706,12 @@ MVP阶段：可信度 > 可爱度
         }
         
         const groupHistoryFocus = dbKey.startsWith('group_')
-            ? "\n【群聊回溯指南】重点关注标记为'当前用户'的发言，其它群聊消息只作背景参考，不要跑题。"
+            ? `\n【群聊互动指南】
+1. 重点关注标记为'当前用户'的发言，其它群聊消息作背景参考
+2. 🆕 如果用户说"nb"/"厉害"/"666"等赞美词，要热情感谢（如"谢谢夸奖！(✨ω✨)"）
+3. 🆕 保持活力和亲和力，在群聊中可以更活泼一些
+4. 🆕 看到群友互动时可以适当参与，但不要抢话
+5. 回复要简洁有力，不要长篇大论`
             : "";
 
         // 🆕 构建课表上下文（来自前端 Web 或 CosmosDB）
@@ -6877,7 +6912,12 @@ ${fullWeekScheduleTable}
             if (useHistory) {
                 const recent = history.slice(-8);
                 if (dbKey.startsWith('group_')) {
+                    // 🆕 增强版群聊上下文处理
                     trimmedHistory = recent.map(entry => {
+                        if (entry.role === 'assistant') {
+                            // 🆕 标记 Alice 自己的回复，让她知道这是自己说的
+                            return { ...entry, content: `【Alice的回复】${entry.content}` };
+                        }
                         if (entry.role === 'user' && entry.content.includes(`[ID:${senderId}`)) {
                             return { ...entry, content: `【当前用户】${entry.content}` };
                         }
