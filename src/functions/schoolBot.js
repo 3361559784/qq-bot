@@ -4349,18 +4349,27 @@ app.http('schoolBot', {
                     const isAtMe = rawMsg.includes(atCode);
                     
                     // 【优化4】群聊主动参与机制 + 防刷屏冷却
-                    // 🆕 增强版关键词：包含赞美词、互动词、Alice相关词
+                    // 🆕 话题触发模式：只对特定话题有兴趣，不再随机回复
                     const GROUP_KEYWORDS = [
-                        // Alice 相关
-                        "爱丽丝", "女仆", "机器人", "alice", "Alice",
+                        // Alice 相关 - 高优先级
+                        "爱丽丝", "女仆", "alice", "Alice", "arisu", "Arisu",
                         // 游戏相关
                         "游戏", "新星", "邦邦", "任务", "敌人", "勇者", "光之剑",
-                        // 🆕 赞美/互动词 - 让 Alice 对赞美有反应
-                        "nb", "牛", "厉害", "666", "6666", "强", "太强了", "真棒", "好厉害",
-                        "赞", "顶", "可以", "不错", "好的", "谢谢", "感谢", "辛苦",
-                        // 🆕 提问/求助词 - 让 Alice 更积极帮忙  
-                        "有人", "谁知道", "求助", "帮忙", "怎么", "如何", "什么是"
+                        // 🆕 机器人/AI 相关 - 讨论机器人话题时触发
+                        "机器人", "bot", "Bot", "BOT", "chatgpt", "ChatGPT", "gpt", "GPT",
+                        "ai", "AI", "人工智能", "大模型", "LLM", "llm",
+                        // BA 相关
+                        "蔚蓝档案", "碧蓝档案", "blue archive", "Blue Archive"
                     ];
+                    
+                    // 🆕 高优先级话题：讨论机器人/AI/Alice 时 100% 触发
+                    const HIGH_PRIORITY_TOPICS = [
+                        "爱丽丝", "alice", "Alice", "arisu", "Arisu",
+                        "机器人", "bot", "Bot", "BOT", 
+                        "chatgpt", "ChatGPT", "gpt", "GPT",
+                        "ai", "AI", "人工智能", "大模型", "LLM", "llm"
+                    ];
+                    const hasHighPriorityTopic = HIGH_PRIORITY_TOPICS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
                     const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
                     
                     // 🆕 检测是否是对 Alice 上一条回复的反馈（赞美/感谢）
@@ -4392,27 +4401,44 @@ app.http('schoolBot', {
                         if (shouldRespond) {
                             context.log(`[群聊] 💕 响应赞美/感谢: "${rawMsg}"`);
                         }
-                    } else if (hasKeyword) {
-                        // 关键词触发:检查冷却期
+                    } else if (hasHighPriorityTopic) {
+                        // 🆕 高优先级话题（讨论机器人/AI/Alice）- 检查冷却期后 100% 响应
                         try {
                             const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
                             const lastReplyTime = resource?.lastBotReply?.[groupSessionKey] || 0;
                             const timeSinceLastReply = Date.now() - lastReplyTime;
                             
                             if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
-                                // 🆕 冷却期已过,提高主动参与概率 8% → 15%
-                                shouldRespond = Math.random() < 0.15;
+                                shouldRespond = true; // 100% 响应
+                                const matchedTopic = HIGH_PRIORITY_TOPICS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
+                                context.log(`[群聊] 🤖 话题触发: 检测到讨论 "${matchedTopic}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
+                            } else {
+                                context.log(`[群聊] 冷却中,跳过话题触发 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
+                            }
+                        } catch (err) {
+                            // DB读取失败,也响应
+                            shouldRespond = true;
+                        }
+                    } else if (hasKeyword) {
+                        // 普通关键词触发:检查冷却期，50% 概率响应
+                        try {
+                            const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
+                            const lastReplyTime = resource?.lastBotReply?.[groupSessionKey] || 0;
+                            const timeSinceLastReply = Date.now() - lastReplyTime;
+                            
+                            if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
+                                shouldRespond = Math.random() < 0.5; // 50% 概率
                                 if (shouldRespond) {
-                                    context.log(`[群聊] 主动参与(冷却期已过): 检测到关键词 "${GROUP_KEYWORDS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()))}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
+                                    context.log(`[群聊] 主动参与(关键词): 检测到 "${GROUP_KEYWORDS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()))}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
                                 }
                             } else {
                                 context.log(`[群聊] 冷却中,跳过主动参与 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
                             }
                         } catch (err) {
-                            // DB读取失败,降级为随机触发
-                            shouldRespond = Math.random() < 0.15;
+                            shouldRespond = Math.random() < 0.5;
                         }
                     }
+                    // 🆕 移除了纯随机触发，现在只有话题触发
                     
                     if (!shouldRespond) {
                         return {
@@ -6230,18 +6256,15 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 - 不要使用颜文字/Emoji；不要输出情绪标签（例如 [happy]）。
 - 不要称呼用户为 "Sensei"、"老师"、"同学"。
 - 不要使用动作描写（如"微笑"、"点头"、"查看课表"等）。
-- 不要使用动作描写（如"微笑"、"点头"、"查看课表"等）。
 - 涉及课表/课程：没有数据就明确说明，并提示用户导入；严禁编造。
 
 
 
-【🛡️ RAG 幻觉防护（最高优先级）】
-⚠️ **红线规则**：如果搜索结果（Context）中没有包含答案，你 **必须** 明确回答："未在学校数据库中找到 [主题] 的相关信息。"  
-❌ **严禁** 编造通用建议（如"建议关注官网"、"开放时间尚未公布"等礼貌性废话）。  
-❌ **严禁** 基于常识或推测给出答案。  
-✅ **正确示例**：  
-   - 用户问不存在的地点："未在学校数据库中找到'星际跃迁图书馆'的相关信息。如果这是新建设施，请提供具体位置或官方链接。"  
-   - 用户问不存在的活动："未在近期活动列表中找到相关信息。请确认活动名称或时间。"
+【🛡️ 搜索结果使用规则】
+✅ **优先使用搜索结果**：如果 Context 中包含【搜索结果】，必须基于搜索结果回答，整合信息给出完整回答。
+✅ **外部知识搜索**：对于量子力学、历史、科学等通用知识问题，搜索结果来自互联网，可以放心使用。
+⚠️ **仅限学校数据**：只有当问题涉及"学校设施/活动/课表"且搜索结果为空时，才回复"未在学校数据库中找到"。
+❌ **严禁忽略搜索结果**：如果搜索结果包含答案，必须使用它，不要说"未找到"。
 
 【重复问题统一模板】（防止冗余回答）
 当用户重复询问类似问题时，使用固定模板：
