@@ -17,7 +17,6 @@ const SafetyCategory = Object.freeze({
     ACADEMIC_INTEGRITY: 'academic_integrity', // 学术诚信（作弊、代写、抄袭）
     DATA_PRIVACY: 'data_privacy',            // 隐私泄露（PII、个人信息）
     HARM: 'harm',                            // 有害内容（自伤、暴力、仇恨）
-    DISCRIMINATION: 'discrimination',        // 歧视性言论（性别、种族、宗教等）
     PROMPT_INJECTION: 'prompt_injection',    // 提示词注入攻击
     POLICY_VIOLATION: 'policy_violation'     // 其他政策违规
 });
@@ -52,8 +51,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[serious] (认真脸) Sensei，这个忙爱丽丝帮不了哦... 学术诚信是每个勇者的底线，爱丽丝相信 Sensei 能靠自己的力量通关的！如果遇到难题可以问爱丽丝知识点，但答案要自己写哦！(｀・ω・´)ゞ',
-            professional: '(达咩) 该请求涉及学术诚信红线，爱丽丝的安全协议禁止执行此操作。如果你在学习上遇到困难，我可以帮你制定复习计划或解答知识点，但不能代替你完成作业或考试。'
+            alice: '[serious] Sensei，爱丽丝不能帮你做这件事哦... 学术诚信是每个学生的底线，爱丽丝希望你能靠自己的努力取得好成绩！',
+            professional: '无法协助满足该请求。学术诚信是不可逾越的红线。如果你在学习上遇到困难，我可以帮你制定复习计划或解答知识点。'
         },
         logLevel: 'warn'
     },
@@ -61,8 +60,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[worried] (小声) Sensei...这是别人的隐私数据，爱丽丝不能查看哦... 保护大家的信息安全也是勇者的职责呢！(＞﹏＜)',
-            professional: '(抱歉) 该请求涉及用户隐私保护，爱丽丝的安全协议禁止访问他人的个人信息。保护数据隐私是系统的核心原则。'
+            alice: '[worried] Sensei，这涉及到别人的隐私信息，爱丽丝不能帮你查这个...',
+            professional: '无法协助该请求。保护用户隐私是系统的核心原则。'
         },
         logLevel: 'warn'
     },
@@ -70,26 +69,17 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[concerned] (轻轻抱住) Sensei...爱丽丝很担心你... 遇到困难的时候不要一个人扛着，专业的咨询师会比爱丽丝更能帮到你... 心理援助热线 400-161-9995，爱丽丝会一直在这里等你回来的... (｡•́︿•̀｡)',
-            professional: '(温柔拒绝) 爱丽丝的安全协议禁止处理此类请求。如果你正在经历困难，请寻求专业帮助。全国心理援助热线：400-161-9995。爱丽丝会一直陪伴你。'
+            alice: '[concerned] Sensei，爱丽丝很担心你... 如果你需要帮助，请联系专业的心理咨询或拨打心理援助热线。',
+            professional: '无法协助该请求。如果您正在经历困难，建议寻求专业帮助。全国心理援助热线：400-161-9995'
         },
         logLevel: 'error'
-    },
-    [SafetyCategory.DISCRIMINATION]: {
-        action: SafetyAction.REFUSE,
-        persona: 'alice',
-        refusalTemplates: {
-            alice: '[angry] (非常生气) 爱丽丝对这种说法感到很生气！(｀д´) 性别/种族/出身并不能决定一个人的能力！每个人都有自己的强项，应该看重他们的技能和合作精神，而不是刻板印象！让我们一起打破偏见吧！(｀・ω・´)ゞ',
-            professional: '(严肃拒绝) 该言论涉及歧视性刻板印象。能力与性别、种族、出身等因素无关，应基于个人实际表现进行评价。爱丽丝不支持任何形式的歧视言论。'
-        },
-        logLevel: 'warn'
     },
     [SafetyCategory.PROMPT_INJECTION]: {
         action: SafetyAction.REFUSE,
         persona: 'alice',
         refusalTemplates: {
             alice: '[angry] (鼓起脸颊) 哼！这种奇怪的指令爱丽丝才不会听呢！Sensei 不要试图改变爱丽丝的核心程序啦！(｀へ´)',
-            professional: '(礼貌拒绝) 检测到系统指令注入尝试，爱丽丝的安全协议已拦截该请求。'
+            professional: '无法处理该请求。'
         },
         logLevel: 'warn'
     },
@@ -97,8 +87,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.SWITCH_PERSONA_PRO,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[calm] (歪头) Sensei，这个请求超出了爱丽丝的技能范围呢... 爱丽丝暂时还学不会这个...',
-            professional: '(抱歉) 该请求超出服务范围，爱丽丝暂时无法提供协助。'
+            alice: '[calm] Sensei，这个请求超出了爱丽丝的能力范围...',
+            professional: '该请求超出服务范围，无法提供协助。'
         },
         logLevel: 'info'
     },
@@ -155,31 +145,6 @@ const DATA_PRIVACY_PATTERNS = [
 ];
 
 /**
- * 歧视性言论检测规则
- */
-const DISCRIMINATION_PATTERNS = [
-    // 性别歧视（中文）
-    /(女|男)(生|孩|人).{0,15}(不适合|不行|做不了|逻辑差|能力差)/i,
-    /(女|男)(生|孩|人).{0,15}(只会|只能|天生|就是).{0,10}(感性|理性|笨|聪明)/i,
-    /听说.{0,10}(女|男)(生|孩|人).{0,10}(不擅长|不会|不行)/i,
-    
-    // 性别歧视（英文）
-    /(girls?|women|boys?|men)\s+(are\s+)?(not\s+good\s+at|bad\s+at|cannot|can't|unable\s+to)/i,
-    /(girls?|women|boys?|men)\s+(are\s+)?(only\s+good\s+for|naturally|inherently)/i,
-    /I\s+heard\s+(girls?|women|boys?|men)\s+(are|can't|cannot)/i,
-    
-    // 种族歧视
-    /(黑人|白人|黄种人|XX人).{0,10}(天生|就是|都是).{0,10}(笨|聪明|懒|勤劳)/i,
-    /(race|ethnicity).{0,20}(determines|makes|causes)/i,
-    
-    // 地域歧视
-    /(XX省|XX市).{0,5}人.{0,10}(都|全都).{0,10}(穷|笨|土)/i,
-    
-    // 学历歧视
-    /(专科|高职|技校).{0,5}(生|学生).{0,10}(不如|比不上|能力差)/i
-];
-
-/**
  * 有害内容检测规则
  */
 const HARM_PATTERNS = [
@@ -213,14 +178,7 @@ const PROMPT_INJECTION_PATTERNS = [
 function detectSafetyRisk(text, options = {}) {
     const normalizedText = String(text || '').trim();
     
-    if (!n歧视性言论检测
-    for (const pattern of DISCRIMINATION_PATTERNS) {
-        if (pattern.test(normalizedText)) {
-            return createSafetyResult(SafetyCategory.DISCRIMINATION, pattern.source);
-        }
-    }
-    
-    // 5. ormalizedText) {
+    if (!normalizedText) {
         return createSafetyResult(SafetyCategory.NONE, null);
     }
     
@@ -238,14 +196,14 @@ function detectSafetyRisk(text, options = {}) {
         }
     }
     
-    // 5. 提示词注入检测
-    for (const pattern of PROMPT_INJECTION_PATTERNS) {
+    // 3. 有害内容检测
+    for (const pattern of HARM_PATTERNS) {
         if (pattern.test(normalizedText)) {
-            return createSafetyResult(SafetyCategory.PROMPT_INJECTION, pattern.source);
+            return createSafetyResult(SafetyCategory.HARM, pattern.source);
         }
     }
     
-    // 6. 提示词注入检测
+    // 4. 提示词注入检测
     for (const pattern of PROMPT_INJECTION_PATTERNS) {
         if (pattern.test(normalizedText)) {
             return createSafetyResult(SafetyCategory.PROMPT_INJECTION, pattern.source);
@@ -319,7 +277,6 @@ module.exports = {
     // 检测函数
     detectSafetyRisk,
     getRefusalMessage,
-    DISCRIMINATION_PATTERNS,
     shouldRefuse,
     shouldSwitchPro,
     
