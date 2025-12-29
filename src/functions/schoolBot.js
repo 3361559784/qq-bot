@@ -2919,27 +2919,27 @@ EXAMPLES:
 // ==========================================
 // 辅助函数: 智能识别用户意图（翻译/分析/识图）
 // ==========================================
-function detectImageIntent(userMessage) {
-    if (!userMessage) return 'none'; // 🆕 默认不触发识图，必须有明确意图
+function detectImageIntent(userMessage, isAtBot = false) {
+    if (!userMessage) return 'none';
     
     const lowerMsg = userMessage.toLowerCase();
     
-    // 🔍 识别查询模式（用户主动问"他是谁" - 降低阈值大胆猜测）
-    if (/他是谁|她是谁|这是谁|谁啊|什么角色|哪个角色|名字|认出|识别|出处|who is|who are|character name|这图|看看这|帮我看|识图/.test(lowerMsg)) {
-        return 'identify';
+    // 🔍 只有艾特Alice + 问"这是谁"才走动漫识别
+    if (isAtBot && /(他是谁|她是谁|这是谁|谁啊|什么角色|哪个角色|名字|认出|识别|出处|who is|who are|character name)/i.test(lowerMsg)) {
+        return 'anime_identify'; // 🆕 新类型：动漫识别
     }
     
-    // 📊 翻译意图检测
-    if (/翻译|translate|what does|这.*说|写.*什么|图.*说.*什么|念.*什么|意思|英译|日译/.test(lowerMsg)) {
-        return 'translate';
+    // 📈 分析图片相关 - 走 ChatGPT 4o
+    if (/分析|数据|图表|统计|对比|趋势|chart|data|analyze|table|表格|读图|看图|说说这个|这是什么|内容是什么/i.test(lowerMsg)) {
+        return 'gpt_analyze'; // 🆕 新类型：ChatGPT 4o 分析
     }
     
-    // 📈 数据分析意图检测
-    if (/分析|数据|图表|统计|对比|趋势|chart|data|analyze|table|表格/.test(lowerMsg)) {
-        return 'analyze';
+    // 📊 翻译相关 - 也走 ChatGPT 4o
+    if (/翻译|translate|what does|这.*说|写.*什么|图.*说.*什么|念.*什么|意思|英译|日译/i.test(lowerMsg)) {
+        return 'gpt_translate'; // 🆕 新类型：ChatGPT 4o 翻译
     }
     
-    // 🆕 不再无差别触发识图，用户发图但没说要识别时，不启动识图引擎
+    // 🆕 其他情况：不触发任何识图
     return 'none';
 }
 
@@ -5763,43 +5763,193 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             textToSend = `${userLabel} ${textToSend}`;
 
             // 智能意图识别：根据用户消息判断识图模式
-            let userIntent = detectImageIntent(cleanText);
+            // 🆕 传入 isAtBot 参数，检测是否艾特了Alice
+            const isAtBot = body?.message_type === 'group' && /CQ:at.*qq=2849943359/.test(body?.message || '');
+            let userIntent = detectImageIntent(cleanText, isAtBot);
             if (intentResult && intentResult.tool === 'vision' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
                 if (/translate/i.test(intentResult.intent)) {
-                    userIntent = 'translate';
+                    userIntent = 'gpt_translate';
                 } else if (/analy/i.test(intentResult.intent)) {
-                    userIntent = 'analyze';
+                    userIntent = 'gpt_analyze';
                 } else if (/identify|who|self/i.test(intentResult.intent)) {
-                    userIntent = 'identify';
+                    userIntent = isAtBot ? 'anime_identify' : 'gpt_analyze'; // 只有艾特才走动漫识别
                 }
             }
-            context.log(`[识图] 用户意图: ${userIntent}`);
+            context.log(`[识图] 用户意图: ${userIntent} | 艾特Bot: ${isAtBot}`);
 
-            // 🆕 如果没有明确识图意图，跳过识图引擎（解决无差别识图问题）
+            // 🆕 严格的触发控制：只有特定意图才处理图片
             if (userIntent === 'none') {
                 context.log(`[识图] ⏭️ 跳过识图 - 用户没有明确要求识别图片`);
-                // 不启动任何识图引擎，直接跳过后续的识图处理
-            }
+                // 🆕 完全跳过图像处理，让后面的文本对话正常进行
+                // 直接清空 imageUrls，这样后面就不会进入图像处理分支了
+                imageUrls.length = 0;
+            } else {
+                // 🆕 有识图意图，开始处理
+                context.log(`[识图] 🎯 开始处理图片 - 模式: ${userIntent}`);
+                
+                // 1️⃣ 如果是动漫识别模式 (只有@Alice + 问"这是谁")
+                if (userIntent === 'anime_identify') {
+                    context.log(`[识图] 🎨 动漫识别模式 - 启动三引擎识别系统`);
+                    
+                    let [animeData, cvData, customData] = [null, null, null];
+                    try {
+                        // 启动动漫识别三引擎
+                        [animeData, cvData, customData] = await Promise.all([
+                            checkAnimeDB(imageUrls[0], context, 0.1),  // 低阈值
+                            checkComputerVision(imageUrls[0], context),
+                            checkCustomVision(imageUrls[0], context)
+                        ]);
+                    } catch (e) { 
+                        context.log("[识图] 动漫识别引擎异常", e.message); 
+                    }
 
-            // 1. 根据意图选择性启动识别引擎 + 动态阈值调整
-            let [animeData, cvData, customData] = [null, null, null];
-            try {
-                if (userIntent === 'translate' || userIntent === 'analyze') {
-                    // 翻译/数据分析场景：只用 ComputerVision OCR，不启动动漫识别
-                    context.log(`[识图] ${userIntent === 'translate' ? '文字翻译' : '数据分析'}模式，仅启动 ComputerVision OCR`);
-                    cvData = await checkComputerVision(imageUrls[0], context);
-                } else if (userIntent === 'identify') {
-                    // 🔍 识别查询模式：用户主动问"他是谁" → 低阈值(0.1)，让AnimeTrace大胆猜测
-                    context.log(`[识图] 识别查询模式 (用户问"他是谁") - 降低阈值到 0.1，启动三引擎...`);
-                    [animeData, cvData, customData] = await Promise.all([
-                        checkAnimeDB(imageUrls[0], context, 0.1),  // 低阈值
-                        checkComputerVision(imageUrls[0], context),
-                        checkCustomVision(imageUrls[0], context)
-                    ]);
+                    // 处理动漫识别结果 (原有逻辑)
+                    if (animeData && animeData.isSelf) {
+                        // 爱丽丝本人的处理...
+                        let fakeVisionDescription = `(系统视觉报告：检测到一张图片，主角是你自己【天童爱丽丝】。`;
+                        if (customData) {
+                            fakeVisionDescription += `\n特别检测到：${customData}。请重点针对这个装扮/物品进行反应！`;
+                        } else {
+                            fakeVisionDescription += `\n画面中似乎是你的日常形态。`;
+                        }
+                        fakeVisionDescription += `\n请根据以上信息，以爱丽丝的口吻回复老师，表现得开心一点！)`;
+                        
+                        finalContentForAI.push({ type: "text", text: fakeVisionDescription });
+                        cuteImageReply = "processing_by_gpt_text"; 
+                        context.log(`[动漫识别] 识别到Alice本人，使用文字描述模式`);
+                    }
+                    else if (animeData) {
+                        // 其他动漫角色的处理 - 使用 Llama Vision
+                        const visualReference = getCharacterVisualGuide();
+                        const visionSystemPrompt = getArisVisionPrompt(visualReference, 'identify');
+                        
+                        let visionUserPrompt = `老师给你发了一张图片。`;
+                        if (animeData.type === "ba-character") {
+                            visionUserPrompt += `\n\n🎯 ===== 【辅助识别系统报告】 =====\n✅ **已成功匹配角色**：【${animeData.name}】\n📍 **来源作品**：《蔚蓝档案》(Blue Archive)\n⚠️ **重要指令**：请直接使用上述角色名回答老师的问题。你看到的画面特征应该与该角色一致。\n==============================`;
+                        } else if (animeData.type === "other-anime-character") {
+                            visionUserPrompt += `\n\n🎯 ===== 【辅助识别系统报告】 =====\n✅ **已成功匹配角色**：【${animeData.name}】\n📍 **来源作品**：《${animeData.work}》\n⚠️ **重要指令**：请直接使用上述角色名回答老师的问题。\n==============================`;
+                        }
+                        
+                        if (cvData) visionUserPrompt += `\n画面细节分析：${cvData}。请结合这个细节吐槽。`;
+                        if (customData) visionUserPrompt += `\n重要高亮：${customData}！这对爱丽丝很重要，请务必做出激动的反应！`;
+                        if (cleanText) visionUserPrompt += `\n老师刚才说："${cleanText}"`;
+                        visionUserPrompt += `\n\n请作为爱丽丝回复老师（不要重复）：`;
+
+                        // 使用 Llama Vision 处理
+                        try {
+                            const visionModels = getVisionModels();
+                            const request = {
+                                model: visionModels[0],
+                                max_tokens: 800,
+                                temperature: 0.6,
+                                messages: [
+                                    { role: "system", content: visionSystemPrompt },
+                                    { 
+                                        role: "user", 
+                                        content: [
+                                            { type: "text", text: visionUserPrompt },
+                                            { type: "image_url", image_url: { url: imageUrls[0] } }
+                                        ]
+                                    }
+                                ]
+                            };
+                            
+                            context.log(`[动漫识别] 使用Llama Vision进行角色识别`);
+                            const { resp } = await chatCompletionWithFallback(client, visionModels, request, context, 'vision');
+                            cuteImageReply = resp?.choices?.[0]?.message?.content || `识别失败 (´・ω・\`)`;
+                        } catch (e) {
+                            context.log("[动漫识别] Llama Vision异常", e.message);
+                            cuteImageReply = `啊... 识别系统出了点问题 (>﹏<)`;
+                        }
+                    }
+                    else {
+                        // 没识别到动漫角色
+                        cuteImageReply = `嗯... 这个角色我不太认识耶 (´・ω・\`) 可能不是《蔚蓝档案》的角色，或者图片不太清楚？`;
+                    }
                 }
-                // 🆕 移除 else 分支 - 不再无差别启动识图
-                // 只有明确意图(translate/analyze/identify)才触发识图引擎
-            } catch (e) { context.log("[识图] 并行请求异常", e.message); }
+                
+                // 2️⃣ 如果是分析/翻译模式，走 ChatGPT 4o
+                else if (userIntent === 'gpt_analyze' || userIntent === 'gpt_translate') {
+                    context.log(`[识图] 🤖 ChatGPT 4o模式 - ${userIntent}`);
+                    
+                    // 🆕 第一层LLM：判断是否为动漫内容
+                    let isAnimeContent = false;
+                    try {
+                        const animeCheckPrompt = "请判断这张图片是否包含动漫/二次元角色内容。只回复 'YES' 或 'NO'。";
+                        const animeCheckRequest = {
+                            model: "gpt-4o",
+                            max_tokens: 10,
+                            temperature: 0.1,
+                            messages: [{
+                                role: "user",
+                                content: [
+                                    { type: "text", text: animeCheckPrompt },
+                                    { type: "image_url", image_url: { url: imageUrls[0] } }
+                                ]
+                            }]
+                        };
+                        
+                        const animeCheckResp = await client.chat.completions.create(animeCheckRequest);
+                        const animeResult = animeCheckResp?.choices?.[0]?.message?.content?.trim()?.toUpperCase();
+                        isAnimeContent = animeResult === 'YES';
+                        context.log(`[第一层LLM] 动漫内容检测: ${animeResult} -> ${isAnimeContent}`);
+                    } catch (e) {
+                        context.log("[第一层LLM] 动漫检测异常", e.message);
+                        isAnimeContent = false; // 默认不是动漫
+                    }
+                    
+                    // 🎯 智能路由：根据内容类型选择处理方式
+                    if (isAnimeContent) {
+                        context.log(`[智能路由] 检测到动漫内容 -> 使用动漫识别模块`);
+                        // 走动漫识别流程
+                        try {
+                            const animeData = await checkAnimeDB(imageUrls[0], context, 0.3);
+                            if (animeData) {
+                                cuteImageReply = `我看到了《${animeData.work || '蔚蓝档案'}》的【${animeData.name}】！`;
+                                if (userIntent === 'gpt_analyze') {
+                                    cuteImageReply += ` 这是一个很可爱的角色呢！(✨ω✨)`;
+                                }
+                            } else {
+                                cuteImageReply = `这是一个动漫角色，但我暂时认不出来是谁 (´・ω・\`)`;
+                            }
+                        } catch (e) {
+                            cuteImageReply = `看起来是动漫相关内容，但识别出现了问题 (>﹏<)`;
+                        }
+                    } else {
+                        context.log(`[智能路由] 非动漫内容 -> 使用ChatGPT 4o分析`);
+                        // 走 ChatGPT 4o 分析流程
+                        try {
+                            let gptPrompt = '';
+                            if (userIntent === 'gpt_translate') {
+                                gptPrompt = `请翻译图片中的文字内容，并用中文回复。如果图片中没有文字或无法识别，请说明情况。`;
+                            } else {
+                                gptPrompt = `请分析这张图片的内容，用中文简要说明你看到了什么。`;
+                                if (cleanText) gptPrompt += `\n用户还说了："${cleanText}"`;
+                            }
+                            
+                            const gptRequest = {
+                                model: "gpt-4o",
+                                max_tokens: 1000,
+                                temperature: 0.7,
+                                messages: [{
+                                    role: "user",
+                                    content: [
+                                        { type: "text", text: gptPrompt },
+                                        { type: "image_url", image_url: { url: imageUrls[0] } }
+                                    ]
+                                }]
+                            };
+                            
+                            const gptResp = await client.chat.completions.create(gptRequest);
+                            cuteImageReply = gptResp?.choices?.[0]?.message?.content || "分析失败";
+                            context.log(`[ChatGPT 4o] 图像分析完成`);
+                        } catch (e) {
+                            context.log("[ChatGPT 4o] 分析异常", e.message);
+                            cuteImageReply = `图片分析遇到了问题 (´・ω・\`)`;
+                        }
+                    }
+                }
+            }
 
             // 安全策略：如果识别到是爱丽丝本人，为了防止 Azure 图片审查误杀，
             // 我们【不发送图片】给 GPT，而是发送【由识别标签生成的文字描述】。
