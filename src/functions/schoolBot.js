@@ -5054,7 +5054,13 @@ ${scheduleInfo}
         imgRegex.lastIndex = 0;
         while ((match = imgRegex.exec(msg)) !== null) {
             let cleanUrl = match[1].replace(/&amp;/g, "&");
-            imageUrls.push(cleanUrl);
+            // 🆕 过滤视频链接：检测 URL 中是否包含视频相关扩展名
+            const isVideoUrl = /\.(mp4|avi|mov|wmv|flv|webm|mkv|m4v|3gp)($|\?|#)/i.test(cleanUrl);
+            if (!isVideoUrl) {
+                imageUrls.push(cleanUrl);
+            } else {
+                context.log(`[视频过滤] 跳过视频链接: ${cleanUrl.substring(0, 50)}...`);
+            }
         }
 
         // 优先处理课表/日程导入：官方导出 > OCR 截图 > 学习通URL
@@ -5765,6 +5771,10 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             // 智能意图识别：根据用户消息判断识图模式
             // 🆕 传入 isAtBot 参数，检测是否艾特了Alice
             const isAtBot = body?.message_type === 'group' && /CQ:at.*qq=2849943359/.test(body?.message || '');
+            // 🆕 检测消息来源：QQ聊天 vs Web网页
+            const isFromQQ = body?.post_type === 'message'; // QQ聊天有 post_type
+            const isFromWeb = !body?.post_type && body?.message; // Web请求没有 post_type
+            
             let userIntent = detectImageIntent(cleanText, isAtBot);
             if (intentResult && intentResult.tool === 'vision' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
                 if (/translate/i.test(intentResult.intent)) {
@@ -5772,10 +5782,10 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                 } else if (/analy/i.test(intentResult.intent)) {
                     userIntent = 'gpt_analyze';
                 } else if (/identify|who|self/i.test(intentResult.intent)) {
-                    userIntent = isAtBot ? 'anime_identify' : 'gpt_analyze'; // 只有艾特才走动漫识别
+                    userIntent = isAtBot ? 'anime_identify' : 'gpt_analyze'; // 只有艾特才走识别
                 }
             }
-            context.log(`[识图] 用户意图: ${userIntent} | 艾特Bot: ${isAtBot}`);
+            context.log(`[识图] 用户意图: ${userIntent} | 艾特Bot: ${isAtBot} | 来源: ${isFromQQ ? 'QQ' : (isFromWeb ? 'Web' : '未知')}`);
 
             // 🆕 严格的触发控制：只有特定意图才处理图片
             if (userIntent === 'none') {
@@ -6724,6 +6734,22 @@ You are Aris (Campus Copilot) — Professional mode.
     }
 
     const isSystemLikeMode = (isCopilotMode || isUserProfessionalMode || isIdentityMode || activeDevPersona === 'al-1s');
+    
+    // 🆕 QQ/Web 双链路系统：检测消息来源
+    const isFromQQ = body?.post_type === 'message';
+    const isFromWeb = !body?.post_type && body?.message;
+    
+    // 🆕 Web网页请求强制走安全链路（专业模式）
+    const forceWebSafeMode = isFromWeb && !isSystemLikeMode;
+    if (forceWebSafeMode) {
+        basePrompt = (typeof userLang !== 'undefined' && userLang === 'en') ? COPILOT_PROMPT_EN : COPILOT_PROMPT_ZH;
+        context.log(`[Web安全链路] 检测到Web请求，强制使用专业模式`);
+    }
+    
+    // 🆕 QQ聊天保持活泼链路（Alice模式），除非用户明确要求专业模式
+    if (isFromQQ && !isSystemLikeMode) {
+        context.log(`[QQ活泼链路] 检测到QQ请求，使用Alice模式`);
+    }
         
         if (inferredMode === 'Class') {
             modeStyleOverride = `
