@@ -29,7 +29,7 @@ async function extractTextFromImage(urlOrBase64) {
   }
 
   const openai = new OpenAI({
-    baseURL: "https://models.inference.ai.azure.com",
+    baseURL: "https://models.github.ai/inference",
     apiKey: GITHUB_TOKEN
   });
 
@@ -111,7 +111,7 @@ async function parseScheduleFromOcrText(text, token) {
   }
 
   const openai = new OpenAI({
-    baseURL: "https://models.inference.ai.azure.com",
+    baseURL: "https://models.github.ai/inference",
     apiKey: token
   });
 

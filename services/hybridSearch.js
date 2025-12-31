@@ -56,7 +56,7 @@ async function summarizeSearchResults(query, results, context) {
 
   try {
     const client = new OpenAI({
-      baseURL: "https://models.inference.ai.azure.com",
+      baseURL: "https://models.github.ai/inference",
       apiKey: token
     });
 
@@ -338,7 +338,7 @@ async function hybridSearch(query, context, options = {}) {
     }
 
     const client = new OpenAI({
-      baseURL: "https://models.inference.ai.azure.com",
+      baseURL: "https://models.github.ai/inference",
       apiKey: token
     });
 

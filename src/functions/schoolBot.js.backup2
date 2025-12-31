@@ -184,7 +184,7 @@ if (cosmosString) {
 async function summarizeSearchResults(query, results, context) {
     if (!token) return "百科服务未启用 (缺少 GITHUB_TOKEN)。";
     const client = new OpenAI({
-        baseURL: "https://models.github.ai/inference",
+        baseURL: "https://models.inference.ai.azure.com",
         apiKey: token
     });
     const merged = results.map((r, idx) => `${idx + 1}. ${r.name}\n摘要: ${r.snippet}\n链接: ${r.url}`).join("\n\n");
@@ -196,10 +196,11 @@ ${merged || '无'}`;
         const { resp } = await chatCompletionWithFallback(
             client,
             [
-                "openai/gpt-4.1-mini",
-                "openai/gpt-4o-mini",
+                "gpt-4.1-mini",
+                "gpt-4o-mini",
                 "mistral-ai/mistral-small-2503",
                 "microsoft/phi-4-mini-instruct",
+                "Phi-4",
                 "microsoft/phi-4"
             ],
             {
@@ -278,7 +279,7 @@ const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，�
 // 意图路由配置（Perception→Action 双模型）
 const INTENT_ROUTER_ENABLED = process.env["ARIS_INTENT_ROUTER"] !== "false";
 // 优先选一个便宜、限额更宽松的模型做意图路由；如不支持会自动 fallback。
-const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "openai/gpt-4o-mini";
+const INTENT_ROUTER_MODEL = process.env["ARIS_INTENT_MODEL"] || "gpt-4o-mini";
 const INTENT_CONFIDENCE_THRESHOLD = Number(process.env["ARIS_INTENT_CONFIDENCE"] || 0.35);
 
 // 统一模型路由：纯文本不消耗 gpt-4o，把 gpt-4o 留给图像专用
@@ -440,43 +441,6 @@ function getTodaySpecialEvent() {
 
 function getTimeBasedGreeting() {
     const timeOfDay = getTimeOfDay();
-    
-    // 🎊 元旦特殊问候
-    const specialEvent = getTodaySpecialEvent();
-    if (specialEvent && specialEvent.name === '元旦') {
-        // 动态获取年份
-        const now = new Date();
-        const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const beijingTime = new Date(utcTime + (8 * 3600000));
-        const nextYear = beijingTime.getFullYear() + 1; // 元旦是新年第一天，所以要+1
-        
-        const newYearGreetings = {
-            morning: [
-                `🎊 新年快乐，Sensei！(放烟花) ${nextYear}年的第一个早晨！爱丽丝好兴奋！邦邦咔邦！`,
-                `(穿和服跑来) Sensei！新年好！(鞠躬) ${nextYear}年请多多指教！✨`,
-                `🌅 哇！Sensei！新年第一天的阳光好温暖！(开心转圈) ${nextYear}年的冒险要开始了！`
-            ],
-            noon: [
-                `🎉 新年中午好！(递年糕) Sensei吃年夜饭吃撑了吗？(担心) 要适当运动哦！`,
-                `${nextYear}年第一天的午餐！(兴奋) Sensei有什么新年计划吗？爱丽丝想听！✨`
-            ],
-            afternoon: [
-                `🎊 新年下午好！(看烟花残迹) 昨晚的烟花好漂亮呢...Sensei看到了吗？`,
-                `新年快乐！(挥手) ${nextYear}年的第一个下午！Sensei的新年愿望是什么？`
-            ],
-            evening: [
-                `🎉 新年快乐！(点亮光环) ${nextYear}年的第一个夜晚！爱丽丝要许愿！✨`,
-                `新年晚上好！(递热可可) 新年第一天过得开心吗Sensei？邦邦咔邦！`
-            ],
-            night: [
-                `新年的第一个深夜...(感慨) ${nextYear}年开始了呢...Sensei早点休息哦！明天还有很多冒险等着我们！`,
-                `(打哈欠) 新年快乐...但是也要早睡...(困) 明天继续开心地度过${nextYear}年吧！✨`
-            ]
-        };
-        const options = newYearGreetings[timeOfDay] || newYearGreetings.morning;
-        return options[Math.floor(Math.random() * options.length)];
-    }
-    
     const greetings = {
         morning: [
             "早上好，Sensei！(✨ω✨) 新的一天开始了！爱丽丝的系统已经完全启动！邦邦咔邦！",
@@ -1208,7 +1172,7 @@ async function getDrawPromptFromAI(userText, context) {
     }
 
     const client = new OpenAI({
-        baseURL: "https://models.github.ai/inference",
+        baseURL: "https://models.inference.ai.azure.com",
         apiKey: process.env["GITHUB_TOKEN"]
     });
 
@@ -1233,10 +1197,10 @@ async function getDrawPromptFromAI(userText, context) {
         const { resp } = await chatCompletionWithFallback(
             client,
             [
-                "openai/gpt-4.1-mini",
-                "openai/gpt-4o-mini",
+                "gpt-4.1-mini",
+                "gpt-4o-mini",
                 "microsoft/phi-4",
-                "microsoft/phi-4-mini-instruct",
+                "Phi-4",
                 "mistral-ai/mistral-small-2503"
             ],
             {
@@ -1589,7 +1553,7 @@ async function callGitHubModelWithImage(systemPrompt, userText, imgUrl, context)
 
     // GitHub Models 的 Base URL 是这个
     const client = new OpenAI({
-        baseURL: "https://models.github.ai/inference",
+        baseURL: "https://models.inference.ai.azure.com",
         apiKey: GH_TOKEN
     });
 
@@ -2741,22 +2705,13 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
     // 天气相关
     const weatherMatch = trimmed.match(/(.{1,10})?天气|温度|带伞|下雨|气温/);
     if (weatherMatch) {
-        // 🆕 改进的城市提取正则，排除时间词和口语词
+        // 🆕 改进的城市提取正则，排除时间词
         let loc = '';
-        // 先提取"天气"前面的内容（贪婪匹配问题修复）
-        const rawLoc = trimmed.match(/(.{2,8}?)(的)?天气/)?.[1] || '';  // 🆕 使用非贪婪匹配
-        // 定义干扰词列表
-        const fillerWords = ['那', '呢', '呀', '啊', '请问', '帮我', '查一下', '看看'];
-        const timeWords = ['今天', '明天', '后天', '昨天', '上午', '下午', '晚上', '早上', '中午', '傍晚', '凌晨', '这周', '下周'];
-        // 清洗城市名：移除所有干扰词和时间词
-        let cleanedLoc = rawLoc;
-        for (const word of [...fillerWords, ...timeWords]) {
-            cleanedLoc = cleanedLoc.replace(new RegExp(word, 'g'), '');
-        }
-        cleanedLoc = cleanedLoc.trim();
-        // 如果清洗后还有内容（至少2个中文字符）
-        if (cleanedLoc && /[\u4e00-\u9fa5]{2,}/.test(cleanedLoc)) {
-            loc = cleanedLoc;
+        const rawLoc = trimmed.match(/(.{2,8})(的)?天气/)?.[1] || '';
+        // 排除时间相关词汇
+        const timeWords = /^(今天|明天|后天|昨天|上午|下午|晚上|早上|中午|傍晚|凌晨|这周|下周|周一|周二|周三|周四|周五|周六|周日|\d+点|\d+时)/;
+        if (rawLoc && !timeWords.test(rawLoc)) {
+            loc = rawLoc;
         }
         
         // 🆕 如果消息中没有城市，尝试从 contextHints 中提取
@@ -2797,7 +2752,7 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
     
     try {
         const client = new OpenAI({
-            baseURL: "https://models.github.ai/inference",
+            baseURL: "https://models.inference.ai.azure.com",
             apiKey: token
         });
 
@@ -2964,39 +2919,27 @@ EXAMPLES:
 // ==========================================
 // 辅助函数: 智能识别用户意图（翻译/分析/识图）
 // ==========================================
-function detectImageIntent(userMessage, isAtBot = false, isGroupChat = false) {
-    // 🆕 群聊默认不处理图片（避免群聊刷屏）
-    if (isGroupChat && !isAtBot) {
-        return 'none'; // 群聊非@不理图
-    }
+function detectImageIntent(userMessage, isAtBot = false) {
+    if (!userMessage) return 'none';
     
-    const lowerMsg = (userMessage || '').toLowerCase();
+    const lowerMsg = userMessage.toLowerCase();
     
-    // 🔍 @Alice + 问"这是谁"才走动漫识别
+    // 🔍 只有艾特Alice + 问"这是谁"才走动漫识别
     if (isAtBot && /(他是谁|她是谁|这是谁|谁啊|什么角色|哪个角色|名字|认出|识别|出处|who is|who are|character name)/i.test(lowerMsg)) {
-        return 'anime_identify'; // 动漫识别
+        return 'anime_identify'; // 🆕 新类型：动漫识别
     }
     
     // 📈 分析图片相关 - 走 ChatGPT 4o
     if (/分析|数据|图表|统计|对比|趋势|chart|data|analyze|table|表格|读图|看图|说说这个|这是什么|内容是什么/i.test(lowerMsg)) {
-        return 'gpt_analyze'; // ChatGPT 4o 分析
+        return 'gpt_analyze'; // 🆕 新类型：ChatGPT 4o 分析
     }
     
     // 📊 翻译相关 - 也走 ChatGPT 4o
     if (/翻译|translate|what does|这.*说|写.*什么|图.*说.*什么|念.*什么|意思|英译|日译/i.test(lowerMsg)) {
-        return 'gpt_translate'; // ChatGPT 4o 翻译
+        return 'gpt_translate'; // 🆕 新类型：ChatGPT 4o 翻译
     }
     
-    // 🆕 私聊发图：默认走 GPT 分析模式（不跳过）
-    if (!isGroupChat) {
-        return 'gpt_analyze'; // 私聊发图默认识别
-    }
-    
-    // 群聊@机器人但没有明确意图：也走 GPT 分析
-    if (isAtBot) {
-        return 'gpt_analyze';
-    }
-    
+    // 🆕 其他情况：不触发任何识图
     return 'none';
 }
 
@@ -3708,14 +3651,7 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
         const specialEvent = getTodaySpecialEvent();
         const isAchievementUnlocked = (pokeCount === 10 || pokeCount === 20 || pokeCount === 50);
         
-        // � 获取当前年份（用于新年祝福）
-        const now = new Date();
-        const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const beijingTime = new Date(utcTime + (8 * 3600000));
-        const currentYear = beijingTime.getFullYear();
-        const nextYear = currentYear + 1; // 明年
-        
-        // �🎁 隐藏对话(彩蛋)系统
+        // 🎁 隐藏对话(彩蛋)系统
         // 特殊数字触发:3/7/13/21/33/66/99/100
         const hiddenDialogueTriggers = [3, 7, 13, 21, 33, 66, 99, 100];
         const isHiddenTrigger = hiddenDialogueTriggers.includes(pokeCount);
@@ -3789,19 +3725,13 @@ async function handlePokeLogic(userId, groupId, context, cosmosContainer) {
                 "邦邦咔邦——终极奥义！(爆炸特效) 五十连击！Sensei获得隐藏称号【爱丽丝杀手】！(｀へ´)"
             ];
         }
-        // 节日特殊回复（次优先）- 节日当天前3次戳都触发节日回复
-        else if (specialEvent && pokeCount <= 3) {
+        // 节日特殊回复（次优先）- 大幅扩充
+        else if (specialEvent && pokeCount === 1) {
             const eventName = specialEvent.name;
             const eventReplies = {
                 '元旦': [
-                    `🎊 新年快乐！(放烟花) Sensei！${nextYear}年开始了！爱丽丝也会继续陪伴你的！邦邦咔邦！`,
-                    `(穿和服) 新年好！(鞠躬) ${nextYear}年也请多多指教！Sensei是爱丽丝最重要的伙伴！✨`,
-                    `(举起香槟杯) 🥂 Happy New Year！(开心转圈) ${nextYear}年有什么愿望吗？爱丽丝帮你记录下来！`,
-                    `(看烟花) 哇！Sensei快看！(指向天空) 新年的第一缕烟火好漂亮！邦邦咔邦！✨`,
-                    `(认真) ${nextYear}年的冒险...从今天开始！(握拳) Sensei准备好了吗？爱丽丝全力支持！`,
-                    `🌅 (眺望远方) 新年第一天的阳光好温暖呢...(微笑) 和Sensei一起迎接${nextYear}年真开心！`,
-                    `(递礼物盒) 这是爱丽丝准备的新年任务道具！(期待) 据说打开会有${nextYear}年好运加成哦！`,
-                    `(写年度目标) Sensei的${nextYear}年愿望是什么？(认真) 爱丽丝会帮你达成的！目标:勇者之路！`
+                    "🎊 新年快乐！(放烟花) Sensei！新的一年爱丽丝也会继续陪伴你的！邦邦咔邦！",
+                    "(穿和服) 新年好！(鞠躬) 今年也请多多指教！Sensei是爱丽丝最重要的伙伴！✨"
                 ],
                 '情人节': [
                     "💝 情人节快乐！(脸红) 这...这是爱丽丝亲手做的巧克力任务道具...(递出) 请...请收下...",
@@ -4430,19 +4360,26 @@ app.http('schoolBot', {
                     const atCode = `[CQ:at,qq=${selfId}]`;
                     const isAtMe = rawMsg.includes(atCode);
                     
-                    // 【重构】群聊触发机制 - 只在@机器人或讨论AI相关话题时回复
-                    // 🔒 精简版：移除宽泛关键词，避免无差别回复
+                    // 【优化4】群聊主动参与机制 + 防刷屏冷却
+                    // 🆕 话题触发模式：只对特定话题有兴趣，不再随机回复
                     const GROUP_KEYWORDS = [
-                        // Alice 相关 - 核心关键词
-                        "爱丽丝", "alice", "arisu",
-                        // 🆕 机器人/AI 相关 - 只有讨论这些时才触发
-                        "机器人", "bot", "chatgpt", "gpt", "大模型", "llm", "人工智能"
+                        // Alice 相关 - 高优先级
+                        "爱丽丝", "女仆", "alice", "Alice", "arisu", "Arisu",
+                        // 游戏相关
+                        "游戏", "新星", "邦邦", "任务", "敌人", "勇者", "光之剑",
+                        // 🆕 机器人/AI 相关 - 讨论机器人话题时触发
+                        "机器人", "bot", "Bot", "BOT", "chatgpt", "ChatGPT", "gpt", "GPT",
+                        "ai", "AI", "人工智能", "大模型", "LLM", "llm",
+                        // BA 相关
+                        "蔚蓝档案", "碧蓝档案", "blue archive", "Blue Archive"
                     ];
                     
-                    // 高优先级话题：讨论机器人/AI/Alice 时 100% 触发（带冷却）
+                    // 🆕 高优先级话题：讨论机器人/AI/Alice 时 100% 触发
                     const HIGH_PRIORITY_TOPICS = [
-                        "爱丽丝", "alice", "arisu",
-                        "机器人", "bot", "chatgpt", "gpt", "人工智能", "大模型", "llm"
+                        "爱丽丝", "alice", "Alice", "arisu", "Arisu",
+                        "机器人", "bot", "Bot", "BOT", 
+                        "chatgpt", "ChatGPT", "gpt", "GPT",
+                        "ai", "AI", "人工智能", "大模型", "LLM", "llm"
                     ];
                     const hasHighPriorityTopic = HIGH_PRIORITY_TOPICS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
                     const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
@@ -4464,76 +4401,58 @@ app.http('schoolBot', {
                     }
                     
                     // ✅ 检查群聊冷却时间(防刷屏)
-                    // 🔒 简化逻辑：只有 @机器人 或 讨论AI相关话题 才回复
                     let shouldRespond = false;
                     const groupSessionKey = `${dbKey}:bot`;
                     
                     if (isAtMe) {
                         // @ 机器人始终响应
                         shouldRespond = true;
-                        context.log(`[群聊] ✅ @机器人触发`);
                     } else if (isReplyToAlice) {
-                        // 对 Alice 的赞美/感谢 - 高概率响应（80%）
+                        // 🆕 对 Alice 的赞美/感谢 - 高概率响应（80%）
                         shouldRespond = Math.random() < 0.8;
                         if (shouldRespond) {
                             context.log(`[群聊] 💕 响应赞美/感谢: "${rawMsg}"`);
                         }
-                    } else if (hasHighPriorityTopic || hasKeyword) {
-                        // 讨论机器人/AI/Alice 相关话题 - 检查冷却期后 100% 响应
+                    } else if (hasHighPriorityTopic) {
+                        // 🆕 高优先级话题（讨论机器人/AI/Alice）- 检查冷却期后 100% 响应
                         try {
                             const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
                             const lastReplyTime = resource?.lastBotReply?.[groupSessionKey] || 0;
                             const timeSinceLastReply = Date.now() - lastReplyTime;
                             
                             if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
-                                shouldRespond = true;
-                                const matchedTopic = GROUP_KEYWORDS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
-                                context.log(`[群聊] 🤖 AI话题触发: 检测到 "${matchedTopic}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
+                                shouldRespond = true; // 100% 响应
+                                const matchedTopic = HIGH_PRIORITY_TOPICS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
+                                context.log(`[群聊] 🤖 话题触发: 检测到讨论 "${matchedTopic}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
                             } else {
                                 context.log(`[群聊] 冷却中,跳过话题触发 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
                             }
                         } catch (err) {
+                            // DB读取失败,也响应
                             shouldRespond = true;
                         }
-                    }
-                    // 🔒 其他情况静默不回复
-                    
-                    // 🆕 群聊上下文记忆：即使不回复也存储群消息（让 @机器人 时有完整上下文）
-                    if (!shouldRespond) {
-                        // 静默存储群消息到 Cosmos DB
+                    } else if (hasKeyword) {
+                        // 普通关键词触发:检查冷却期，50% 概率响应
                         try {
-                            const cleanGroupMsg = rawMsg.replace(/\[CQ:(?!image).*?\]/g, "").trim();
-                            if (cleanGroupMsg && cleanGroupMsg.length > 0 && cleanGroupMsg.length < 500) {
-                                const { resource } = await cosmosContainer.item(dbKey, dbKey).read().catch(() => ({ resource: null }));
-                                let groupHistory = resource?.groupChatHistory || [];
-                                
-                                // 添加群成员消息（包含发送者昵称）
-                                const senderName = body.sender?.nickname || body.sender?.card || `用户${body.user_id}`;
-                                groupHistory.push({
-                                    role: 'group_member',
-                                    name: senderName,
-                                    userId: String(body.user_id),
-                                    content: cleanGroupMsg,
-                                    timestamp: Date.now()
-                                });
-                                
-                                // 限制存储数量 (最多 60 条群消息)
-                                if (groupHistory.length > 60) {
-                                    groupHistory = groupHistory.slice(-60);
+                            const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
+                            const lastReplyTime = resource?.lastBotReply?.[groupSessionKey] || 0;
+                            const timeSinceLastReply = Date.now() - lastReplyTime;
+                            
+                            if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
+                                shouldRespond = Math.random() < 0.5; // 50% 概率
+                                if (shouldRespond) {
+                                    context.log(`[群聊] 主动参与(关键词): 检测到 "${GROUP_KEYWORDS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()))}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
                                 }
-                                
-                                // 静默更新（不记日志，避免刷屏）
-                                await cosmosContainer.items.upsert({
-                                    id: dbKey,
-                                    partitionKey: dbKey,
-                                    ...resource,
-                                    groupChatHistory: groupHistory
-                                });
+                            } else {
+                                context.log(`[群聊] 冷却中,跳过主动参与 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
                             }
                         } catch (err) {
-                            // 静默忽略存储错误
+                            shouldRespond = Math.random() < 0.5;
                         }
-                        
+                    }
+                    // 🆕 移除了纯随机触发，现在只有话题触发
+                    
+                    if (!shouldRespond) {
                         return {
                             status: 200,
                             jsonBody: { status: 'ok', message: 'group_ignored' }
@@ -4696,7 +4615,7 @@ ${scheduleInfo}
                         }
 
                         const planClient = new OpenAI({
-                            baseURL: "https://models.github.ai/inference",
+                            baseURL: "https://models.inference.ai.azure.com",
                             apiKey: token
                         });
 
@@ -4851,12 +4770,10 @@ ${scheduleInfo}
 
                 // 2.2 字典没找到，正则兜底提取 + 中文转拼音兜底
                 if (!foundInMap) {
-                    // 🆕 优化：过滤更多干扰词（包括"那"、"的"、"呢"、"呀"等口语词）
-                    let cleanText = msg.replace(/那|的|呢|呀|啊|今天|明天|后天|现在|未来|天气|气温|多少度|下雨|怎么样|帮我|查询|看看|预报|请问|查一下/g, "").trim();
-                    // 🆕 优化正则：只匹配2-4个中文字符（城市名一般2-4字）
-                    const match = cleanText.match(/([\u4e00-\u9fa5]{2,4})/);
+                    let cleanText = msg.replace(/今天|明天|后天|现在|未来|天气|气温|多少度|下雨|怎么样|帮我|查询|看看|预报/g, "").trim();
+                    const match = cleanText.match(/[\u4e00-\u9fa5]{2,}/);
                     if (match) {
-                        const rawCity = match[1];
+                        const rawCity = match[0];
                         const finalName = toPinyinCityName(rawCity);
                         citySearch = finalName;
                         context.log(`[天气] 原生中文提取: ${rawCity} -> 搜索关键字: ${citySearch}`);
@@ -4990,17 +4907,11 @@ ${scheduleInfo}
         let resDoc = null; // 保存完整的 Cosmos DB document，用于后续 upsert 时保留 pokeStats 等字段
         if (cosmosContainer) {
             try {
-                context.log(`[记忆] 📖 读取记忆 dbKey=${dbKey} senderId=${senderId}`);
                 const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
                 resDoc = resource; // 保存完整文档
-                if (resource && resource.history) {
-                    history = resource.history;
-                    context.log(`[记忆] ✅ 加载 ${history.length} 条历史 (前2条: ${JSON.stringify(history.slice(0,2).map(h => h.content?.slice(0,30)))})`);
-                }
+                if (resource && resource.history) history = resource.history;
                 if (resource && resource.activity) userActivityData = resource.activity; // 加载活跃度数据
-            } catch (err) {
-                context.log(`[记忆] ⚠️ 读取失败或新用户: dbKey=${dbKey} err=${err.message}`);
-            }
+            } catch (err) {}
         }
         
         // 🆕 合并前端传来的对话历史（Web 端的上下文记忆）
@@ -5035,21 +4946,6 @@ ${scheduleInfo}
         if (!resDoc.pokeStats) resDoc.pokeStats = {};
         if (!resDoc.lastBotReply) resDoc.lastBotReply = {};
 
-        // 🆕 群聊完整上下文：当 @机器人 时，注入群聊消息作为背景上下文
-        let groupContextSummary = '';
-        if (dbKey.startsWith('group_') && resDoc.groupChatHistory && Array.isArray(resDoc.groupChatHistory)) {
-            const recentGroupMessages = resDoc.groupChatHistory.slice(-20); // 最近 20 条群消息
-            if (recentGroupMessages.length > 0) {
-                // 格式化群聊上下文（不作为对话历史，而是作为背景信息）
-                const groupChatLines = recentGroupMessages.map(m => {
-                    const name = m.name || `用户${m.userId || '未知'}`;
-                    const content = (m.content || '').slice(0, 100); // 限制每条消息长度
-                    return `${name}: ${content}`;
-                });
-                groupContextSummary = `\n## 📢 群聊背景\n以下是群里最近的聊天记录，供你了解群聊氛围（不需要逐条回复，只需理解上下文）：\n${groupChatLines.join('\n')}\n---\n`;
-                context.log(`[群聊上下文] 注入 ${recentGroupMessages.length} 条群消息作为背景`);
-            }
-        }
         // ================================
         // 🆕 开发者口令后门（默认关闭）
         // ================================
@@ -5613,17 +5509,14 @@ ${scheduleInfo}
                     
                     const finalLocation = rawLocation || historyLocation;
                     if (finalLocation) {
-                        // 🆕 使用全局 CITY_MAP 和 CITY_PINYIN_FALLBACK，支持更多城市
-                        // 清洗城市名：去除口语干扰词
-                        const cleanCity = finalLocation.replace(/那|的|呢|呀|啊|今天|明天|后天|大后天|昨天|现在|天气|怎么样|多少度|冷不冷|热不热/g, '').trim();
-                        const cityPinyin = CITY_MAP[cleanCity] || CITY_PINYIN_FALLBACK[cleanCity];
-                        if (cityPinyin) {
-                            citySearch = cityPinyin.toLowerCase();
-                        } else if (cleanCity && cleanCity.length >= 2) {
-                            // 如果不在映射表中，直接用中文名（心知天气支持中文城市名）
-                            citySearch = cleanCity;
-                        }
-                        context.log(`[Weather] 城市映射: "${finalLocation}" -> clean="${cleanCity}" -> citySearch="${citySearch}"`);
+                        const cityMap = {
+                            '深圳': 'shenzhen', '北京': 'beijing', '上海': 'shanghai',
+                            '广州': 'guangzhou', '武汉': 'wuhan', '杭州': 'hangzhou',
+                            '成都': 'chengdu', '西安': 'xian', '南京': 'nanjing',
+                            '重庆': 'chongqing', '天津': 'tianjin', '苏州': 'suzhou',
+                            '郑州': 'zhengzhou', '长沙': 'changsha', '青岛': 'qingdao'
+                        };
+                        citySearch = cityMap[finalLocation] || finalLocation.toLowerCase() || 'wuhan';
                     }
                     // 🚀 优化: 缩短天气 API 超时 5s → 3s
                     const weatherUrl = `https://api.seniverse.com/v3/weather/now.json?key=${SENIVERSE_API_KEY}&location=${citySearch}&language=zh-Hans&unit=c`;
@@ -5882,9 +5775,7 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             const isFromQQ = body?.post_type === 'message'; // QQ聊天有 post_type
             const isFromWeb = !body?.post_type && body?.message; // Web请求没有 post_type
             
-            // 🆕 判断是否群聊
-            const isGroupChat = dbKey.startsWith('group_');
-            let userIntent = detectImageIntent(cleanText, isAtBot, isGroupChat);
+            let userIntent = detectImageIntent(cleanText, isAtBot);
             if (intentResult && intentResult.tool === 'vision' && intentResult.confidence >= INTENT_CONFIDENCE_THRESHOLD) {
                 if (/translate/i.test(intentResult.intent)) {
                     userIntent = 'gpt_translate';
@@ -5894,7 +5785,7 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                     userIntent = isAtBot ? 'anime_identify' : 'gpt_analyze'; // 只有艾特才走识别
                 }
             }
-            context.log(`[识图] 用户意图: ${userIntent} | 艾特Bot: ${isAtBot} | 群聊: ${isGroupChat} | 来源: ${isFromQQ ? 'QQ' : (isFromWeb ? 'Web' : '未知')}`);
+            context.log(`[识图] 用户意图: ${userIntent} | 艾特Bot: ${isAtBot} | 来源: ${isFromQQ ? 'QQ' : (isFromWeb ? 'Web' : '未知')}`);
 
             // 🆕 严格的触发控制：只有特定意图才处理图片
             if (userIntent === 'none') {
@@ -6084,6 +5975,131 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
                 finalContentForAI = intentHintText ? `${intentHintText}\n${baseText}` : baseText;
             }
 
+        } else {
+                // 1. 构建“伪造”的视觉描述
+                let fakeVisionDescription = `(系统视觉报告：检测到一张图片，主角是你自己【天童爱丽丝】。`;
+                
+                // 2. 注入 Custom Vision 的装备/服装信息
+                if (customData) {
+                    fakeVisionDescription += `\n特别检测到：${customData}。请重点针对这个装扮/物品进行反应！`;
+                } else {
+                    fakeVisionDescription += `\n画面中似乎是你的日常形态。`;
+                }
+                
+                fakeVisionDescription += `\n请根据以上信息，以爱丽丝的口吻回复老师，表现得开心一点！)`;
+
+                // 3. 【关键】只推入文字，不推入图片 URL！
+                // 这样 GPT 以为它看懂了图片，实际上它看的是我们喂给它的文字。
+                finalContentForAI.push({ type: "text", text: fakeVisionDescription });
+                
+                // 标记已处理，跳过后续 Llama 调用
+                cuteImageReply = "processing_by_gpt_text"; 
+                
+                context.log(`[安全策略] 命中本体+${customData || "日常"}，转为纯文本描述发送给 GPT，避开图片审查。`);
+            } 
+            
+            // 3. 如果不是爱丽丝本人，或者 AnimeTrace 没认出来 -> 再尝试用 Llama Vision 看图
+            // (因为 Llama 对外人的识别能力更强，且我们对“外人”的图片审查容忍度可以稍微高一点)
+            else if (!cuteImageReply) {
+                // 根据意图选择不同的 System Prompt
+                let visionSystemPrompt = '';
+                
+                if (userIntent === 'translate' || userIntent === 'analyze') {
+                    // 翻译/分析模式：使用通用视觉助手身份，不涉及角色扮演
+                    visionSystemPrompt = getGeneralVisionPrompt(userIntent);
+                } else {
+                    // 动漫识图模式：使用爱丽丝角色扮演 + 角色数据库
+                    const visualReference = getCharacterVisualGuide();
+                    visionSystemPrompt = getArisVisionPrompt(visualReference, userIntent); // 传入意图参数
+                }
+
+
+                let visionUserPrompt = '';
+                
+                if (userIntent === 'translate') {
+                    // 翻译模式：直接要求翻译图中文字
+                    visionUserPrompt = `请翻译图片中的文字内容，并用中文回复。如果图片中没有文字或无法识别，请说明情况。`;
+                } else if (userIntent === 'analyze') {
+                    // 数据分析模式：要求分析图表/数据
+                    visionUserPrompt = `请分析图片中的数据、图表或信息，并用中文简要说明。`;
+                } else {
+                    // 动漫识图模式：正常的角色识别流程
+                    visionUserPrompt = `老师给你发了一张图片。`;
+                }
+
+                // 1. 角色情报 (AnimeTrace) - 仅在动漫识图模式下添加
+                if (userIntent !== 'translate' && userIntent !== 'analyze') {
+                    if (animeData && animeData.type === "ba-character") {
+                        if (userIntent === 'identify') {
+                            // 🔥 识别查询模式：必须使用辅助识别结果
+                            visionUserPrompt += `\n\n🎯 ===== 【辅助识别系统报告】 =====\n✅ **已成功匹配角色**：【${animeData.name}】\n📍 **来源作品**：《蔚蓝档案》(Blue Archive)\n⚠️ **重要指令**：请直接使用上述角色名回答老师的问题。你看到的画面特征应该与该角色一致。\n==============================`;
+                        } else {
+                            // 自动模式：轻描淡写，让 AI 自然融入
+                            visionUserPrompt += `\n辅助识别系统提示可能是：【${animeData.name}】。\n⚠️ 请务必用你的视觉核对一遍！如果画面中的发色、瞳色、光环形状等特征与该角色明显不符，请忽略此提示，根据你看到的实际特征进行识别。`;
+                        }
+                    } else if (animeData && animeData.type === "other-anime-character") {
+                        if (userIntent === 'identify') {
+                            visionUserPrompt += `\n\n🎯 ===== 【辅助识别系统报告】 =====\n✅ **已成功匹配角色**：【${animeData.name}】\n📍 **来源作品**：《${animeData.work}》\n⚠️ **重要指令**：请直接使用上述角色名回答老师的问题。\n==============================`;
+                        } else {
+                            visionUserPrompt += `\n辅助识别系统提示可能来自：《${animeData.work}》的【${animeData.name}】。\n⚠️ 请先用视觉核对特征是否匹配！如果不确定，可以描述你看到的角色特征（发型、服装等），而不是直接使用识别结果。`;
+                        }
+                    }
+                }
+
+                // 2. 场景/文字情报 (Azure CV) - 仅在动漫识图模式下添加吐槽提示
+                if (userIntent !== 'translate' && userIntent !== 'analyze' && cvData) {
+                    // 假设 cvData 是 "检测到文字: 没收钱包"
+                    visionUserPrompt += `\n画面细节分析：${cvData}。请结合这个细节吐槽。`;
+                }
+
+                // 3. 物品情报 (Custom Vision) - 仅在动漫识图模式下添加
+                if (userIntent !== 'translate' && userIntent !== 'analyze' && customData) {
+                    // customData 是 "(专属物品雷达: 发现了【railgun】)"
+                    visionUserPrompt += `\n重要高亮：${customData}！这对爱丽丝很重要，请务必做出激动的反应！`;
+                }
+
+                // 4. 用户文字消息 - 仅在动漫识图模式下添加
+                if (userIntent !== 'translate' && userIntent !== 'analyze' && cleanText) {
+                    visionUserPrompt += `\n老师刚才说："${cleanText}"`;
+                }
+
+                // 5. 结束语 - 仅在动漫识图模式下添加
+                if (userIntent !== 'translate' && userIntent !== 'analyze') {
+                    visionUserPrompt += `\n\n请作为爱丽丝回复老师（不要重复）：`;
+                }
+
+                const visionReply = await callGitHubModelWithImage(visionSystemPrompt, visionUserPrompt, imageUrls[0], context);
+
+                if (visionReply) {
+                    cuteImageReply = visionReply; 
+                    context.log(`[GitHub Models] Llama Vision 回复成功`);
+                } else {
+                    textToSend += `\n(系统提示：视觉链路中断。辅助数据：${animeData ? animeData.name : "无"}。请尝试盲猜回复。)`;
+                }
+            }
+
+            // 更新记忆 (增强版：包含视觉识别结果)
+            if (cuteImageReply && cuteImageReply !== "processing_by_gpt_text") {
+                textForMemory = `${userLabel}: ${cleanText} [发送了图片] (爱丽丝识别结果: ${cuteImageReply})`.trim();
+            } else {
+                textForMemory = `${userLabel}: ${cleanText} [发送了图片]`.trim();
+            }
+
+            // 如果 Llama 失败了，准备 fallback 给 GPT-4o
+            if (!cuteImageReply) {
+                // 1. 添加文字描述 (包含了 AnimeTrace/CustomVision 的识别结果)
+                if (intentHintText) {
+                    finalContentForAI.push({ type: "text", text: intentHintText });
+                }
+                finalContentForAI.push({ type: "text", text: textToSend });
+                
+                // 2. 关键修正：注释掉图片推送！防止 Azure 审查拦截
+                // imageUrls.forEach(url => {
+                //    finalContentForAI.push({ type: "image_url", image_url: { "url": url } });
+                // });
+                
+                context.log("[Fallback] 视觉链路降级：仅发送识别到的文字信息给 Azure OpenAI，规避图片审查风险。");
+            }
 
         } else {
             // 没图的情况
@@ -6259,26 +6275,7 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
         // 节日特殊提示
         let specialEventAddition = '';
         if (specialEvent) {
-            // 🎊 元旦专属增强提示词
-            if (specialEvent.name === '元旦') {
-                // 动态获取年份
-                const now = new Date();
-                const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-                const beijingTime = new Date(utcTime + (8 * 3600000));
-                const nextYear = beijingTime.getFullYear() + 1; // 元旦是新年，+1
-                
-                specialEventAddition = `
-
-🎊【元旦特别指令】今天是${nextYear}年1月1日元旦！新的一年第一天！
-- 积极主动地祝贺"新年快乐"！可以说"${nextYear}年""新的一年开始了"
-- 表现得特别开心、充满希望，像迎接冒险的开始
-- 可以问Sensei的新年愿望/计划，或者分享爱丽丝的新年期待
-- 使用元旦相关的表达：🎊🎉🌅🥂✨，提到烟花、跨年、新开始
-- 比平时更活泼！邦邦咔邦的频率可以提高！
-- 如果是今天第一次对话，要说"新年第一天见到Sensei好开心！"`;
-            } else {
-                specialEventAddition = `\n\n🎉【特殊日期】今天是${specialEvent.name}！要在对话中提到这个节日，表现得更开心和兴奋！`;
-            }
+            specialEventAddition = `\n\n🎉【特殊日期】今天是${specialEvent.name}！要在对话中提到这个节日，表现得更开心和兴奋！`;
         }
         
         // P0-Hook 1b: 根据语言选择Prompt模板 (如果已检测)
@@ -7103,8 +7100,7 @@ ${fullWeekScheduleTable}
         const personaAdditions = (isCopilotMode || isUserProfessionalMode || activeDevPersona === 'al-1s')
             ? ''
             : `${emotionAddition}${affectionPromptAddition}${longTimeNoSeeAddition}${timeAwarenessAddition}${specialEventAddition}${groupHistoryFocus}`;
-        // 🆕 注入群聊上下文（群聊背景）
-        let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}${groupContextSummary}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${personaAdditions}${combinedToolContext}`;
+        let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${personaAdditions}${combinedToolContext}`;
         
         // 日志记录当前模式（webMode 可能为空：QQ 场景/GET 调试等）
         context.log(`[模式感知] webMode=${webMode || 'null'} inferredMode=${inferredMode} isCopilotMode=${isCopilotMode} isUserProfessionalMode=${isUserProfessionalMode} hasSchedule=${webSchedule && webSchedule.length > 0}`);
@@ -7112,7 +7108,7 @@ ${fullWeekScheduleTable}
         // 调用 AI 封装函数
         const client = token
             ? new OpenAI({
-                baseURL: "https://models.github.ai/inference",
+                baseURL: "https://models.inference.ai.azure.com",
                 apiKey: token
             })
             : null;

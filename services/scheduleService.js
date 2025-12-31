@@ -1453,7 +1453,7 @@ function extractOcrText(cvSummary) {
 
 async function parseScheduleFromOcrText(ocrText, context, token) {
   if (!ocrText || !token) return { events: [], summary: ocrText || '' };
-  const client = new OpenAI({ baseURL: 'https://models.inference.ai.azure.com', apiKey: token });
+  const client = new OpenAI({ baseURL: 'https://models.github.ai/inference', apiKey: token });
   const { getOcrParseModel } = require('./modelRouter');
   const OCR_PARSE_MODEL = getOcrParseModel();
 
