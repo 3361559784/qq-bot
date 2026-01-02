@@ -6,24 +6,47 @@
 
 ## 🔑 配置 GitHub Secrets
 
-1. 获取 Azure Functions 发布配置文件：
+由于使用 Azure Flex Consumption Plan，需要使用 Service Principal 进行身份验证。
+
+### 步骤 1: 创建 Service Principal
 
 ```bash
 # 登录 Azure
 az login
 
-# 下载 publish profile
-az functionapp deployment list-publishing-profiles \
-  --name school-bot \
-  --resource-group <your-resource-group> \
-  --xml > publish-profile.xml
+# 创建 Service Principal（替换 <subscription-id> 为你的订阅 ID）
+az ad sp create-for-rbac \
+  --name "github-actions-school-bot" \
+  --role contributor \
+  --scopes /subscriptions/<subscription-id>/resourceGroups/qq-bot-rg \
+  --sdk-auth
 ```
 
-2. 在 GitHub 仓库设置中添加 Secret：
-   - 进入仓库 → Settings → Secrets and variables → Actions
-   - 点击 "New repository secret"
-   - Name: `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`
-   - Value: 粘贴 `publish-profile.xml` 的全部内容
+**输出示例**（保存整个 JSON 对象）：
+```json
+{
+  "clientId": "xxxx",
+  "clientSecret": "xxxx",
+  "subscriptionId": "xxxx",
+  "tenantId": "xxxx",
+  ...
+}
+```
+
+### 步骤 2: 获取订阅 ID
+
+```bash
+az account show --query id --output tsv
+```
+
+### 步骤 3: 在 GitHub 添加 Secret
+
+1. 进入仓库 → Settings → Secrets and variables → Actions
+2. 点击 "New repository secret"
+3. 添加以下 Secret：
+
+   **Name:** `AZURE_CREDENTIALS`  
+   **Value:** 完整的 JSON 对象（步骤 1 的输出）
 
 ## ✅ 触发部署
 
@@ -61,3 +84,14 @@ npm run build
 ```bash
 curl https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot
 ```
+
+## 🛠️ 故障排查
+
+### 部署失败
+- 检查 Secret `AZURE_CREDENTIALS` 是否正确配置
+- 确认 Service Principal 有 `qq-bot-rg` 资源组的 Contributor 权限
+- 查看 Actions 日志获取详细错误信息
+
+### 前端意外部署
+- 确认 `.funcignore` 包含 `campus-ai-web`
+- workflow 的 `paths` 过滤器不包含前端文件
