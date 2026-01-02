@@ -13,6 +13,11 @@ const EventType = Object.freeze({
     // 请求生命周期
     REQUEST_START: 'request_start',
     REQUEST_END: 'request_end',
+
+    // 策略
+    POLICY_SELECTED: 'policy_selected',
+    POLICY_BLOCKED: 'policy_blocked',
+    AUDIT_SUMMARY: 'audit_summary',
     
     // 安全相关
     SAFETY_CHECK: 'safety_check',
@@ -269,6 +274,37 @@ class StructuredLogger {
             warning_type: warningType,
             warning_message: message
         });
+    }
+
+    /**
+     * 记录策略选型（用于灰度/多入口审计）
+     */
+    logPolicySelected(client, version, source, rolloutPercent = 0) {
+        return this.logEvent(EventType.POLICY_SELECTED, {
+            client,
+            policy_version: version,
+            source: source || 'default',
+            rollout_percent: rolloutPercent
+        });
+    }
+
+    /**
+     * 记录策略阻断
+     */
+    logPolicyBlocked(client, version, intent, reason) {
+        return this.logEvent(EventType.POLICY_BLOCKED, {
+            client,
+            policy_version: version,
+            intent,
+            reason
+        });
+    }
+
+    /**
+     * 记录统一审计摘要
+     */
+    logAuditSummary(summary) {
+        return this.logEvent(EventType.AUDIT_SUMMARY, summary);
     }
 
     /**

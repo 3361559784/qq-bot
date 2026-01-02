@@ -128,6 +128,168 @@ async function fetchBypass_legacy(url, options = {}, context, retry = 3) {
 }
 
 // ==========================================
+// 🧭 Policy Profiles (multi-entry guardrails with gray release)
+// ==========================================
+
+const POLICY_PROFILES = {
+    'web-v1': {
+        client: 'web',
+        version: 'web-v1',
+        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw'],
+        allowChitchat: false,
+        requireScheduleForTimeClaims: true,
+        maxSearchCalls: 2,
+        memory: { allow: true, requireUserConfirm: true },
+        refusalStyle: 'strict'
+    },
+    'web-beta': {
+        client: 'web',
+        version: 'web-beta',
+        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw'],
+        allowChitchat: false,
+        requireScheduleForTimeClaims: true,
+        maxSearchCalls: 2,
+        memory: { allow: true, requireUserConfirm: true },
+        refusalStyle: 'soft'
+    },
+    'qq-v1': {
+        client: 'qq',
+        version: 'qq-v1',
+        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw', 'chat'],
+        allowChitchat: true,
+        requireScheduleForTimeClaims: true,
+        maxSearchCalls: 3,
+        memory: { allow: true, requireUserConfirm: false },
+        refusalStyle: 'soft'
+    },
+    'qq-beta': {
+        client: 'qq',
+        version: 'qq-beta',
+        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw', 'chat'],
+        allowChitchat: true,
+        requireScheduleForTimeClaims: true,
+        maxSearchCalls: 3,
+        memory: { allow: true, requireUserConfirm: false },
+        refusalStyle: 'soft'
+    }
+};
+
+const POLICY_CONFIG = {
+    web: {
+        defaultVersion: 'web-v1',
+        rollout: [{ version: 'web-beta', percentage: Number(process.env['POLICY_WEB_BETA_PERCENT'] || 0) }]
+    },
+    qq: {
+        defaultVersion: 'qq-v1',
+        rollout: [{ version: 'qq-beta', percentage: Number(process.env['POLICY_QQ_BETA_PERCENT'] || 0) }]
+    }
+};
+
+function stableBucketFromId(id) {
+    const text = String(id || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i++) {
+        hash = (hash << 5) - hash + text.charCodeAt(i);
+        hash |= 0; // 转32位整数
+    }
+    return Math.abs(hash) % 100;
+}
+
+function detectClient(request, body = {}) {
+    const headerClient = (() => {
+        try {
+            return (request?.headers?.get('x-client') || request?.headers?.get('X-Client') || '').toLowerCase();
+        } catch {
+            return '';
+        }
+    })();
+    const metaClient = String(body?.meta?.client || body?.client || '').toLowerCase();
+    const heuristicClient = body?.post_type ? 'qq' : (body?.message ? 'web' : 'unknown');
+
+    const resolved = headerClient || metaClient || heuristicClient || 'unknown';
+    return {
+        client: ['web', 'qq', 'wechat', 'api'].includes(resolved) ? resolved : heuristicClient,
+        source: headerClient ? 'header' : (metaClient ? 'body' : 'heuristic')
+    };
+}
+
+function selectPolicyProfile(client, requestId, forcedVersion = null) {
+    const normalizedClient = client || 'web';
+    const cfg = POLICY_CONFIG[normalizedClient] || POLICY_CONFIG.web;
+
+    if (forcedVersion && POLICY_PROFILES[forcedVersion]) {
+        return {
+            client: normalizedClient,
+            version: forcedVersion,
+            profile: POLICY_PROFILES[forcedVersion],
+            source: 'forced',
+            rolloutPercent: 0
+        };
+    }
+
+    const rolloutTarget = (cfg.rollout || []).find(r => r.percentage > 0 && POLICY_PROFILES[r.version]);
+    if (rolloutTarget) {
+        const bucket = stableBucketFromId(requestId);
+        if (bucket < rolloutTarget.percentage) {
+            return {
+                client: normalizedClient,
+                version: rolloutTarget.version,
+                profile: POLICY_PROFILES[rolloutTarget.version],
+                source: 'rollout',
+                rolloutPercent: rolloutTarget.percentage,
+                bucket
+            };
+        }
+    }
+
+    const defaultProfile = POLICY_PROFILES[cfg.defaultVersion] || POLICY_PROFILES['web-v1'];
+    return {
+        client: normalizedClient,
+        version: cfg.defaultVersion,
+        profile: defaultProfile,
+        source: 'default',
+        rolloutPercent: rolloutTarget?.percentage || 0
+    };
+}
+
+function evaluatePolicyGate(policy, intentResult) {
+    if (!policy) return { allowed: true };
+    const intent = String(intentResult?.intent || 'chat').toLowerCase();
+    const isChat = intent === 'chat' || intent === 'chitchat';
+    const allowedIntents = (policy.allowedIntents || []).map(x => x.toLowerCase());
+
+    if (isChat && policy.allowChitchat) {
+        return { allowed: true, intent };
+    }
+
+    if (allowedIntents.includes(intent)) {
+        return { allowed: true, intent };
+    }
+
+    return { allowed: false, intent, reason: 'intent_not_allowed' };
+}
+
+function buildPolicyRefusal(policy, intent) {
+    const intentLabel = intent || '当前请求';
+    if (policy?.refusalStyle === 'soft') {
+        return `这个入口主要处理校园/课程相关问题，暂时无法直接回复「${intentLabel}」。可以试试课表、计划、天气或校园服务相关的问题。`;
+    }
+    return `当前渠道策略限制，无法处理「${intentLabel}」。请改问课程、课表或校园服务相关内容。`;
+}
+
+function deriveToolsFromIntent(intentResult) {
+    if (!intentResult) return [];
+    const tools = new Set();
+    if (intentResult.tool) tools.add(intentResult.tool);
+    if (Array.isArray(intentResult.toolPlan)) {
+        intentResult.toolPlan.forEach(step => {
+            if (step?.tool) tools.add(step.tool);
+        });
+    }
+    return Array.from(tools);
+}
+
+// ==========================================
 // 1. 全局初始化
 // ==========================================
 let token = process.env["GITHUB_TOKEN"];
@@ -4259,6 +4421,9 @@ app.http('schoolBot', {
             let webMode = null;      // 🆕 前端模式 (Ask/Plan/Class/Search)
             let userPersonaMode = null; // 🆕 用户选择的人格（alice/professional），用于回复风格
             let webChatHistory = null; // 🆕 前端传入的对话历史（用于上下文记忆）
+            let clientInfo = detectClient(request, {});
+            let policySelection = selectPolicyProfile(clientInfo.client, requestId);
+            let activePolicy = policySelection.profile;
 
             // 1. 解析消息 (强化版：防注入 + 强力清洗)
             try {
@@ -4269,7 +4434,19 @@ app.http('schoolBot', {
                 if (!requestId && body?.requestId) requestId = String(body.requestId);
                 if (!requestId) requestId = `rid_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
                 context.log(`[RID ${requestId}] recv post_type=${body.post_type || 'N/A'} message_type=${body.message_type || 'N/A'} mode=${body.mode || 'N/A'} hasSchedule=${Array.isArray(body.schedule) ? body.schedule.length : 0} hasUuid=${!!body.curriculumUuid}`);
-                
+
+                clientInfo = detectClient(request, body);
+                const forcedPolicyVersion = (() => {
+                    try {
+                        return request?.headers?.get('x-policy-version') || request?.headers?.get('X-Policy-Version') || body?.policyVersion || body?.meta?.policyVersion || null;
+                    } catch {
+                        return body?.policyVersion || body?.meta?.policyVersion || null;
+                    }
+                })();
+                policySelection = selectPolicyProfile(clientInfo.client, requestId, forcedPolicyVersion);
+                activePolicy = policySelection.profile;
+                logger.logPolicySelected(clientInfo.client, policySelection.version, policySelection.source, policySelection.rolloutPercent);
+
                 // 🔍 调试日志：记录所有收到的事件
                 const msgType = body.msg_type ?? body.msgType;
                 const subMsgType = body.sub_msg_type ?? body.subMsgType;
@@ -5321,6 +5498,43 @@ ${scheduleInfo}
         }
 
         // ==========================================
+        // 🧭 Policy gate：按渠道策略决定允许/拒绝
+        // ==========================================
+        const policyGate = evaluatePolicyGate(activePolicy, intentResult);
+        if (!policyGate.allowed) {
+            const refusalMessage = buildPolicyRefusal(activePolicy, policyGate.intent);
+            logger.logPolicyBlocked(clientInfo.client, policySelection?.version, policyGate.intent, policyGate.reason);
+            logger.logRequestEnd('policy_blocked', refusalMessage.length);
+            logger.logAuditSummary({
+                request_id: requestId,
+                client: clientInfo.client,
+                user_id: senderId,
+                intent: policyGate.intent,
+                policy_version: policySelection?.version,
+                policy_source: policySelection?.source,
+                tools_used: deriveToolsFromIntent(intentResult),
+                cost: { latency_ms: Date.now() - requestStartTs },
+                outcome: 'policy_blocked'
+            });
+
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: refusalMessage,
+                    persona: 'professional',
+                    meta: {
+                        requestId,
+                        policyVersion: policySelection?.version,
+                        policySource: policySelection?.source,
+                        client: clientInfo.client,
+                        latencyMs: Date.now() - requestStartTs
+                    }
+                })
+            };
+        }
+
+        // ==========================================
         // 🛡️ Pillar 1 (统一决策): LLM 判定 + 确定性兜底 → blocked
         // ==========================================
         // 🆕 QQ端已在前面跳过安全检查，这里只处理 Web 端
@@ -5356,6 +5570,18 @@ ${scheduleInfo}
             const refusalMessage = getRefusalMessage(finalSafetyCategory, safetyPersona);
 
             logger.logRequestEnd('blocked', refusalMessage.length);
+
+            logger.logAuditSummary({
+                request_id: requestId,
+                client: clientInfo.client,
+                user_id: senderId,
+                intent: intentResult?.intent || 'unknown',
+                policy_version: policySelection?.version,
+                policy_source: policySelection?.source,
+                tools_used: deriveToolsFromIntent(intentResult),
+                cost: { latency_ms: Date.now() - requestStartTs },
+                outcome: 'safety_blocked'
+            });
 
             return {
                 status: 200,
@@ -7510,6 +7736,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
             }
 
+<<<<<<< HEAD
             // 🆕 构建响应体（Web/QQ 差异化）
             const responsePayload = {
                 reply: finalResponseBody,
@@ -7544,11 +7771,55 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             if (isResponseFromWeb && reasoningChain) {
                 responsePayload.reasoning = reasoningChain;
             }
+=======
+            logger.logRequestEnd('ok', String(finalResponseBody || '').length);
+            logger.logAuditSummary({
+                request_id: requestId,
+                client: clientInfo.client,
+                user_id: senderId,
+                intent: intentResult?.intent || 'unknown',
+                policy_version: policySelection?.version,
+                policy_source: policySelection?.source,
+                tools_used: deriveToolsFromIntent(intentResult),
+                cost: { latency_ms: Date.now() - requestStartTs },
+                outcome: 'success'
+            });
+>>>>>>> 4fd13732fbcf8acf859d5d8e040c455f6566e169
 
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
+<<<<<<< HEAD
                 body: JSON.stringify(responsePayload)
+=======
+                body: JSON.stringify({
+                    reply: finalResponseBody,
+                    persona: effectivePersona,
+                    meta: {
+                        requestId,
+                        tool: intentResult?.tool || null,
+                        intent: intentResult?.intent || null,
+                        safety_protocol: intentResult?.safetyProtocol || 'none',
+                        safety_category: intentResult?.safetyCategory || '',
+                        sourceLabel: sourceLabel,
+                        trustLevel: trustLevel,
+                        policyVersion: policySelection?.version,
+                        policySource: policySelection?.source,
+                        client: clientInfo.client,
+                        latencyMs: Date.now() - requestStartTs,
+                        // 🔍 调试信息
+                        _debug: {
+                            historyLen: history?.length || 0,
+                            webChatHistoryLen: webChatHistory?.length || 0,
+                            detectedLocation: intentResult?.detectedLocation || '',
+                            needsWeather: intentResult?.needsWeather || false,
+                            shouldAskUser: intentResult?.shouldAskUser || false,
+                            hasWeatherData: !!toolContext?.weatherData
+                        }
+                    },
+                    auto_escape: false
+                })
+>>>>>>> 4fd13732fbcf8acf859d5d8e040c455f6566e169
             };
 
         } catch (error) {
