@@ -1,23 +1,54 @@
-# 🚫 GitHub Actions 存储已满，使用本地 CLI 部署
-# 部署命令: func azure functionapp publish school-bot --build remote
-
-name: Build and deploy Node.js project to Azure Function App - school-bot (DISABLED)
+# ⚡ 自动部署 Azure Functions 后端 (仅后端，不部署前端)
+name: Deploy Backend to Azure Functions
 
 on:
-  # 🚫 禁用自动触发，存储空间已满
-  # push:
-  #   branches:
-  #     - main
-  workflow_dispatch:  # 仅允许手动触发（但不建议使用）
+  push:
+    branches:
+      - main
+    paths:
+      # 只在后端代码变更时触发
+      - 'src/**'
+      - 'services/**'
+      - 'host.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/main_school-bot.yml'
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  AZURE_FUNCTIONAPP_NAME: 'school-bot'
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  NODE_VERSION: '20.x'
 
 jobs:
-  notice:
+  deploy-backend:
     runs-on: ubuntu-latest
+    environment:
+      name: 'Production'
+    
     steps:
-      - name: Notice
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 📦 Install dependencies (backend only)
         run: |
-          echo "⚠️ GitHub Actions 存储已满 (2GB/2GB)"
-          echo "请使用本地 CLI 部署："
-          echo "  func azure functionapp publish school-bot --build remote"
-          echo ""
-          echo "或者清理 Actions 存储后重新启用此 workflow"
+          # 只安装根目录的依赖（Azure Functions）
+          npm ci --production=false
+          # 🚫 不进入 campus-ai-web 目录，避免触发前端构建
+
+      - name: 🚀 Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+
+      - name: ✅ Deployment complete
+        run: |
+          echo "🎉 后端部署成功！"
+          echo "📍 URL: https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot"
