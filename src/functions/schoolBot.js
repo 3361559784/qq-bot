@@ -2815,6 +2815,192 @@ function syncCharacterNamesToDB() {
 syncCharacterNamesToDB();
 
 // ==========================================
+// 🧠 Pre-Intent Semantic Resolver（指代/语境解析器）
+// 在 L1 意图分类之前，回答三个问题：
+// 1. 这句话在说"谁"（subject: model/user/third_party/unknown）
+// 2. 是否依赖前文（dependsOnContext: boolean）
+// 3. 是否允许立即做 Intent 分类（allowImmediateIntent: boolean）
+// ==========================================
+
+/**
+ * Pre-Intent Semantic Resolver
+ * @param {string} currentMsg - 当前用户消息
+ * @param {Array} history - 对话历史 [{role, content}, ...]
+ * @param {object} context - Azure Functions context (用于日志)
+ * @returns {object} { subject, dependsOnContext, allowImmediateIntent, resolvedContext }
+ */
+function preIntentSemanticResolver(currentMsg, history = [], context = null) {
+    const log = (msg) => context?.log?.(`[SemanticResolver] ${msg}`);
+    const text = String(currentMsg || '').trim();
+    const textLower = text.toLowerCase();
+    
+    // ==========================================
+    // ① 判断这句话在说"谁" (subject detection)
+    // ==========================================
+    let subject = 'unknown';
+    
+    // 模型/AI 相关指代词
+    const MODEL_PRONOUNS = [
+        // 直接指代模型
+        /\b(你|您|你们|妳|ni)\b/,
+        /\b(chatgpt|gpt-?\d*|claude|copilot|gemini|llama|mistral|deepseek|qwen|通义|文心|豆包|kimi)\b/i,
+        /\b(ai|人工智能|机器人|bot|大模型|llm|语言模型|助手|小助手)\b/i,
+        // 第三人称指代模型（她/他/它 + 动词暗示模型行为）
+        /(她|他|它)(会|能|怎么|为什么|是不是|说|回答|回复|生成|写|画)/,
+        // "这" 指代上一轮模型输出
+        /这(不就是|是不是|就是)(你|AI|机器人|模型)/,
+    ];
+    
+    // 用户自己相关指代词
+    const USER_PRONOUNS = [
+        /\b(我|我的|我们|咱|咱们|俺)\b/,
+        /(我)(用|在用|想|要|需要|问|说|觉得)/,
+    ];
+    
+    // 第三方相关指代词（讨论别人/别的事）
+    const THIRD_PARTY_PRONOUNS = [
+        /(他们|她们|别人|其他人|那个人|某人|有人)/,
+        /(那个|那位|某个)(老师|同学|朋友|人)/,
+    ];
+    
+    // 检测 subject
+    const hasModelRef = MODEL_PRONOUNS.some(p => p.test(text));
+    const hasUserRef = USER_PRONOUNS.some(p => p.test(text));
+    const hasThirdPartyRef = THIRD_PARTY_PRONOUNS.some(p => p.test(text));
+    
+    if (hasModelRef && !hasUserRef) {
+        subject = 'model';
+    } else if (hasUserRef && !hasModelRef) {
+        subject = 'user';
+    } else if (hasModelRef && hasUserRef) {
+        // 同时有 → 看哪个更强（用户在描述自己和模型的关系）
+        subject = 'model_user_interaction';
+    } else if (hasThirdPartyRef) {
+        subject = 'third_party';
+    }
+    
+    log(`subject="${subject}" hasModelRef=${hasModelRef} hasUserRef=${hasUserRef} hasThirdPartyRef=${hasThirdPartyRef}`);
+    
+    // ==========================================
+    // ② 判断是否依赖前文 (context dependency detection)
+    // ==========================================
+    let dependsOnContext = false;
+    let contextDependencyReason = '';
+    
+    // 规则 A: 代词没有显式名词（悬空指代）
+    const DANGLING_PRONOUNS = [
+        /^(她|他|它|这|那|这个|那个)(怎么|为什么|是不是|会不会|能不能|在|说|做)/,
+        /(她|他|它)(?!们)(怎么会|为什么会|竟然|居然|又|还)/,
+        /^(这|那)(不就是|是不是|就是|难道)/,
+    ];
+    const hasDanglingPronoun = DANGLING_PRONOUNS.some(p => p.test(text));
+    
+    // 规则 B: 引用上一轮内容的元语句
+    const META_REFERENCES = [
+        /(刚才|刚刚|上面|之前|前面)(说的|提到的|讲的|回答的)/,
+        /(你|您)(刚才|刚刚|上面|之前)(说|提到|讲|回答)/,
+        /不是(说|讲|提到)/,
+        /(这句话|这段话|这个回答|你的回答)/,
+        /^(对|是的|没错|不对|错了|胡说|乱说)/,
+    ];
+    const hasMetaReference = META_REFERENCES.some(p => p.test(text));
+    
+    // 规则 C: 省略主语/宾语的短句（需要上下文补全）
+    const ELLIPTICAL_PATTERNS = [
+        /^(为什么|怎么|怎么会|怎么回事|什么意思|啥意思)[？?]?$/,
+        /^(真的吗|是吗|对吗|确定吗|肯定吗)[？?]?$/,
+        /^(然后呢|接下来呢|还有呢|呢)[？?]?$/,
+        /^(不是|不对|错了|胡说|瞎说|乱说)[！!。]?$/,
+    ];
+    const hasElliptical = ELLIPTICAL_PATTERNS.some(p => p.test(text));
+    
+    // 规则 D: 明确的上下文续接词
+    const CONTINUATION_MARKERS = [
+        /^(所以|因此|那么|那|但是|不过|可是|然而|而且|并且|另外|还有)/,
+        /^(继续|接着|然后|再|还)/,
+    ];
+    const hasContinuation = CONTINUATION_MARKERS.some(p => p.test(text));
+    
+    if (hasDanglingPronoun) {
+        dependsOnContext = true;
+        contextDependencyReason = 'dangling_pronoun';
+    } else if (hasMetaReference) {
+        dependsOnContext = true;
+        contextDependencyReason = 'meta_reference';
+    } else if (hasElliptical) {
+        dependsOnContext = true;
+        contextDependencyReason = 'elliptical_sentence';
+    } else if (hasContinuation && history.length > 0) {
+        dependsOnContext = true;
+        contextDependencyReason = 'continuation_marker';
+    }
+    
+    log(`dependsOnContext=${dependsOnContext} reason="${contextDependencyReason}"`);
+    
+    // ==========================================
+    // ③ 是否允许立即做 Intent 分类
+    // ==========================================
+    // 强规则：只要依赖上下文，就禁止 L1 立刻分类
+    const allowImmediateIntent = !dependsOnContext;
+    
+    // ==========================================
+    // ④ 如果依赖上下文，尝试解析上下文（resolvedContext）
+    // ==========================================
+    let resolvedContext = null;
+    if (dependsOnContext && history.length > 0) {
+        // 提取最近一轮对话作为上下文补充
+        const lastAssistant = [...history].reverse().find(h => h.role === 'assistant');
+        const lastUser = [...history].reverse().find(h => h.role === 'user');
+        
+        resolvedContext = {
+            lastBotReply: lastAssistant?.content?.slice(0, 200) || null,
+            lastUserMsg: lastUser?.content?.slice(0, 200) || null,
+            historyLength: history.length,
+            // 如果是悬空代词，尝试推断指代对象
+            inferredSubject: null,
+        };
+        
+        // 尝试推断悬空代词的指代
+        if (hasDanglingPronoun && lastAssistant) {
+            // "她/他/它怎么xxx" → 可能在说模型
+            if (/(她|他|它)/.test(text) && lastAssistant.content) {
+                resolvedContext.inferredSubject = 'model_previous_reply';
+            }
+        }
+        
+        // "这不就是xxx" → 指上一轮模型输出
+        if (/^(这|那)(不就是|是不是|就是)/.test(text) && lastAssistant) {
+            resolvedContext.inferredSubject = 'model_previous_reply';
+        }
+        
+        log(`resolvedContext: lastBot="${resolvedContext.lastBotReply?.slice(0,50)}..." inferredSubject=${resolvedContext.inferredSubject}`);
+    }
+    
+    // ==========================================
+    // ⑤ 构建增强后的消息（如果需要）
+    // ==========================================
+    let enhancedMessage = text;
+    if (dependsOnContext && resolvedContext) {
+        // 为 L1 提供更完整的上下文信息
+        if (resolvedContext.inferredSubject === 'model_previous_reply' && resolvedContext.lastBotReply) {
+            enhancedMessage = `[上下文: 用户在评价/询问上一轮回复"${resolvedContext.lastBotReply.slice(0,100)}..."] ${text}`;
+        } else if (resolvedContext.lastUserMsg) {
+            enhancedMessage = `[上下文: 承接上一轮对话] ${text}`;
+        }
+    }
+    
+    return {
+        subject,                    // 'model' | 'user' | 'third_party' | 'model_user_interaction' | 'unknown'
+        dependsOnContext,           // boolean
+        contextDependencyReason,    // 'dangling_pronoun' | 'meta_reference' | 'elliptical_sentence' | 'continuation_marker' | ''
+        allowImmediateIntent,       // boolean (= !dependsOnContext)
+        resolvedContext,            // { lastBotReply, lastUserMsg, historyLength, inferredSubject } | null
+        enhancedMessage,            // 增强后的消息（供 L1 使用）
+        originalMessage: text,      // 原始消息
+    };
+}
+
+// ==========================================
 // 辅助函数: 感知层意图路由 (Model A)
 // ==========================================
 function normalizeIntentTool(raw) {
@@ -5441,6 +5627,19 @@ ${scheduleInfo}
 
         // 感知层意图路由 (Model A)
         let intentResult = null;
+        
+        // ==========================================
+        // 🧠 Pre-Intent Semantic Resolver（L0 层）
+        // 在 L1 分类之前，先理解这句话的语境依赖
+        // ==========================================
+        const semanticResolution = preIntentSemanticResolver(msg, history, context);
+        context.log(`[SemanticResolver] subject=${semanticResolution.subject} dependsOnContext=${semanticResolution.dependsOnContext} reason=${semanticResolution.contextDependencyReason} allowImmediate=${semanticResolution.allowImmediateIntent}`);
+        
+        // 如果依赖上下文，用增强消息替代原始消息供 L1 使用
+        const msgForIntent = semanticResolution.dependsOnContext 
+            ? semanticResolution.enhancedMessage 
+            : msg;
+        
         if (INTENT_ROUTER_ENABLED) {
             // 🆕 从对话历史中提取上下文线索（如之前提到的城市）
             let contextHints = '';
@@ -5463,16 +5662,50 @@ ${scheduleInfo}
             }
             context.log(`[ContextHints] 最终值="${contextHints}"`);
             
+            // 🆕 如果依赖上下文，把 SemanticResolver 的信息也加入 contextHints
+            if (semanticResolution.dependsOnContext && semanticResolution.resolvedContext) {
+                const rc = semanticResolution.resolvedContext;
+                if (rc.inferredSubject === 'model_previous_reply') {
+                    contextHints += `[用户在评价上一轮回复] `;
+                }
+                if (rc.lastBotReply) {
+                    contextHints += `上轮回复摘要:"${rc.lastBotReply.slice(0, 80)}..." `;
+                }
+            }
+            
             const t0 = Date.now();
-            intentResult = await analyzeIntentRouter(msg, imageUrls, { 
+            // 🆕 使用增强后的消息 (msgForIntent) 而非原始 msg
+            intentResult = await analyzeIntentRouter(msgForIntent, imageUrls, { 
                 userId: senderId, 
                 nickname: userNickname,
                 hasSchedule: !!(webSchedule && webSchedule.length > 0),
-                contextHints: contextHints.trim()
+                contextHints: contextHints.trim(),
+                // 🆕 传递语境解析结果
+                semanticResolution: {
+                    subject: semanticResolution.subject,
+                    dependsOnContext: semanticResolution.dependsOnContext,
+                    reason: semanticResolution.contextDependencyReason,
+                }
             }, context);
             context.log(`[RID ${requestId}] intentRouter elapsedMs=${Date.now() - t0} enabled=${INTENT_ROUTER_ENABLED}${contextHints ? ` contextHints="${contextHints.trim()}"` : ''}`);
             if (intentResult) {
                 context.log(`[IntentRouter] tool=${intentResult.tool} intent=${intentResult.intent} conf=${intentResult.confidence} needsSchedule=${intentResult.needsSchedule} needsWeather=${intentResult.needsWeather} needsSearch=${intentResult.needsSearch} searchTopic=${intentResult.searchTopic || ''}`);
+            }
+            
+            // 🆕 如果依赖上下文且 L1 给出低置信度，降级为 chat（让 L2 自由发挥）
+            if (semanticResolution.dependsOnContext && intentResult) {
+                const conf = Number(intentResult.confidence || 0);
+                // 置信度 < 0.7 且依赖上下文 → 不要强行分类，交给 L2 理解
+                if (conf < 0.7 && intentResult.tool !== 'chat') {
+                    context.log(`[SemanticResolver] 依赖上下文 + 低置信度(${conf}) → 降级为 chat`);
+                    intentResult = {
+                        ...intentResult,
+                        intent: 'chat',
+                        tool: 'chat',
+                        confidence: 0.5,
+                        reason: `context_dependent_low_conf_fallback (original: ${intentResult.tool})`
+                    };
+                }
             }
         }
 
@@ -7748,42 +7981,6 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
             }
 
-<<<<<<< HEAD
-            // 🆕 构建响应体（Web/QQ 差异化）
-            const responsePayload = {
-                reply: finalResponseBody,
-                persona: effectivePersona,
-                meta: {
-                    requestId,
-                    tool: intentResult?.tool || null,
-                    intent: intentResult?.intent || null,
-                    safety_protocol: intentResult?.safetyProtocol || 'none',
-                    safety_category: intentResult?.safetyCategory || '',
-                    sourceLabel: sourceLabel,
-                    trustLevel: trustLevel,
-                    latencyMs: Date.now() - requestStartTs,
-                    // 🆕 渠道标识
-                    channel: isResponseFromWeb ? 'web' : (isResponseFromQQ ? 'qq' : 'unknown'),
-                    // 🔍 调试信息
-                    _debug: {
-                        historyLen: history?.length || 0,
-                        webChatHistoryLen: webChatHistory?.length || 0,
-                        detectedLocation: intentResult?.detectedLocation || '',
-                        needsWeather: intentResult?.needsWeather || false,
-                        shouldAskUser: intentResult?.shouldAskUser || false,
-                        hasWeatherData: !!toolContext?.weatherData,
-                        // 🆕 安全链路状态
-                        safetyBypassed: isQQSafetyBypassed
-                    }
-                },
-                auto_escape: false
-            };
-            
-            // 🆕 Web端额外返回思维链
-            if (isResponseFromWeb && reasoningChain) {
-                responsePayload.reasoning = reasoningChain;
-            }
-=======
             logger.logRequestEnd('ok', String(finalResponseBody || '').length);
             logger.logAuditSummary({
                 request_id: requestId,
@@ -7796,42 +7993,55 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 cost: { latency_ms: Date.now() - requestStartTs },
                 outcome: 'success'
             });
->>>>>>> 4fd13732fbcf8acf859d5d8e040c455f6566e169
+
+            // 🆕 构建响应体（Web/QQ 差异化）
+            const responsePayload = {
+                reply: finalResponseBody,
+                persona: effectivePersona,
+                meta: {
+                    requestId,
+                    tool: intentResult?.tool || null,
+                    intent: intentResult?.intent || null,
+                    safety_protocol: intentResult?.safetyProtocol || 'none',
+                    safety_category: intentResult?.safetyCategory || '',
+                    sourceLabel: sourceLabel,
+                    trustLevel: trustLevel,
+                    policyVersion: policySelection?.version,
+                    policySource: policySelection?.source,
+                    client: clientInfo.client,
+                    latencyMs: Date.now() - requestStartTs,
+                    // 🆕 渠道标识
+                    channel: isResponseFromWeb ? 'web' : (isResponseFromQQ ? 'qq' : 'unknown'),
+                    // 🔍 调试信息
+                    _debug: {
+                        historyLen: history?.length || 0,
+                        webChatHistoryLen: webChatHistory?.length || 0,
+                        detectedLocation: intentResult?.detectedLocation || '',
+                        needsWeather: intentResult?.needsWeather || false,
+                        shouldAskUser: intentResult?.shouldAskUser || false,
+                        hasWeatherData: !!toolContext?.weatherData,
+                        // 🆕 安全链路状态
+                        safetyBypassed: isQQSafetyBypassed,
+                        // 🆕 语境解析结果
+                        semanticResolution: semanticResolution ? {
+                            subject: semanticResolution.subject,
+                            dependsOnContext: semanticResolution.dependsOnContext,
+                            reason: semanticResolution.contextDependencyReason
+                        } : null
+                    }
+                },
+                auto_escape: false
+            };
+            
+            // 🆕 Web端额外返回思维链
+            if (isResponseFromWeb && reasoningChain) {
+                responsePayload.reasoning = reasoningChain;
+            }
 
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
-<<<<<<< HEAD
                 body: JSON.stringify(responsePayload)
-=======
-                body: JSON.stringify({
-                    reply: finalResponseBody,
-                    persona: effectivePersona,
-                    meta: {
-                        requestId,
-                        tool: intentResult?.tool || null,
-                        intent: intentResult?.intent || null,
-                        safety_protocol: intentResult?.safetyProtocol || 'none',
-                        safety_category: intentResult?.safetyCategory || '',
-                        sourceLabel: sourceLabel,
-                        trustLevel: trustLevel,
-                        policyVersion: policySelection?.version,
-                        policySource: policySelection?.source,
-                        client: clientInfo.client,
-                        latencyMs: Date.now() - requestStartTs,
-                        // 🔍 调试信息
-                        _debug: {
-                            historyLen: history?.length || 0,
-                            webChatHistoryLen: webChatHistory?.length || 0,
-                            detectedLocation: intentResult?.detectedLocation || '',
-                            needsWeather: intentResult?.needsWeather || false,
-                            shouldAskUser: intentResult?.shouldAskUser || false,
-                            hasWeatherData: !!toolContext?.weatherData
-                        }
-                    },
-                    auto_escape: false
-                })
->>>>>>> 4fd13732fbcf8acf859d5d8e040c455f6566e169
             };
 
         } catch (error) {
