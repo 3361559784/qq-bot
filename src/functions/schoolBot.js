@@ -5497,6 +5497,18 @@ ${scheduleInfo}
             }
         }
 
+        // 🆕 QQ 端放宽身份问答：把身份/能力问题当作闲聊处理，避免“课程相关”式拒绝
+        if (clientInfo?.client === 'qq' && intentResult?.intent === 'identity') {
+            intentResult = {
+                ...intentResult,
+                intent: 'chat',
+                tool: 'chat',
+                confidence: Math.max(Number(intentResult.confidence || 0), 0.8),
+                reason: 'qq_identity_relaxed_to_chat'
+            };
+            context.log(`[IntentRouter] QQ relax identity → chat`);
+        }
+
         // ==========================================
         // 🧭 Policy gate：按渠道策略决定允许/拒绝
         // ==========================================
