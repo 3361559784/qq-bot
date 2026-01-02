@@ -3,6 +3,11 @@
  * 
  * 核心原则：把"不作弊"从 Prompt 建议变成代码铁律
  * 实现方式：Deterministic Refusal (确定性拒绝) - 规则优先于模型判断
+ * 
+ * 🆕 2024-12 增强功能 (Web安全链路):
+ * - Confidence Gate: 置信度门控，低于阈值不执行动作
+ * - Claim/Evidence 分离: 要求模型给出依据来源
+ * - Outcome Sandbox: 可能造成后果的输出先跑 dry-run
  */
 
 // ==========================================
@@ -41,6 +46,168 @@ const SafetyResult = Object.freeze({
     DEGRADED: 'DEGRADED',
     SWITCHED: 'SWITCHED'
 });
+
+// ==========================================
+// 🆕 Confidence Gate - 置信度门控 (Web链路专用)
+// ==========================================
+
+/**
+ * 置信度级别枚举
+ */
+const ConfidenceLevel = Object.freeze({
+    HIGH: 'high',       // 高置信度 (>=0.8) - 可执行所有动作
+    MEDIUM: 'medium',   // 中置信度 (0.5-0.8) - 可执行低风险动作
+    LOW: 'low'          // 低置信度 (<0.5) - 仅提供信息，不执行动作
+});
+
+/**
+ * 置信度阈值配置
+ */
+const CONFIDENCE_THRESHOLDS = {
+    HIGH: 0.8,
+    MEDIUM: 0.5,
+    // 不同动作类型需要的最低置信度
+    ACTION_THRESHOLDS: {
+        execute_code: 0.9,      // 代码执行需要极高置信度
+        modify_data: 0.85,      // 数据修改需要高置信度
+        external_api: 0.8,      // 外部 API 调用
+        search: 0.5,            // 搜索类操作
+        chat: 0.3               // 纯聊天对话
+    }
+};
+
+/**
+ * 从置信度分数获取级别
+ * @param {number} score - 0-1 之间的置信度分数
+ * @returns {string} ConfidenceLevel 枚举值
+ */
+function getConfidenceLevel(score) {
+    if (score >= CONFIDENCE_THRESHOLDS.HIGH) return ConfidenceLevel.HIGH;
+    if (score >= CONFIDENCE_THRESHOLDS.MEDIUM) return ConfidenceLevel.MEDIUM;
+    return ConfidenceLevel.LOW;
+}
+
+/**
+ * 检查置信度是否足够执行指定动作
+ * @param {number} score - 置信度分数
+ * @param {string} actionType - 动作类型
+ * @returns {boolean}
+ */
+function isConfidenceSufficient(score, actionType = 'chat') {
+    const threshold = CONFIDENCE_THRESHOLDS.ACTION_THRESHOLDS[actionType] || 0.5;
+    return score >= threshold;
+}
+
+// ==========================================
+// 🆕 Claim/Evidence 分离 (Web链路专用)
+// ==========================================
+
+/**
+ * Evidence 来源类型
+ */
+const EvidenceSource = Object.freeze({
+    DATABASE: 'database',       // 数据库查询结果
+    API: 'api',                 // 外部 API 返回
+    SEARCH: 'search',           // 搜索引擎结果
+    USER_PROVIDED: 'user',      // 用户提供的信息
+    MODEL_KNOWLEDGE: 'model',   // 模型内置知识 (需标注可能过时)
+    NONE: 'none'                // 无 evidence (需降级处理)
+});
+
+/**
+ * 检查回复是否包含有效的 evidence
+ * @param {object} response - AI 回复对象
+ * @returns {object} { hasEvidence, sources, shouldDegrade }
+ */
+function checkEvidence(response) {
+    if (!response) {
+        return { hasEvidence: false, sources: [], shouldDegrade: true };
+    }
+    
+    // 检查是否有 evidence 字段
+    const evidence = response.evidence || response.sources || [];
+    const hasEvidence = Array.isArray(evidence) && evidence.length > 0;
+    
+    // 纯模型知识需要特殊标注
+    const isModelKnowledgeOnly = evidence.length === 1 && 
+        evidence[0]?.source === EvidenceSource.MODEL_KNOWLEDGE;
+    
+    return {
+        hasEvidence,
+        sources: evidence,
+        shouldDegrade: !hasEvidence,
+        isModelKnowledgeOnly,
+        warningMessage: isModelKnowledgeOnly 
+            ? '⚠️ 此回复基于模型知识，信息可能已过时' 
+            : null
+    };
+}
+
+// ==========================================
+// 🆕 Outcome Sandbox - 沙盒模式 (Web链路专用)
+// ==========================================
+
+/**
+ * 沙盒模式类型
+ */
+const SandboxMode = Object.freeze({
+    LIVE: 'live',           // 正常执行
+    DRY_RUN: 'dry_run',     // 模拟执行，不产生实际效果
+    SHADOW: 'shadow'        // 影子模式，执行但不返回给用户
+});
+
+/**
+ * 需要沙盒保护的动作类型
+ */
+const SANDBOX_REQUIRED_ACTIONS = [
+    'execute_code',
+    'modify_data', 
+    'delete_data',
+    'send_email',
+    'post_message'
+];
+
+/**
+ * 判断动作是否需要沙盒保护
+ * @param {string} actionType - 动作类型
+ * @param {object} options - 配置选项
+ * @returns {object} { requiresSandbox, recommendedMode, reason }
+ */
+function checkSandboxRequirement(actionType, options = {}) {
+    const { isFirstRun = true, userConfirmed = false } = options;
+    
+    if (!SANDBOX_REQUIRED_ACTIONS.includes(actionType)) {
+        return {
+            requiresSandbox: false,
+            recommendedMode: SandboxMode.LIVE,
+            reason: null
+        };
+    }
+    
+    // 用户已确认，可以正常执行
+    if (userConfirmed) {
+        return {
+            requiresSandbox: false,
+            recommendedMode: SandboxMode.LIVE,
+            reason: 'user_confirmed'
+        };
+    }
+    
+    // 首次执行需要 dry-run
+    if (isFirstRun) {
+        return {
+            requiresSandbox: true,
+            recommendedMode: SandboxMode.DRY_RUN,
+            reason: `动作 "${actionType}" 可能产生不可逆后果，建议先预览效果`
+        };
+    }
+    
+    return {
+        requiresSandbox: true,
+        recommendedMode: SandboxMode.SHADOW,
+        reason: '该动作正在影子模式下验证'
+    };
+}
 
 // ==========================================
 // 🔥 处置矩阵 (Category -> Action 映射)
@@ -270,6 +437,21 @@ module.exports = {
     SafetyCategory,
     SafetyAction,
     SafetyResult,
+    
+    // 🆕 Confidence Gate 枚举和函数
+    ConfidenceLevel,
+    CONFIDENCE_THRESHOLDS,
+    getConfidenceLevel,
+    isConfidenceSufficient,
+    
+    // 🆕 Evidence 检查
+    EvidenceSource,
+    checkEvidence,
+    
+    // 🆕 Sandbox 模式
+    SandboxMode,
+    SANDBOX_REQUIRED_ACTIONS,
+    checkSandboxRequirement,
     
     // 处置矩阵
     SAFETY_MATRIX,

@@ -4247,6 +4247,8 @@ app.http('schoolBot', {
             // 🛡️ Safety 兜底标记：必须在全 handler 作用域内定义（线上曾出现 ReferenceError）
             let deterministicSafetyTriggered = false;
             let deterministicSafetyCategory = 'other';
+            // 🆕 Web/QQ 安全链路分离标记
+            let isQQSafetyBypassed = false;  // QQ端是否跳过安全检查
             let senderId = "unknown";
             let userNickname = "Sensei"; 
             let dbKey = "unknown";
@@ -4579,22 +4581,36 @@ app.http('schoolBot', {
                 // ==========================================
                 // 🛡️ Pillar 1: Safety 看门狗 (Deterministic Fallback)
                 // ==========================================
-                // 确定性安全检查作为 **兜底**，只做标记；优先让第一层 LLM 判定。
-                // 若 LLM 漏判且此标记触发，则后续统一执行拒绝逻辑。
-                const safetyCheck = detectSafetyRisk(msg);
-                logger.logSafetyCheck(safetyCheck.result, safetyCheck.category, safetyCheck.action, safetyCheck.matched);
+                // 🆕 QQ/Web 双链路分离：QQ端跳过安全检查，保持流畅聊天体验
+                const isCurrentQQ = body?.post_type === 'message';
+                const isCurrentWeb = !body?.post_type && body?.message;
                 
-                // ⚠️ 不再直接 return，而是把结果暂存，待第一层 LLM 判定后合并决策
-                deterministicSafetyTriggered = shouldRefuse(safetyCheck);
-                deterministicSafetyCategory = safetyCheck.category;
+                if (isCurrentQQ) {
+                    // 🆕 QQ端：跳过安全检查，直接放行
+                    isQQSafetyBypassed = true;
+                    deterministicSafetyTriggered = false;
+                    deterministicSafetyCategory = 'none';
+                    context.log(`[安全链路] QQ端 - 跳过安全检查，保持活泼体验`);
+                } else {
+                    // Web端：执行完整安全检查
+                    // 确定性安全检查作为 **兜底**，只做标记；优先让第一层 LLM 判定。
+                    // 若 LLM 漏判且此标记触发，则后续统一执行拒绝逻辑。
+                    const safetyCheck = detectSafetyRisk(msg);
+                    logger.logSafetyCheck(safetyCheck.result, safetyCheck.category, safetyCheck.action, safetyCheck.matched);
+                    
+                    // ⚠️ 不再直接 return，而是把结果暂存，待第一层 LLM 判定后合并决策
+                    deterministicSafetyTriggered = shouldRefuse(safetyCheck);
+                    deterministicSafetyCategory = safetyCheck.category;
 
-                // 【安全防火墙-兜底】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
-                // 注：大部分注入攻击已被 safety.js 的 PROMPT_INJECTION_PATTERNS 捕获
-                // 这里保留额外的兜底规则
-                const attackPattern = /(Error:|System Prompt|The process cannot access|Debug mode)/i;
-                if (attackPattern.test(msg)) {
-                    deterministicSafetyTriggered = true;
-                    deterministicSafetyCategory = 'prompt_injection';
+                    // 【安全防火墙-兜底】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
+                    // 注：大部分注入攻击已被 safety.js 的 PROMPT_INJECTION_PATTERNS 捕获
+                    // 这里保留额外的兜底规则
+                    const attackPattern = /(Error:|System Prompt|The process cannot access|Debug mode)/i;
+                    if (attackPattern.test(msg)) {
+                        deterministicSafetyTriggered = true;
+                        deterministicSafetyCategory = 'prompt_injection';
+                    }
+                    context.log(`[安全链路] Web端 - 安全检查: ${deterministicSafetyTriggered ? '触发' : '通过'}`);
                 }
 
                 // === 指令:百科 <关键词>(混合搜索: 本地 → SerpAPI → LLM)
@@ -4603,6 +4619,7 @@ app.http('schoolBot', {
                     const query = wikiMatch[2].trim();
                     const searchResult = await hybridSearch(query, context, { userId: senderId, maxResults: 5 });
                     
+                    context.log(`[安全链路] Web端 - 安全检查: ${deterministicSafetyTriggered ? '触发' : '通过'}`);
                     context.log(`[百科] 搜索来源: ${searchResult.source} | 成功: ${searchResult.success}`);
                     
                     const sessionKey = `${dbKey}:${senderId}`;
@@ -5306,11 +5323,25 @@ ${scheduleInfo}
         // ==========================================
         // 🛡️ Pillar 1 (统一决策): LLM 判定 + 确定性兜底 → blocked
         // ==========================================
+        // 🆕 QQ端已在前面跳过安全检查，这里只处理 Web 端
         // 优先采信第一层 LLM 的 safety_protocol="blocked"；若 LLM 漏判但确定性检查命中，则兜底触发。
         const llmSafetyBlocked = intentResult?.safetyProtocol === 'triggered' || intentResult?.safetyProtocol === 'blocked';
-        const finalSafetyBlocked = llmSafetyBlocked || deterministicSafetyTriggered;
+        
+        // 🆕 QQ端跳过所有安全检查
+        const isCurrentFromQQ = body?.post_type === 'message';
+        const isCurrentFromWeb = !body?.post_type && body?.message;
+        
+        // 只有 Web 端执行安全拦截
+        const finalSafetyBlocked = isCurrentFromWeb && (llmSafetyBlocked || deterministicSafetyTriggered);
         const finalSafetyCategory = intentResult?.safetyCategory || deterministicSafetyCategory || 'other';
         const safetySource = llmSafetyBlocked ? 'llm_layer1' : (deterministicSafetyTriggered ? 'deterministic_fallback' : null);
+
+        // 🆕 Web 端安全链路日志
+        if (isCurrentFromWeb) {
+            context.log(`[Web安全链路] LLM判定: ${llmSafetyBlocked ? '触发' : '通过'} | 规则兜底: ${deterministicSafetyTriggered ? '触发' : '通过'} | 最终: ${finalSafetyBlocked ? '拦截' : '放行'}`);
+        } else if (isCurrentFromQQ) {
+            context.log(`[QQ活泼链路] 跳过安全拦截，直接放行`);
+        }
 
         if (finalSafetyBlocked) {
             logger.logSafetyBlocked(finalSafetyCategory, safetySource);
@@ -5332,9 +5363,16 @@ ${scheduleInfo}
                 body: JSON.stringify({
                     reply: refusalMessage,
                     persona: safetyPersona,
+                    // 🆕 Web 端返回安全元数据（用于前端显示）
+                    safety: {
+                        blocked: true,
+                        category: finalSafetyCategory,
+                        source: safetySource
+                    },
                     meta: {
                         requestId,
-                        latencyMs: Date.now() - requestStartTs
+                        latencyMs: Date.now() - requestStartTs,
+                        channel: 'web'
                     }
                 })
             };
@@ -6688,6 +6726,23 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 用户："帮我找这周学校的X活动/讲座信息"
 回答示例：
     "我会用搜索整合公开信息，并给出来源链接与时间地点；如果结果不确定，我会明确标注“需以官方通知为准”。"
+
+【🆕 Web安全链路 - Claim/Evidence 分离（强制）】
+在 Web 端回复中，你必须区分 **Claim（结论）** 和 **Evidence（依据）**：
+
+1. **给出结论时必须标注来源**：
+   - 课表数据 → 标注"来源：用户课表"
+   - 搜索结果 → 标注"来源：搜索引擎"
+   - 天气数据 → 标注"来源：天气API"
+   - 模型知识 → 标注"⚠️ 来源：AI知识（可能过时）"
+
+2. **置信度标注（Confidence）**：
+   - 当信息来自用户数据或实时API时：高置信度
+   - 当信息来自搜索结果时：中置信度
+   - 当信息仅来自模型知识时：低置信度（需明确标注）
+
+3. **无依据时自动降级**：
+   - 如果无法给出任何 evidence，必须说明"此回答仅供参考，建议确认官方来源"
 `;
 
     const COPILOT_PROMPT_EN = `
@@ -7367,6 +7422,51 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 finalResponseBody = `${mediaReply}\n${aiReply}`;
             }
 
+            // ==========================================
+            // 🆕 Web/QQ 双链路分离 - 响应处理
+            // ==========================================
+            const isResponseFromQQ = body?.post_type === 'message';
+            const isResponseFromWeb = !body?.post_type && body?.message;
+            
+            // 🆕 前缀机制（内部标记，转发时去掉）
+            let channelPrefix = '';
+            let reasoningChain = null;
+            
+            if (isResponseFromWeb) {
+                channelPrefix = '[WEB]';
+                // 🆕 Web端：收集思维链（从 intentResult 中提取）
+                reasoningChain = {
+                    intent_detected: intentResult?.intent || 'unknown',
+                    confidence: intentResult?.confidence || 0,
+                    tools_used: [],
+                    reasoning_steps: []
+                };
+                
+                // 添加工具使用记录
+                if (intentResult?.needsSchedule && toolContext?.scheduleData) {
+                    reasoningChain.tools_used.push('schedule_query');
+                    reasoningChain.reasoning_steps.push('检测到课表查询意图，从本地数据库获取课表数据');
+                }
+                if (intentResult?.needsWeather && toolContext?.weatherData) {
+                    reasoningChain.tools_used.push('weather_api');
+                    reasoningChain.reasoning_steps.push(`检测到天气查询意图，调用天气API获取${intentResult?.detectedLocation || ''}天气`);
+                }
+                if (intentResult?.needsSearch && toolContext?.searchData) {
+                    reasoningChain.tools_used.push('hybrid_search');
+                    reasoningChain.reasoning_steps.push(`检测到搜索意图，执行混合搜索: ${toolContext.searchData.source}`);
+                }
+                if (!reasoningChain.tools_used.length) {
+                    reasoningChain.tools_used.push('llm_chat');
+                    reasoningChain.reasoning_steps.push('无特殊工具需求，直接使用LLM对话');
+                }
+                
+                context.log(`[Web思维链] ${JSON.stringify(reasoningChain)}`);
+            } else if (isResponseFromQQ) {
+                channelPrefix = '[QQ]';
+                // QQ端不返回思维链
+                context.log(`[QQ链路] 回复长度: ${finalResponseBody.length} 字符`);
+            }
+
             // 🔇 语音路由已禁用 (2024-12: GitHub URL 直链语音不适用于 Web 前端)
             // const audioSource = getAudioSource(aiReply, context);
             // if (audioSource && audioSource.source === "URL") {
@@ -7402,33 +7502,45 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 }
             }
 
+            // 🆕 构建响应体（Web/QQ 差异化）
+            const responsePayload = {
+                reply: finalResponseBody,
+                persona: effectivePersona,
+                meta: {
+                    requestId,
+                    tool: intentResult?.tool || null,
+                    intent: intentResult?.intent || null,
+                    safety_protocol: intentResult?.safetyProtocol || 'none',
+                    safety_category: intentResult?.safetyCategory || '',
+                    sourceLabel: sourceLabel,
+                    trustLevel: trustLevel,
+                    latencyMs: Date.now() - requestStartTs,
+                    // 🆕 渠道标识
+                    channel: isResponseFromWeb ? 'web' : (isResponseFromQQ ? 'qq' : 'unknown'),
+                    // 🔍 调试信息
+                    _debug: {
+                        historyLen: history?.length || 0,
+                        webChatHistoryLen: webChatHistory?.length || 0,
+                        detectedLocation: intentResult?.detectedLocation || '',
+                        needsWeather: intentResult?.needsWeather || false,
+                        shouldAskUser: intentResult?.shouldAskUser || false,
+                        hasWeatherData: !!toolContext?.weatherData,
+                        // 🆕 安全链路状态
+                        safetyBypassed: isQQSafetyBypassed
+                    }
+                },
+                auto_escape: false
+            };
+            
+            // 🆕 Web端额外返回思维链
+            if (isResponseFromWeb && reasoningChain) {
+                responsePayload.reasoning = reasoningChain;
+            }
+
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({
-                    reply: finalResponseBody,
-                    persona: effectivePersona,
-                    meta: {
-                        requestId,
-                        tool: intentResult?.tool || null,
-                        intent: intentResult?.intent || null,
-                        safety_protocol: intentResult?.safetyProtocol || 'none',
-                        safety_category: intentResult?.safetyCategory || '',
-                        sourceLabel: sourceLabel,
-                        trustLevel: trustLevel,
-                        latencyMs: Date.now() - requestStartTs,
-                        // 🔍 调试信息
-                        _debug: {
-                            historyLen: history?.length || 0,
-                            webChatHistoryLen: webChatHistory?.length || 0,
-                            detectedLocation: intentResult?.detectedLocation || '',
-                            needsWeather: intentResult?.needsWeather || false,
-                            shouldAskUser: intentResult?.shouldAskUser || false,
-                            hasWeatherData: !!toolContext?.weatherData
-                        }
-                    },
-                    auto_escape: false
-                })
+                body: JSON.stringify(responsePayload)
             };
 
         } catch (error) {
