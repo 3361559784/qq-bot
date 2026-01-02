@@ -23,8 +23,6 @@ env:
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
-    environment:
-      name: 'Production'
     
     steps:
       - name: 📥 Checkout code
@@ -41,12 +39,15 @@ jobs:
           npm ci --production=false
           # 🚫 不进入 campus-ai-web 目录，避免触发前端构建
 
-      - name: 🚀 Deploy to Azure Functions
-        uses: Azure/functions-action@v1
+      - name: 🔐 Login to Azure
+        uses: azure/login@v1
         with:
-          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-          package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 🚀 Deploy to Azure Functions (Remote Build)
+        run: |
+          # 使用 Azure Functions Core Tools 部署（远程构建模式）
+          npx --yes azure-functions-core-tools@4 func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote
 
       - name: ✅ Deployment complete
         run: |

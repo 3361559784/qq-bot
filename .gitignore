@@ -69,3 +69,4 @@ node_modules/
 deploy/
 deploy.zip
 campus-ai-web/.next/
+.github/AZURE_CREDENTIALS.json
