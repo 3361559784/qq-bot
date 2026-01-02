@@ -6807,16 +6807,24 @@ You are Aris (Campus Copilot) — Professional mode.
     const isFromQQ = body?.post_type === 'message';
     const isFromWeb = !body?.post_type && body?.message;
     
-    // 🆕 Web网页请求强制走安全链路（专业模式）
+    // 🚨 QQ端最高优先级：强制覆盖所有提示词，使用Alice活泼版本（无拒绝规则）
+    if (isFromQQ) {
+        // QQ端：恢复为原始 ARIS_PROMPT（活泼女仆勇者），覆盖之前可能设置的 COPILOT_PROMPT
+        basePrompt = ARIS_PROMPT; // 或根据语言选择
+        if (typeof userLang !== 'undefined') {
+            const langSpecificPrompt = getPromptByLanguage(userLang);
+            if (langSpecificPrompt) {
+                basePrompt = langSpecificPrompt;
+            }
+        }
+        context.log(`[QQ活泼链路] 强制覆盖为Alice活泼提示词（无拒绝约束），覆盖之前的${isSystemLikeMode ? 'SystemLike模式' : '普通模式'}`);
+    }
+    
+    // 🆕 Web网页请求强制走安全链路（专业模式提示词）
     const forceWebSafeMode = isFromWeb && !isSystemLikeMode;
     if (forceWebSafeMode) {
         basePrompt = (typeof userLang !== 'undefined' && userLang === 'en') ? COPILOT_PROMPT_EN : COPILOT_PROMPT_ZH;
-        context.log(`[Web安全链路] 检测到Web请求，强制使用专业模式`);
-    }
-    
-    // 🆕 QQ聊天保持活泼链路（Alice模式），除非用户明确要求专业模式
-    if (isFromQQ && !isSystemLikeMode) {
-        context.log(`[QQ活泼链路] 检测到QQ请求，使用Alice模式`);
+        context.log(`[Web安全链路] 检测到Web请求，强制使用专业模式提示词`);
     }
         
         if (inferredMode === 'Class') {
