@@ -4886,6 +4886,16 @@ app.http('schoolBot', {
                     ];
                     const hasHighPriorityTopic = HIGH_PRIORITY_TOPICS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
                     const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
+
+                    // 🆕 跳过其他机器人的富消息（markdown/app/inlinecmd），避免误触发
+                    const isLikelyBotPayload = /\[CQ:(markdown|json|app)|mqqapi:\/\/aio\/inlinecmd|mqqapi:\/\/markdown/i.test(rawMsg);
+                    if (!isAtMe && isLikelyBotPayload) {
+                        context.log(`[群聊] 📴 跳过疑似机器人消息，含富文本CQ码`);
+                        return {
+                            status: 200,
+                            jsonBody: { status: 'ok', message: 'group_bot_payload_ignored' }
+                        };
+                    }
                     
                     // 🆕 检测是否是对 Alice 上一条回复的反馈（赞美/感谢）
                     let isReplyToAlice = false;
