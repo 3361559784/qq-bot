@@ -4871,9 +4871,10 @@ app.http('schoolBot', {
                     const isAtMe = rawMsg.includes(atCode);
                     
                     // 🆕 优先检测：跳过其他机器人的富消息（markdown/app/inlinecmd），避免误触发
-                    const isLikelyBotPayload = /\[CQ:(markdown|json|app)|mqqapi:\/\/aio\/inlinecmd|mqqapi:\/\/markdown/i.test(rawMsg);
+                    // 扩展特征：CQ码、mqqapi、特定Bot消息格式
+                    const isLikelyBotPayload = /\[CQ:(markdown|json|app|share|music|xml|cardimage)|mqqapi:\/\/|qqbot\.ugcimg\.cn|今日老婆|今日超能力|来自:|了解角色|报告问题/i.test(rawMsg);
                     if (!isAtMe && isLikelyBotPayload) {
-                        context.log(`[群聊] 📴 跳过疑似机器人消息，含富文本CQ码`);
+                        context.log(`[群聊] 📴 跳过疑似机器人消息，含富文本CQ码或Bot特征`);
                         return {
                             status: 200,
                             jsonBody: { status: 'ok', message: 'group_bot_payload_ignored' }
@@ -4918,33 +4919,15 @@ app.http('schoolBot', {
                     let shouldRespond = false;
                     const groupSessionKey = `${dbKey}:bot`;
                     
+                    // 🔒 群聊强制策略：只允许 @ 触发，防止机器人互相触发
                     if (isAtMe) {
                         // @ 机器人始终响应
                         shouldRespond = true;
                         context.log(`[群聊] ✅ @机器人触发`);
-                    } else if (isReplyToAlice) {
-                        // 对 Alice 的赞美/感谢 - 高概率响应（80%）
-                        shouldRespond = Math.random() < 0.8;
-                        if (shouldRespond) {
-                            context.log(`[群聊] 💕 响应赞美/感谢: "${rawMsg}"`);
-                        }
-                    } else if (hasHighPriorityTopic || hasKeyword) {
-                        // 讨论机器人/AI/Alice 相关话题 - 检查冷却期后 100% 响应
-                        try {
-                            const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
-                            const lastReplyTime = resource?.lastBotReply?.[groupSessionKey] || 0;
-                            const timeSinceLastReply = Date.now() - lastReplyTime;
-                            
-                            if (timeSinceLastReply > GROUP_COOLDOWN_MS) {
-                                shouldRespond = true;
-                                const matchedTopic = GROUP_KEYWORDS.find(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
-                                context.log(`[群聊] 🤖 AI话题触发: 检测到 "${matchedTopic}", 距上次回复 ${(timeSinceLastReply/1000).toFixed(1)}s`);
-                            } else {
-                                context.log(`[群聊] 冷却中,跳过话题触发 (剩余 ${((GROUP_COOLDOWN_MS - timeSinceLastReply)/1000).toFixed(1)}s)`);
-                            }
-                        } catch (err) {
-                            shouldRespond = true;
-                        }
+                    } else {
+                        // 其他情况一律不响应（包括关键词、赞美等），避免机器人互殴
+                        shouldRespond = false;
+                        context.log(`[群聊] 🔒 非@触发，静默`);
                     }
                     // 🔒 其他情况静默不回复
                     
