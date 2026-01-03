@@ -4885,14 +4885,14 @@ app.http('schoolBot', {
                     const GROUP_KEYWORDS = [
                         // Alice 相关 - 核心关键词
                         "爱丽丝", "alice", "arisu",
-                        // 🆕 机器人/AI 相关 - 只有讨论这些时才触发
-                        "机器人", "bot", "chatgpt", "gpt", "大模型", "llm", "人工智能"
+                        // 🆕 机器人/AI 相关 - 只有讨论这些时才触发（去掉"bot"避免误触发其他bot）
+                        "机器人", "chatgpt", "gpt", "大模型", "llm", "人工智能"
                     ];
                     
                     // 高优先级话题：讨论机器人/AI/Alice 时 100% 触发（带冷却）
                     const HIGH_PRIORITY_TOPICS = [
                         "爱丽丝", "alice", "arisu",
-                        "机器人", "bot", "chatgpt", "gpt", "人工智能", "大模型", "llm"
+                        "机器人", "chatgpt", "gpt", "人工智能", "大模型", "llm"
                     ];
                     const hasHighPriorityTopic = HIGH_PRIORITY_TOPICS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
                     const hasKeyword = GROUP_KEYWORDS.some(k => rawMsg.toLowerCase().includes(k.toLowerCase()));
