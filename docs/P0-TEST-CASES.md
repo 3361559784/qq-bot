@@ -1,8 +1,8 @@
-# P0 功能测试用例
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
 
+# P0 功能测试用例
 ## 测试套件概览
 本文件包含所有 P0 功能的完整测试用例，用于验证功能正确性。
-
 ---
 
 ## 🧪 测试类别 1: 回复优化与后处理

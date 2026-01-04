@@ -1,3 +1,5 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 🎓 Campus AI Web - Alice智能校园助手
 
 基于Next.js的校园AI助手前端,集成智能搜索、课表管理、语音交互等功能。

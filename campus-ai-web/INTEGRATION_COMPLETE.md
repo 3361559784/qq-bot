@@ -1,3 +1,5 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 🎉 前端集成完成总结
 
 ## ✅ 已完成的所有工作

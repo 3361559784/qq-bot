@@ -1,7 +1,7 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # P0 功能实现完成总结
-
 ## ✅ 已完成的功能模块
-
 ### 1. **更自然的文本输出（Prompt & Post-processing）**
 - ✅ 参数化回复长度配置（环境变量驱动）
 - ✅ Emoji 自动转换为 ASCII 颜文字（19种常用emoji）

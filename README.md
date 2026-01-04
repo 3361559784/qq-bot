@@ -1,3 +1,5 @@
+> **Languages**: [English](README.md) | [Chinese](README.zh.md) | [Japanese](README.jp.md) | [Russian](README.ru.md)
+
 # Alice / Campus Copilot
 
 A safety-first campus AI assistant designed to **avoid hallucination, misguidance, and responsibility drift**.

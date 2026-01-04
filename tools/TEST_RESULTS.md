@@ -1,3 +1,5 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 🎉 学习通课表系统测试结果报告
 
 **测试日期:** 2025-12-11  

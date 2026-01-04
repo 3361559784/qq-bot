@@ -1,3 +1,5 @@
+> **Languages**: [English](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # Alice / Campus Copilot
 
 安全第一のキャンパスAIアシスタントで、**幻覚や誤誘導、責任の漂流を防ぐ**ことを目的としています。

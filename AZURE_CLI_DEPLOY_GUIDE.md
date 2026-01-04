@@ -1,3 +1,5 @@
+> **Languages**: [English README](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # Azure CLI 部署指南
 
 > 🚫 **告别 GitHub Actions 存储限制！**  

@@ -1,3 +1,5 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 🚀 GitHub Actions 自动部署配置指南
 
 ## 📋 前提条件

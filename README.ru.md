@@ -1,3 +1,5 @@
+> **Languages**: [English](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # Alice / Campus Copilot
 
 Campus AI-ассистент с безопасностью во главе угла, цель которого — **избежать галлюцинаций, дезинформации и смещения ответственности**.

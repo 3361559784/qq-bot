@@ -1,5 +1,6 @@
+> **Languages**: [English](DESIGN_PHILOSOPHY.md) | [中文](DESIGN_PHILOSOPHY.zh.md) | [日本語](DESIGN_PHILOSOPHY.jp.md) | [Русский](DESIGN_PHILOSOPHY.ru.md)
 
-\# デザイン哲学：「人間らしさ」から「害を減らす」へ
+# デザイン哲学：「人間らしさ」から「害を減らす」へ
 
 > **「私はもう『AI は人間のようになれるか』ではなく、『システムが人を傷つける量を減らせるか』を問う。」**
 

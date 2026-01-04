@@ -1,3 +1,5 @@
+> **Languages**: [English](ARCHITECTURE.md) | [中文](ARCHITECTURE.zh.md) | [日本語](ARCHITECTURE.jp.md) | [Русский](ARCHITECTURE.ru.md)
+
 # 技术架构
 
 > **以安全为中心的校园 AI Copilot 架构说明**

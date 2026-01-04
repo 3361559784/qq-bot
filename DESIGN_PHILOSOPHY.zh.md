@@ -1,3 +1,5 @@
+> **Languages**: [English](DESIGN_PHILOSOPHY.md) | [中文](DESIGN_PHILOSOPHY.zh.md) | [日本語](DESIGN_PHILOSOPHY.jp.md) | [Русский](DESIGN_PHILOSOPHY.ru.md)
+
 # 设计哲学：从“让她更像人”到“让系统更少伤人”
 
 > **“我不再问‘AI 能不能像人’，而是问‘能不能让系统少害人’。”**

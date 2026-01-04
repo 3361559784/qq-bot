@@ -1,3 +1,5 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # ⚡ 快速配置指南
 
 ## 🎯 下一步操作

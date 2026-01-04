@@ -1,5 +1,6 @@
-# P0 功能集成指南
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
 
+# P0 功能集成指南
 ## 📋 概述
 本文档说明如何将三个 P0 优先级功能集成到 `schoolBot.js` 中：
 1. **更自然的文本输出** - Prompt优化 & 后处理

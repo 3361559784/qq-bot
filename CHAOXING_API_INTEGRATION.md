@@ -1,3 +1,5 @@
+> **Languages**: [English README](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # 学习通课表 API 集成完成 ✅
 
 ## 📋 更新摘要

@@ -1,3 +1,5 @@
+> **Languages**: [English](ARCHITECTURE.md) | [Chinese](ARCHITECTURE.zh.md) | [Japanese](ARCHITECTURE.jp.md) | [Russian](ARCHITECTURE.ru.md)
+
 # Technical Architecture
 
 > **System design for a safety-first campus AI copilot**

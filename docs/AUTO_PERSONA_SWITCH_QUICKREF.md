@@ -1,5 +1,8 @@
-# 🔄 自动 Persona 切换 - 快速参考卡
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
 
+# 🔄 自动 Persona 切换 - 快速参考
+## 📋 功能概述
+基于双模型架构，实现了**智能 Persona 自动切换**功能：
 ## 📌 一句话总结
 后端根据第一层意图检测结果，自动为决策/规划类任务使用 Professional 模式，为闲聊/引导类任务使用 Alice 模式。
 

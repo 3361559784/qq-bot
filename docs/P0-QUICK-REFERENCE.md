@@ -1,5 +1,6 @@
-# P0功能快速参考
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
 
+# P0功能快速参考
 ## 🎯 核心功能概览
 
 ### 1️⃣ 更自然的文本输出

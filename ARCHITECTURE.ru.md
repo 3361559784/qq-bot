@@ -1,3 +1,5 @@
+> **Languages**: [English](ARCHITECTURE.md) | [中文](ARCHITECTURE.zh.md) | [日本語](ARCHITECTURE.jp.md) | [Русский](ARCHITECTURE.ru.md)
+
 # Техническая архитектура
 
 > **Система campus AI Copilot, построенная вокруг безопасности.**

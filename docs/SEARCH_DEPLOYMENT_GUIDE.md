@@ -1,9 +1,8 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 搜索模块部署与验证指南
-
 ## 📋 模块清单
-
 ✅ **已实现并测试通过的4个核心模块：**
-
 1. **searchCache.js** - 持久化搜索缓存
    - ✅ Cosmos DB 持久化支持
    - ✅ 本地文件回退（开发/测试环境）

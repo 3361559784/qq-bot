@@ -1,7 +1,7 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # Aris课表系统增强版完成报告
-
 ## 🎯 增强目标完成情况
-
 ### ✅ 任务1: 支持新学习通URL格式
 - **目标URL**: `https://kb.chaoxing.com/res/app/curriculum/schedule.html?appId=1000&curriculumUuid=...`
 - **状态**: ✅ 完成

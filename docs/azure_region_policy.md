@@ -1,4 +1,7 @@
+> **Languages**: [English README](../README.md) | [Chinese](../README.zh.md) | [Japanese](../README.jp.md) | [Russian](../README.ru.md)
+
 # Azure Policy: Resource Location Constraints
+
 
 If your deployment fails with `RequestDisallowedByAzure`, this means your subscription has a policy that restricts which Azure locations (regions) are allowed for resource creation. This is common in enterprise subscriptions.
 

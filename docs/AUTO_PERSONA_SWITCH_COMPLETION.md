@@ -1,5 +1,8 @@
-# ✅ 自动 Persona 切换 - 完成报告
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
 
+# ✅ 自动 Persona 切换 - 完成报告
+## 📅 优化日期：2025-12-16
+## 🎯 优化目标
 ## 🎯 需求回顾
 
 **用户需求**：

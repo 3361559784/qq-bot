@@ -1,9 +1,8 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # P0 功能环境变量配置模板
-
 ## 📝 Azure Function 应用设置
-
 将以下配置添加到 Azure Portal → Function App → 配置 → 应用程序设置
-
 ---
 
 ## 🎯 回复优化配置 (Reply Optimization)

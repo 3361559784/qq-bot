@@ -1,9 +1,8 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 搜索模块快速验收清单
-
 ## ✅ 功能验收（5分钟快速检查）
-
 ### 1. 缓存功能（searchCache.js）
-
 ```bash
 # 运行种子脚本
 node tools/seed-search-data.js

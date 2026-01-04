@@ -1,3 +1,5 @@
+> **Languages**: [English README](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # 🎓 Campus Copilot — 不是更聪明的 AI，是更懂边界的 AI
 
 > **"大学生最需要的不是一个会聊天的 AI，而是一个知道自己什么时候不该乱说话的 Copilot。"**

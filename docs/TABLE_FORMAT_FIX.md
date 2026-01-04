@@ -1,7 +1,7 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 📋 课程查询表格渲染问题 - 修复报告
-
 ## 🐛 问题描述
-
 **用户反馈**：
 > "现在是第几周？我想知道本周课程的顺序。"
 > 

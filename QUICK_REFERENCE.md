@@ -1,3 +1,5 @@
+> **Languages**: [English README](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # Aris课表系统 - 快速参考
 
 ## 🚀 增强功能(2025-12-10更新)

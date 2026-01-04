@@ -1,4 +1,6 @@
-\# Design Philosophy: From “Making Her More Human” to “Making the System Less Harmful”
+> **Languages**: [English](DESIGN_PHILOSOPHY.md) | [Chinese](DESIGN_PHILOSOPHY.zh.md) | [Japanese](DESIGN_PHILOSOPHY.jp.md) | [Russian](DESIGN_PHILOSOPHY.ru.md)
+
+# Design Philosophy: From “Making Her More Human” to “Making the System Less Harmful”
 
 > **“I no longer ask whether AI can be more like a human; I ask whether we can make the system harm people less.”**
 
@@ -208,31 +210,27 @@ I cannot take responsibility for their consequences.
 
 If you build AI, don’t only ask “how to make it smarter”. Ask “who gets hurt when it isn’t.”
 
-这不是示弱，这是**负责任**。
+This isn’t “showing weakness”. It’s **responsibility**.
 
 ---
 
-## 致谢
+## Acknowledgements
 
-这个项目的演变，记录了一个开发者从：
-- "我想被看见" → "我想被理解" → "我需要一个翻译器"
+This project’s evolution records a developer’s shifts:
+- “I want to be seen” → “I want to be understood” → “I need a translator”
+- “Make AI more human” → “Make the system less harmful”
 
-从：
-- "想让 AI 更像人" → "想让系统少害人"
+Thanks to everyone in the group who got burned by Alice “fabricating schedules” — you made me realize:
 
-感谢所有在群里被 Alice "编造课表"坑过的同学，是你们让我意识到：
-
-> **"可爱"不是免责金牌，"有人设"不是信任基础。**
+> **“Cute” is not a liability waiver, and “a persona” is not a trust foundation.**
 
 ---
 
-## 最后
+## Final words
 
-如果你也在做 AI 项目，我想对你说：
+If you are also building AI, don’t ask “can AI be smarter?”. Ask “what harm does it cause when it isn’t?”.
 
-**不要问"AI 能不能更聪明"，问"AI 在不聪明时会造成什么伤害"。**
-
-这不是悲观，这是**工程伦理**。
+This isn’t pessimism. It’s **engineering ethics**.
 
 ---
 

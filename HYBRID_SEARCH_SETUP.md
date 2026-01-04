@@ -1,3 +1,5 @@
+> **Languages**: [English README](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # 混合搜索系统配置指南
 
 ## 系统架构

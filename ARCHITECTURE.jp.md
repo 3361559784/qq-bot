@@ -1,3 +1,5 @@
+> **Languages**: [English](ARCHITECTURE.md) | [中文](ARCHITECTURE.zh.md) | [日本語](ARCHITECTURE.jp.md) | [Русский](ARCHITECTURE.ru.md)
+
 # 技術アーキテクチャ
 
 > **安全性を最優先するキャンパス AI Copilot のシステム構成図です。**

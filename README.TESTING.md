@@ -1,3 +1,5 @@
+> **Languages**: [English README](README.md) | [Chinese](README.zh.md) | [Japanese](README.jp.md) | [Russian](README.ru.md)
+
 # Test ocrCourse API Locally
 
 Prerequisites:

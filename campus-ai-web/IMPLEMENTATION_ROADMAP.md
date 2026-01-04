@@ -1,3 +1,5 @@
+> **Languages**: [English README](../README.md) | [中文](../README.zh.md) | [日本語](../README.jp.md) | [Русский](../README.ru.md)
+
 # 🚀 Campus AI Web - 完整实施方案
 
 ## 📋 你的愿景 (Imagine Cup 决赛级别)

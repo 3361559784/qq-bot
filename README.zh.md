@@ -1,3 +1,5 @@
+> **Languages**: [English](README.md) | [中文](README.zh.md) | [日本語](README.jp.md) | [Русский](README.ru.md)
+
 # Alice / Campus Copilot
 
 一个以安全为核心的校园 AI 助手，旨在**避免幻觉、误导和责任漂移**。
