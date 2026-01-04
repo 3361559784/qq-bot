@@ -46,8 +46,10 @@ jobs:
 
       - name: 🚀 Deploy to Azure Functions (Remote Build)
         run: |
-          # 使用 Azure Functions Core Tools 部署（远程构建模式）
-          npx --yes azure-functions-core-tools@4 func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote
+          # 安装 Azure Functions Core Tools CLI
+          npm install -g azure-functions-core-tools@4
+          # 使用 func CLI 部署到 Azure Functions（远程构建模式）
+          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote
 
       - name: ✅ Deployment complete
         run: |
