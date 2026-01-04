@@ -149,7 +149,7 @@ qq-bot-aris-clean/
 
 ## ライセンス
 
-MIT
+Apache License 2.0 (Apache-2.0)。`LICENSE` と `NOTICE` を参照してください。
 
 ---
 

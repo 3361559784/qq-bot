@@ -238,3 +238,13 @@ If you build AI, don’t only ask “how to make it smarter”. Ask “who gets 
 
 *Written by Ziheng Liu*  
 *A complete record of the journey from "making her more human" to "making the system less harmful"*
+
+---
+
+### On Derivative Works
+
+This document is an integral part of the system design.
+Removing it from redistributed versions may lead to unsafe or misleading usage.
+
+If you fork or adapt this project, please preserve this document
+or clearly state which parts of the design assumptions you have changed.

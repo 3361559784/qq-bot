@@ -223,7 +223,7 @@ npm run lint
 
 ## 📄 许可证
 
-MIT License
+Apache License 2.0 (Apache-2.0)。见仓库根目录的 `LICENSE` 与 `NOTICE`。
 
 ---
 

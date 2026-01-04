@@ -149,9 +149,17 @@ This project is a **learning record** and **responsibility experiment**. Contrib
 
 ---
 
+## Design Philosophy
+
+This project includes a design philosophy document (`DESIGN_PHILOSOPHY.md`)
+which defines the responsibility boundaries and safety assumptions of the system.
+
+Any derivative work that removes or materially alters this document
+**without clear attribution** is considered a misrepresentation of the original design intent.
+
 ## License
 
-MIT
+Apache License 2.0 (Apache-2.0). See `LICENSE` and `NOTICE`.
 
 ---
 
