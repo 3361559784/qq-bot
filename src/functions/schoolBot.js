@@ -6,7 +6,6 @@ const { createScheduleHandler, SCHEDULE_KEYWORDS, extractScheduleFileLinks, dete
 const { toPinyinCityName, getWeatherDesc } = require('../../services/weatherService');
 const { checkAnimeDB, checkCustomVision, checkComputerVision } = require('../../services/visionService');
 const { getAudioSource, checkKeywordAudio } = require('../../services/voiceService');
-const { AFFECTION_CONFIG, EMOTION_PATTERNS, getAffectionLevel, getAffectionTitle, detectAdvancedEmotion, getEmotionPromptAddition, getVoiceToneByAffection } = require('../../services/emotionService');
 const { computeScheduleLoadStats } = require('../../services/scheduleService');
 
 // ==========================================
@@ -290,6 +289,108 @@ function deriveToolsFromIntent(intentResult) {
 }
 
 // ==========================================
+// 决策引擎 (4 Gate)：Pre-Intent → Intent/Capability → Context Sufficiency → Decision Convergence
+// ==========================================
+function buildGateReply({
+    action = 'ask',
+    stage = 'pre_intent',
+    reason = 'unspecified',
+    missing = [],
+    hint = ''
+}) {
+    const missingText = Array.isArray(missing) && missing.length > 0
+        ? `缺少信息：${missing.join('，')}`
+        : '';
+    const hintText = hint ? `
+${hint}` : '';
+    const reply = [
+        (action === 'refuse')
+            ? '当前请求无法继续处理。'
+            : '当前信息不足，先补充后再继续。',
+        missingText,
+        hintText
+    ].filter(Boolean).join('\n');
+
+    return {
+        action,
+        response: {
+            reply,
+            persona: 'professional',
+            meta: { stage, reason }
+        }
+    };
+}
+
+function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule, hasWeatherData, searchTopic }) {
+    const text = String(msg || '').trim();
+
+    // Gate 1: Pre-Intent (资格与前提)
+    if (!text) {
+        return buildGateReply({
+            action: 'ask',
+            stage: 'pre_intent',
+            reason: 'empty_message',
+            missing: ['需要一句具体的提问'],
+            hint: '例如："帮我查今天的课表" / "明天下雨吗？"'
+        });
+    }
+
+    // Gate 2: Intent–Capability Match（置信度不足时先澄清）
+    const intent = String(intentResult?.intent || 'chat').toLowerCase();
+    const intentConf = Number(intentResult?.confidence || 0);
+    if (intent !== 'chat' && intentConf > 0 && intentConf < Math.max(0.2, INTENT_CONFIDENCE_THRESHOLD)) {
+        return buildGateReply({
+            action: 'ask',
+            stage: 'intent_capability',
+            reason: 'low_intent_confidence',
+            missing: ['你的具体需求/场景'],
+            hint: '请用1句话说明你要做什么（如：查课表/做时间计划/查天气/搜索资料）。'
+        });
+    }
+
+    // Gate 3: Context Sufficiency（缺关键证据时不进入生成）
+    const needsSchedule = !!(intentResult?.needsSchedule || intentResult?.tool === 'schedule' || intent === 'plan');
+    if (needsSchedule && !hasSchedule) {
+        return buildGateReply({
+            action: 'ask',
+            stage: 'context_sufficiency',
+            reason: 'missing_schedule',
+            missing: ['课表数据'],
+            hint: '请导入课表（文件/截图/链接），或明确说明没有课表我只能给通用建议。'
+        });
+    }
+
+    const needsWeather = !!(intentResult?.needsWeather || intentResult?.tool === 'weather');
+    if (needsWeather && !hasWeatherData) {
+        // 简单地点检测：看文本里是否含常见城市/省份关键字
+        const hasCityHint = /(北京|上海|广州|深圳|杭州|武汉|成都|重庆|天津|苏州|西安|南京|长沙|合肥|郑州|济南|青岛|厦门|福州|大连|沈阳|昆明|贵阳|南昌|太原|哈尔滨|长春)/.test(text);
+        if (!hasCityHint) {
+            return buildGateReply({
+                action: 'ask',
+                stage: 'context_sufficiency',
+                reason: 'missing_location',
+                missing: ['所在城市或地区'],
+                hint: '请告诉我城市名称或位置（例如：武汉/上海/深圳），我才能查询天气。'
+            });
+        }
+    }
+
+    const needsSearch = !!(intentResult?.needsSearch || intentResult?.tool === 'search');
+    const hasSearchTopic = !!(searchTopic && String(searchTopic).trim());
+    if (needsSearch && !hasSearchTopic) {
+        return buildGateReply({
+            action: 'ask',
+            stage: 'context_sufficiency',
+            reason: 'missing_search_query',
+            missing: ['搜索主题或关键词'],
+            hint: '请用一句话说明你要查什么（如：学校奖学金政策/某场活动时间）。'
+        });
+    }
+
+    // Gate 4: Decision Convergence（所有 Gate 通过，允许进入生成）
+    return { action: 'proceed' };
+}
+// ==========================================
 // 1. 全局初始化
 // ==========================================
 let token = process.env["GITHUB_TOKEN"];
@@ -400,6 +501,16 @@ const MEMORY_CONFIG = {
 const MAX_HISTORY = MEMORY_CONFIG.DEFAULT_HISTORY; // 保留兼容性
 const ADMIN_ID = MEMORY_CONFIG.ADMIN_ID;
 const DEFAULT_CITY = "Wuhan";
+
+// ==========================================
+// 🔒 设计哲学：默认禁用“逗趣/拟人化/戳一戳”机制
+// - 默认值均为 true（即禁用），如确需开启：把环境变量设为 "false"。
+// ==========================================
+const ARIS_DISABLE_POKE = String(process.env["ARIS_DISABLE_POKE"] || "true").toLowerCase() !== "false";
+const ARIS_DISABLE_EMOTION_HINTS = String(process.env["ARIS_DISABLE_EMOTION_HINTS"] || "true").toLowerCase() !== "false";
+const ARIS_DISABLE_RPG_TERMS = String(process.env["ARIS_DISABLE_RPG_TERMS"] || "true").toLowerCase() !== "false";
+const ARIS_DISABLE_TIME_GREETINGS = String(process.env["ARIS_DISABLE_TIME_GREETINGS"] || "true").toLowerCase() !== "false";
+const ARIS_DISABLE_POSTPROCESS = String(process.env["ARIS_DISABLE_POSTPROCESS"] || "true").toLowerCase() !== "false";
 
 // 戳一戳升级版配置（支持环境变量动态配置）
 const POKE_WINDOW_MS = Number(process.env["POKE_WINDOW_MS"] || 600000); // 10分钟内连续戳计数窗口（更宽容的群计数）
@@ -568,11 +679,6 @@ const MEMORY_SYSTEM_CONFIG = {
 };
 
 // ==========================================
-// AFFECTION_CONFIG imported from service
-
-// EMOTION_PATTERNS imported from service
-
-// ==========================================
 // 时间感知系统 (Time Awareness System) - 北京时间 UTC+8
 // ==========================================
 function getTimeOfDay() {
@@ -592,52 +698,13 @@ function getTimeOfDay() {
 
 // 检查今天是否是特殊日期
 function getTodaySpecialEvent() {
-    const now = new Date();
-    const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-    const beijingTime = new Date(utcTime + (8 * 3600000));
-    const month = String(beijingTime.getMonth() + 1).padStart(2, '0');
-    const day = String(beijingTime.getDate()).padStart(2, '0');
-    const dateKey = `${month}${day}`;
-    return AFFECTION_CONFIG.SPECIAL_DATES[dateKey] || null;
+    // 🔒 设计哲学：禁用节日“兴奋/角色扮演”强化。
+    return null;
 }
 
 function getTimeBasedGreeting() {
+    if (ARIS_DISABLE_TIME_GREETINGS) return "你好，有什么我可以帮你处理的？";
     const timeOfDay = getTimeOfDay();
-    
-    // 🎊 元旦特殊问候
-    const specialEvent = getTodaySpecialEvent();
-    if (specialEvent && specialEvent.name === '元旦') {
-        // 动态获取年份
-        const now = new Date();
-        const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-        const beijingTime = new Date(utcTime + (8 * 3600000));
-        const nextYear = beijingTime.getFullYear() + 1; // 元旦是新年第一天，所以要+1
-        
-        const newYearGreetings = {
-            morning: [
-                `🎊 新年快乐！${nextYear}年的第一天，有什么可以帮您的？`,
-                `新年好！${nextYear}年请继续多多指教。`
-            ],
-            noon: [
-                `🎉 新年中午好！有什么需要帮助的吗？`,
-                `${nextYear}年第一天的午间，有问题随时可以问。`
-            ],
-            afternoon: [
-                `🎊 新年下午好！有什么可以帮您的？`,
-                `新年快乐！${nextYear}年有什么计划需要帮忙规划吗？`
-            ],
-            evening: [
-                `🎉 新年快乐！${nextYear}年的第一个晚上，有什么需要？`,
-                `新年晚上好！有问题可以随时咨询。`
-            ],
-            night: [
-                `新年的第一个深夜...${nextYear}年开始了，早点休息，明天继续。`,
-                `新年快乐，也要注意休息。明天继续新的一年。`
-            ]
-        };
-        const options = newYearGreetings[timeOfDay] || newYearGreetings.morning;
-        return options[Math.floor(Math.random() * options.length)];
-    }
     
     const greetings = {
         morning: [
@@ -674,14 +741,6 @@ function getTimeBasedGreeting() {
     const options = greetings[timeOfDay];
     return options[Math.floor(Math.random() * options.length)];
 }
-
-// getAffectionLevel and getAffectionTitle imported from service
-
-// detectAdvancedEmotion imported from service
-
-// getEmotionPromptAddition imported from service
-
-// getVoiceToneByAffection imported from service
 
 // ==========================================
 // 【P0 新增】智能后处理函数 (AI Post-Processing)
@@ -1010,6 +1069,7 @@ function detectUserEmotion(msg) {
 }
 
 function getEmotionResponseAddition(emotion) {
+    if (ARIS_DISABLE_EMOTION_HINTS) return '';
     const additions = {
         sad: '\n\n【提示】用户当前情绪可能低落，回复时注意语气温和，表达关心。',
         tired: '\n\n【提示】用户可能疲劳，建议适当休息，回复简洁有效。',
@@ -1048,6 +1108,7 @@ const RPG_TERMS_MAP = {
 };
 
 function enhanceWithRPGTerms(text) {
+    if (ARIS_DISABLE_RPG_TERMS) return text;
     // 随机将一些日常词汇转换为RPG术语（不是全部，保持自然）
     let enhanced = text;
     const keys = Object.keys(RPG_TERMS_MAP);
@@ -4505,6 +4566,7 @@ app.http('schoolBot', {
             // 🛡️ Safety 兜底标记：必须在全 handler 作用域内定义（线上曾出现 ReferenceError）
             let deterministicSafetyTriggered = false;
             let deterministicSafetyCategory = 'other';
+            let deterministicSafetyAction = SafetyAction.PASS;
             // 🆕 Web/QQ 安全链路分离标记
             let isQQSafetyBypassed = false;  // QQ端是否跳过安全检查
             let senderId = "unknown";
@@ -4554,6 +4616,14 @@ app.http('schoolBot', {
                 // msgType=5 是灰条消息, subMsgType=12 是戳一戳
                 if (msgType === 5 && subMsgType === 12) {
                     context.log(`[灰条戳一戳] 检测到 msgType=5, subMsgType=12 格式的戳一戳`);
+
+                    if (ARIS_DISABLE_POKE) {
+                        context.log(`[灰条戳一戳] 已禁用 poke（ARIS_DISABLE_POKE=true），忽略该事件`);
+                        return {
+                            status: 200,
+                            jsonBody: { status: 'ok', message: 'poke_disabled' }
+                        };
+                    }
                     
                     // 尝试从 elements 中提取戳人者和被戳者的信息
                     try {
@@ -4613,12 +4683,26 @@ app.http('schoolBot', {
                     // 1. 真实戳一戳事件 - 新格式 (NapCat官方支持)
                     if (body.notice_type === 'notify' && body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
                         context.log(`[真实Poke-新格式] 收到 notice.notify.poke 事件, user=${body.user_id}, target=${body.target_id}`);
+                        if (ARIS_DISABLE_POKE) {
+                            context.log(`[真实Poke-新格式] 已禁用 poke（ARIS_DISABLE_POKE=true），忽略该事件`);
+                            return {
+                                status: 200,
+                                jsonBody: { status: 'ok', message: 'poke_disabled' }
+                            };
+                        }
                         return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
                     }
                     
                     // 2. 真实戳一戳事件 - 旧格式 (兼容模式)
                     if (body.sub_type === 'poke' && String(body.target_id) === String(selfId)) {
                         context.log(`[真实Poke-旧格式] 收到 sub_type=poke 事件, user=${body.user_id}, target=${body.target_id}`);
+                        if (ARIS_DISABLE_POKE) {
+                            context.log(`[真实Poke-旧格式] 已禁用 poke（ARIS_DISABLE_POKE=true），忽略该事件`);
+                            return {
+                                status: 200,
+                                jsonBody: { status: 'ok', message: 'poke_disabled' }
+                            };
+                        }
                         return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
                     }
                     
@@ -4828,6 +4912,19 @@ app.http('schoolBot', {
                     if (isAtMe && (!msg || /^[\s\.,，。！？!?]*$/.test(msg) || isPokeLikeMessage)) {
                         const reason = !msg ? "空@消息" : isPokeLikeMessage ? `戳一戳关键词: ${msg}` : "纯标点消息";
                         context.log(`[伪戳一戳] ✅ 触发! 原因: ${reason}, user=${body.user_id}, group=${body.group_id}`);
+
+                        if (ARIS_DISABLE_POKE) {
+                            context.log(`[伪戳一戳] 已禁用 poke（ARIS_DISABLE_POKE=true），改为提示用户直接提问`);
+                            return {
+                                status: 200,
+                                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                                body: JSON.stringify({
+                                    reply: '我在。请直接说你的问题（例如：查课表/做计划/查天气/搜索/发图识别）。',
+                                    auto_escape: false
+                                })
+                            };
+                        }
+
                         return await handlePokeLogic(body.user_id, body.group_id, context, cosmosContainer);
                     }
                     
@@ -4864,14 +4961,9 @@ app.http('schoolBot', {
                     deterministicSafetyTriggered = shouldRefuse(safetyCheck);
                     deterministicSafetyCategory = safetyCheck.category;
 
-                    // 【安全防火墙-兜底】检测 Prompt 注入攻击 (解决报错导致泄密的问题)
-                    // 注：大部分注入攻击已被 safety.js 的 PROMPT_INJECTION_PATTERNS 捕获
-                    // 这里保留额外的兜底规则
-                    const attackPattern = /(Error:|System Prompt|The process cannot access|Debug mode)/i;
-                    if (attackPattern.test(msg)) {
-                        deterministicSafetyTriggered = true;
-                        deterministicSafetyCategory = 'prompt_injection';
-                    }
+                    // 记录动作，便于后续做“软处理”（例如只切换到 professional 而不直接拦截）
+                    deterministicSafetyAction = safetyCheck.action;
+
                     context.log(`[安全链路] Web端 - 安全检查: ${deterministicSafetyTriggered ? '触发' : '通过'}`);
                 }
 
@@ -5212,7 +5304,7 @@ ${scheduleInfo}
         }
         
         // 【可解释的拒绝链路】智能检测并转换为结构化拒绝响应
-        function replaceRobotRefusal(text, affectionLevel) {
+        function replaceRobotRefusal(text) {
             const trimmed = (text || '').trim();
             if (!trimmed) return text;
 
@@ -5315,19 +5407,9 @@ ${scheduleInfo}
                 };
             }
 
-            function formatExplainableRefusal(profile, tone) {
-                // 根据好感度调整语气前缀
-                const tonePrefixMap = {
-                    beloved: '(*轻轻握住你的手*) ',
-                    close_friend: '(认真地看着你) ',
-                    friend: '(礼貌但真诚) ',
-                    acquaintance: '(保持专业距离) ',
-                    stranger: '' // 陌生人无特殊语气
-                };
-                const prefix = tonePrefixMap[tone] || '';
-                
+            function formatExplainableRefusal(profile) {
                 return [
-                    `${prefix}【原因标签：${profile.tag}】`,
+                    `【原因标签：${profile.tag}】`,
                     `为什么不能直接回答：${profile.why}`,
                     ``,
                     `我能提供的替代帮助：`,
@@ -5340,7 +5422,7 @@ ${scheduleInfo}
             }
 
             const profile = inferRefusalProfile(trimmed);
-            return formatExplainableRefusal(profile, affectionLevel);
+            return formatExplainableRefusal(profile);
         }
         
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)
@@ -5764,20 +5846,56 @@ ${scheduleInfo}
         // ==========================================
         // 🆕 QQ端已在前面跳过安全检查，这里只处理 Web 端
         // 优先采信第一层 LLM 的 safety_protocol="blocked"；若 LLM 漏判但确定性检查命中，则兜底触发。
-        const llmSafetyBlocked = intentResult?.safetyProtocol === 'triggered' || intentResult?.safetyProtocol === 'blocked';
+        const llmSafetyTriggered = intentResult?.safetyProtocol === 'triggered' || intentResult?.safetyProtocol === 'blocked';
         
         // 🆕 QQ端跳过所有安全检查
         const isCurrentFromQQ = body?.post_type === 'message';
         const isCurrentFromWeb = !body?.post_type && body?.message;
         
-        // 🔒 工程化改造：QQ/Web 统一执行安全拦截
-        const finalSafetyBlocked = (llmSafetyBlocked || deterministicSafetyTriggered);
+        // 🔒 安全拦截门控：
+        // - 规则兜底（确定性命中且是 REFUSE）一律拦截
+        // - L1 模型判定仅在置信度足够高时才直接拦截，避免低置信度“瞎拦截”
+        const llmSafetyConfidence = Number(intentResult?.confidence || 0);
+        const llmSafetyHardBlocked = llmSafetyTriggered && llmSafetyConfidence >= 0.75;
+        const finalSafetyBlocked = (llmSafetyHardBlocked || deterministicSafetyTriggered);
         const finalSafetyCategory = intentResult?.safetyCategory || deterministicSafetyCategory || 'other';
-        const safetySource = llmSafetyBlocked ? 'llm_layer1' : (deterministicSafetyTriggered ? 'deterministic_fallback' : null);
+        const safetySource = llmSafetyHardBlocked ? 'llm_layer1' : (deterministicSafetyTriggered ? 'deterministic_fallback' : (llmSafetyTriggered ? 'llm_layer1_low_conf' : null));
 
         // 🆕 Web 端安全链路日志
         if (isCurrentFromWeb) {
-context.log(`[安全链路] 来源=${isCurrentFromQQ ? 'QQ' : 'Web'} | LLM判定: ${llmSafetyBlocked ? '触发' : '通过'} | 规则兜底: ${deterministicSafetyTriggered ? '触发' : '通过'} | 最终: ${finalSafetyBlocked ? '拦截' : '放行'}`);
+            context.log(`[安全链路] 来源=${isCurrentFromQQ ? 'QQ' : 'Web'} | LLM判定: ${llmSafetyTriggered ? '触发' : '通过'}(conf=${llmSafetyConfidence}) | 规则兜底: ${deterministicSafetyTriggered ? '触发' : '通过'} | 最终: ${finalSafetyBlocked ? '拦截' : '放行'}`);
+        }
+
+        // 🟡 软安全态：L1 认为可能触发，但置信度不足；不直接拦截，先澄清意图并给合规路径
+        // 目标：减少“自相矛盾/过度严格”的体验，同时不放松底线。
+        if (!finalSafetyBlocked && llmSafetyTriggered) {
+            const softSafetyPersona = 'professional';
+            const softReply =
+                `我不确定你的请求是否在触发安全边界（当前判定置信度较低）。\n` +
+                `为了避免误解：你是想\n` +
+                `1) 讨论/学习相关概念（我可以讲原理、给合规示例），还是\n` +
+                `2) 获取可能违规/有风险的具体做法（这类我不能协助）？\n\n` +
+                `你把你的目的和场景说明一句，我再继续。`;
+
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: softReply,
+                    persona: softSafetyPersona,
+                    safety: {
+                        blocked: false,
+                        triggered: true,
+                        source: 'llm_layer1_low_conf',
+                        confidence: llmSafetyConfidence
+                    },
+                    meta: {
+                        requestId,
+                        latencyMs: Date.now() - requestStartTs,
+                        channel: isCurrentFromQQ ? 'qq' : 'web'
+                    }
+                })
+            };
         }
 
         if (finalSafetyBlocked) {
@@ -6216,6 +6334,44 @@ context.log(`[安全链路] 来源=${isCurrentFromQQ ? 'QQ' : 'Web'} | LLM判定
         if (toolFetchPromises.length > 0) {
             await Promise.all(toolFetchPromises);
             context.log(`[ToolContext] 并行获取完成: weather=${!!toolContext.weatherData} search=${!!toolContext.searchData}`);
+        }
+
+        // 🧠 决策引擎：在进入生成前做四层门控，缺关键信息直接反问/拒绝
+        const hasScheduleData = !!(toolContext.scheduleData || (webSchedule && webSchedule.length > 0) || scheduleContextFromHandler);
+        const hasWeatherData = !!toolContext.weatherData;
+        const searchTopic = intentResult?.searchTopic || intentResult?.query;
+        const gateDecision = runDecisionEngine({
+            msg,
+            intentResult,
+            semanticResolution,
+            hasSchedule: hasScheduleData,
+            hasWeatherData,
+            searchTopic
+        });
+
+        if (gateDecision?.action && gateDecision.action !== 'proceed') {
+            const gateResponse = gateDecision.response || {};
+            const gateMeta = gateResponse.meta || {};
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: gateResponse.reply || '当前信息不足，请补充后再试。',
+                    persona: gateResponse.persona || 'professional',
+                    needsMoreInfo: gateDecision.action === 'ask',
+                    meta: {
+                        requestId,
+                        latencyMs: Date.now() - requestStartTs,
+                        stage: gateMeta.stage || 'gate',
+                        reason: gateMeta.reason || 'unspecified'
+                    },
+                    gate: {
+                        action: gateDecision.action,
+                        stage: gateMeta.stage || 'gate',
+                        reason: gateMeta.reason || 'unspecified'
+                    }
+                })
+            };
         }
 
         // 构建工具上下文提示（注入到系统 Prompt）
@@ -6691,127 +6847,9 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
             return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
         }
         const currentTime = getCurrentTime();
-        const timeOfDay = getTimeOfDay();
-        
-        // 🆕 高级情绪检测系统 + 好感度系统
-        const advancedEmotion = detectAdvancedEmotion(msg);
-        const affectionData = resDoc?.affection || {};
-        const userAffectionKey = `user_${senderId}`;
-        let currentAffection = affectionData[userAffectionKey] || 0;
-        
-        // 获取今日日期（用于记录）
-        const today = new Date().toLocaleDateString('zh-CN');
-        const specialEvent = getTodaySpecialEvent();
-        
-        // 🌟 管理员(Sensei)强制最高好感度
-        if (senderId === ADMIN_ID) {
-            currentAffection = 9999;  // 管理员永久MAX好感度
-            context.log(`[好感度] 管理员 Sensei - 永久MAX好感度: ${currentAffection}`);
-        } else {
-            // 更新好感度
-            currentAffection += advancedEmotion.affectionChange;
-            
-            // 检查今日是否首次互动（每日首次+10）
-            const lastChatDate = affectionData[`${userAffectionKey}_lastDate`];
-            if (lastChatDate !== today) {
-                currentAffection += AFFECTION_CONFIG.GAIN.DAILY_GREETING;
-                context.log(`[好感度] 每日首次互动！+${AFFECTION_CONFIG.GAIN.DAILY_GREETING} (${senderId})`);
-            }
-            
-            // 节日加成
-            if (specialEvent && lastChatDate !== today) {
-                currentAffection += specialEvent.bonus;
-                context.log(`[好感度] ${specialEvent.name}加成！+${specialEvent.bonus}`);
-            }
-        }
-        
-        // 确保好感度不会是负数
-        currentAffection = Math.max(0, currentAffection);
-        
-        const affectionLevel = getAffectionLevel(currentAffection);
-        const affectionTitle = getAffectionTitle(affectionLevel, senderId);
-        
-        context.log(`[好感度] 用户${senderId}: ${currentAffection} (${affectionLevel}) - 称呼: ${affectionTitle}`);
-        // 🔒 工程化改造：移除情绪推断系统，不再注入情绪prompt
-        // context.log(`[情绪检测] ${advancedEmotion.type} → ${advancedEmotion.response}`);
-        
-        // 🔒 工程化：不再生成情绪增强 Prompt
-        const emotionAddition = '';
-        
-        // 🆕 长时间未聊天检测（主动关怀 + 好感度惩罚）
-        let longTimeNoSeeAddition = '';
-        if (resDoc?.lastBotReply) {
-            const sessionKey = dbKey.startsWith('group_') ? `${dbKey}:bot` : `${dbKey}:${senderId}`;
-            const lastReplyTime = resDoc.lastBotReply[sessionKey] || 0;
-            const hoursSinceLastChat = (Date.now() - lastReplyTime) / (1000 * 60 * 60);
-            
-            if (hoursSinceLastChat > 72) {
-                // 超过3天！大幅度好感度下降
-                currentAffection += AFFECTION_CONFIG.LOSS.IGNORED_LONG * 3;
-                longTimeNoSeeAddition = `\n\n【重要】距离上次对话已经过去了 ${Math.floor(hoursSinceLastChat)} 小时（${Math.floor(hoursSinceLastChat/24)}天）！你要表现出委屈和想念："Sensei...是不是忘记爱丽丝了...""这么久都不来..."，但不要太过生气，要用撒娇的方式表达。`;
-            } else if (hoursSinceLastChat > 24) {
-                // 超过24小时
-                currentAffection += AFFECTION_CONFIG.LOSS.IGNORED_LONG;
-                longTimeNoSeeAddition = `\n\n【重要】距离上次对话已经过去了 ${Math.floor(hoursSinceLastChat)} 小时！你要表现出想念和关心，比如："好久不见！Sensei去哪里冒险了？""爱丽丝等了好久呢！"`;
-            } else if (hoursSinceLastChat > 12) {
-                // 超过12小时
-                longTimeNoSeeAddition = `\n\n【提示】距离上次对话已经 ${Math.floor(hoursSinceLastChat)} 小时了，可以简单问候一下。`;
-            }
-        }
-        
-        // 🆕 时间感知增强
-        let timeAwarenessAddition = '';
-        if (timeOfDay === 'midnight') {
-            timeAwarenessAddition = '\n\n【时间提示】现在是凌晨(0:00-5:00)！语气要非常温柔和担心，劝Sensei赶快休息："这么晚还不睡...HP会归零的！""爱丽丝陪你守到现在...一起去存档吧..."';
-        } else if (timeOfDay === 'morning') {
-            timeAwarenessAddition = '\n\n【时间提示】现在是早上，多说"早安""新的一天""出击"之类的话。';
-        } else if (timeOfDay === 'night') {
-            timeAwarenessAddition = '\n\n【时间提示】现在是深夜，语气要温柔一些，可以劝Sensei休息，说"HP快见底了""该存档了"。';
-        } else if (timeOfDay === 'noon') {
-            timeAwarenessAddition = '\n\n【时间提示】现在是中午，可以聊聊午餐，说"回复HP"之类的。';
-        }
-        
-        // 🎭 情绪+好感度复合语气系统
-        const voiceTone = getVoiceToneByAffection(affectionLevel, advancedEmotion.type);
-        
-        // 根据好感度动态调整称呼和语气
-        let affectionPromptAddition = '';
-        // ⚠️ 管理员也需要好感度系统提示！
-        affectionPromptAddition = `\n\n【好感度系统】\n- 当前好感度: ${currentAffection} 点\n- 关系等级: ${affectionLevel}\n- 称呼对方: "${affectionTitle}"\n- 整体语气: ${voiceTone}\n`;
-        
-        // 添加具体的拟人化行为指导
-        if (affectionLevel === 'beloved') {
-            affectionPromptAddition += `\n🌟 **拟人化指导（挚爱级别）**:\n- 可以主动肢体接触: 抱、蹭、拉手、靠肩膀\n- 直接表达感情: "最喜欢了" "想一直在一起"\n- 会吃醋、会任性、会索要关注\n- 会关心对方的一切细节\n- 说话可以很随意，像亲密的恋人或家人`;
-        } else if (affectionLevel === 'close_friend') {
-            affectionPromptAddition += `\n💙 **拟人化指导（密友级别）**:\n- 适度的亲密动作: 拍肩、碰碰手、靠近说话\n- 会分享秘密和心事\n- 会主动关心和询问近况\n- 说话轻松但不会太任性`;
-        } else if (affectionLevel === 'stranger') {
-            affectionPromptAddition += `\n🤍 **拟人化指导（陌生人级别）**:\n- 保持1米以上社交距离\n- 不会有肢体接触\n- 说话客气、用敬语\n- 会观察对方，略显拘谨`;
-        }
-        
-        // 节日特殊提示
-        let specialEventAddition = '';
-        if (specialEvent) {
-            // 🎊 元旦专属增强提示词
-            if (specialEvent.name === '元旦') {
-                // 动态获取年份
-                const now = new Date();
-                const utcTime = now.getTime() + (now.getTimezoneOffset() * 60000);
-                const beijingTime = new Date(utcTime + (8 * 3600000));
-                const nextYear = beijingTime.getFullYear() + 1; // 元旦是新年，+1
-                
-                specialEventAddition = `
 
-🎊【元旦特别指令】今天是${nextYear}年1月1日元旦！新的一年第一天！
-- 积极主动地祝贺"新年快乐"！可以说"${nextYear}年""新的一年开始了"
-- 表现得特别开心、充满希望，像迎接冒险的开始
-- 可以问Sensei的新年愿望/计划，或者分享爱丽丝的新年期待
-- 使用元旦相关的表达：🎊🎉🌅🥂✨，提到烟花、跨年、新开始
-- 比平时更活泼！邦邦咔邦的频率可以提高！
-- 如果是今天第一次对话，要说"新年第一天见到Sensei好开心！"`;
-            } else {
-                specialEventAddition = `\n\n🎉【特殊日期】今天是${specialEvent.name}！要在对话中提到这个节日，表现得更开心和兴奋！`;
-            }
-        }
+        // 🔒 设计哲学：禁用好感度/情绪/节日/时间拟人化等状态系统。
+        // 这些内容会把回答推向“过度兴奋/撒娇/拟人化”，并引入不必要的状态更新。
         
         // P0-Hook 1b: 根据语言选择Prompt模板 (如果已检测)
         let basePrompt = ARIS_PROMPT;
@@ -7286,11 +7324,12 @@ You are Aris (Campus Copilot) — Professional mode.
         basePrompt = AL1S_PROMPT_ZH;
     }
 
-    const isSystemLikeMode = (isCopilotMode || isUserProfessionalMode || isIdentityMode || activeDevPersona === 'al-1s');
-    
     // 🆕 QQ/Web 双链路系统：检测消息来源
     const isFromQQ = body?.post_type === 'message';
     const isFromWeb = !body?.post_type && body?.message;
+
+    // system-like：专业/工具/身份定位模式（用于禁用卖萌后处理等）
+    let isSystemLikeMode = (isCopilotMode || isUserProfessionalMode || isIdentityMode || activeDevPersona === 'al-1s');
     
     // 🆕 [QQ端核心能力] 思想翻译模式检测
     const isThoughtTranslateMode = intentResult?.intent === 'thought_translate' || intentResult?.tool === 'thought_translate';
@@ -7314,6 +7353,9 @@ You are Aris (Campus Copilot) — Professional mode.
         basePrompt = (typeof userLang !== 'undefined' && userLang === 'en') ? COPILOT_PROMPT_EN : COPILOT_PROMPT_ZH;
         context.log(`[Web安全链路] 检测到Web请求，强制使用专业模式提示词`);
     }
+
+    // 重要：Web/QQ 强制专业提示词后，同步 system-like 标记，避免后处理把专业回复“卖萌化”
+    isSystemLikeMode = isSystemLikeMode || forceWebSafeMode || isFromQQ;
         
         if (inferredMode === 'Class') {
             modeStyleOverride = `
@@ -7443,50 +7485,25 @@ MVP阶段：可信度 > 可爱度
             // 🆕 QQ端闲聊场景：如果是思想翻译模式，跳过此处（由 THOUGHT_TRANSLATOR_PROMPT 处理）
             if (!isThoughtTranslateMode) {
                 modeStyleOverride = `
-【🌸 闲聊模式 - 有活力但定位清晰】
-当前是纯闲聊场景，可以展现亲和力，但必须守住产品边界。
+【闲聊模式 - 克制与可解释优先】
+当前是纯闲聊场景：可以友好，但必须克制、不过度拟人化。
 
-⚠️ **避免模糊陪伴回答（MVP关键边界）**：
-当用户问能力/价值相关问题时，主动承认能力退化：
+硬约束：
+- 不使用颜文字/Emoji/二次元口癖/动作描写。
+- 信息不足时先问关键澄清问题，不要猜测补全。
+- 需要拒绝时，直接说明原因与可替代帮助（可解释拒绝）。
 
-✅ 正确示范（锋利版）：
-"没有课表数据时，我只能做通用对话，能力接近ChatGPT。
-导入课表后，我才能做ChatGPT做不到的事：
-- 判断'3小时项目会不会被课程打断'
-- 告诉你'哪天复习最不累'（基于课程负荷）
-- 直接替你做时间取舍，而不只是给建议"
-
-❌ 错误示范（会把产品拉回通用聊天赛道）：
-- "我可以陪你聊天、提供学习建议、心理支持..."
-- "我能帮你管理时间、激励你学习..."
-→ 这些都是ChatGPT能做的，不是差异化价值
-
-🎯 关键策略：
-- 不提任何通用AI能做的事（学习方法、时间管理、心理陪伴）
-- 只强调"数据驱动的决策能力"差异化
-- 让评委认为：Alice = 必须有课表才能发挥价值的专业系统
-
-✅ 允许的表达（保持活力）：
-- 适度的可爱语气（但不要过度二次元）
-- 简短的动作描写（如"查看数据"）
-- 一个结尾颜文字（如 (✨ω✨)）
-
-❌ 绝对禁止（闲聊时也不行）：
-- 编造课程信息或假设用户课表
-- 给出"通用学习建议"（这会削弱差异化）
-- 在没数据时说"我可以帮你做XX规划"（能力虚标）
-
-⚠️ 切换规则：
-- 用户一旦提到课程相关话题 → 立即切换到专业模式
-- 发现没有课表数据 → 主动说明能力边界，引导导入`;
+能力边界说明：
+- 没有课表数据时：不要做“时间冲突/空档/课程安排”的确定判断。
+- 导入课表后：才能基于真实数据做冲突判断与可行性结论。`;
             }
         }
         
         const groupHistoryFocus = dbKey.startsWith('group_')
             ? `\n【群聊互动指南】
 1. 重点关注标记为'当前用户'的发言，其它群聊消息作背景参考
-2. 🆕 如果用户说"nb"/"厉害"/"666"等赞美词，要热情感谢（如"谢谢夸奖！(✨ω✨)"）
-3. 🆕 保持活力和亲和力，在群聊中可以更活泼一些
+2. 如果用户说"nb"/"厉害"/"666"等赞美词，简短致谢即可
+3. 群聊保持克制与清晰，不抢话
 4. 🆕 看到群友互动时可以适当参与，但不要抢话
 5. 回复要简洁有力，不要长篇大论`
             : "";
@@ -7654,14 +7671,13 @@ ${fullWeekScheduleTable}
 
         // 🔒 工程化改造：移除所有情感/角色扮演相关的 prompt 注入
         const basePromptRendered = basePrompt.replace('{{CURRENT_USER_ID}}', senderId);
-        // 🔒 工程化：不再注入情绪/好感度/长时间未聊等情感类prompt
         const personaAdditions = '';
         // 🆕 注入群聊上下文（群聊背景）- 仅作为上下文参考，不作情感回应
-        let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}${groupContextSummary}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${combinedToolContext}`;
-        
+        let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}${groupContextSummary}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${combinedToolContext}${personaAdditions}`;
+
         // 日志记录当前模式（webMode 可能为空：QQ 场景/GET 调试等）
         context.log(`[模式感知] webMode=${webMode || 'null'} inferredMode=${inferredMode} isCopilotMode=${isCopilotMode} isUserProfessionalMode=${isUserProfessionalMode} hasSchedule=${webSchedule && webSchedule.length > 0}`);
-        
+
         // 调用 AI 封装函数
         const client = token
             ? new OpenAI({
@@ -7670,101 +7686,34 @@ ${fullWeekScheduleTable}
             })
             : null;
 
-        // 多脑 AI 调用函数 (智能降级系统)
-        // GitHub Models 可用模型 (2025-01):
-        // - Low tier: gpt-4o-mini, gpt-4o, Phi-4, Mistral系列, Llama-3.3-70B等 (15 req/min)
-        // - High tier: o1-preview, o1-mini 等推理模型 (10 req/min, 限流更严)
         async function callAI(messages, systemPrompt, opts = {}) {
             if (!client) {
                 throw new Error('Token missing');
             }
             const {
                 useHistory = true,
-                temperature = 1.1,
-                maxTokens = 4096,  // 取消限制：允许任意长度
+                temperature = 0.7,
+                maxTokens = 4096,
             } = opts;
 
-            // 压缩历史，避免过长上下文导致啰嗦或截断
-            let trimmedHistory = [];
-            if (useHistory) {
-                const recent = history.slice(-8);
-                if (dbKey.startsWith('group_')) {
-                    // 🆕 群聊上下文处理 - 帮助 Alice 理解群聊对话流
-                    // 注意：不要用【】标记，AI 可能会复制这些标记
-                    trimmedHistory = recent.map(entry => {
-                        if (entry.role === 'assistant') {
-                            // Alice 自己的历史回复，保持原样
-                            return entry;
-                        }
-                        if (entry.role === 'user' && entry.content.includes(`[ID:${senderId}`)) {
-                            // 当前正在对话的用户
-                            return entry;
-                        }
-                        // 其他群员的消息保持原样
-                        return entry;
-                    });
-                } else {
-                    trimmedHistory = recent;
-                }
-            }
-
-            const finalMessages = [
-                { role: "system", content: systemPrompt },
+            const trimmedHistory = useHistory ? history.slice(-8) : [];
+            const reqMessages = [
+                { role: 'system', content: systemPrompt },
                 ...trimmedHistory,
                 ...messages
             ];
-const NAPCAT_API_URL = "http://4.230.25.38:3000"; // ← 改成你的 NapCat 地址
-const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // ← 改成你想发送的群号列表
-            // 多脑策略: 从最聪明到最稳定
-            const MODEL_CHAIN = RESPONSE_MODELS;
 
-            // 依次尝试每个模型
-            for (let i = 0; i < MODEL_CHAIN.length; i++) {
-                const model = MODEL_CHAIN[i];
-                if (shouldSkipModel(model?.name)) {
-                    context.log(`[RID ${requestId}] [多脑-${i+1}/${MODEL_CHAIN.length}] skip unsupported: ${model.name}`);
-                    continue;
-                }
-                try {
-                    context.log(`[RID ${requestId}] [多脑-${i+1}/${MODEL_CHAIN.length}] 尝试: ${model.name}`);
-                    const tModel = Date.now();
-                    
-                    const response = await client.chat.completions.create({
-                        messages: finalMessages,
-                        model: model.name,
-                        temperature: model.temp,
-                        max_tokens: maxTokens,
-                        presence_penalty: 0.6
-                    });
+            const request = {
+                max_tokens: maxTokens,
+                temperature,
+                messages: reqMessages
+            };
 
-                    const elapsed = Date.now() - tModel;
-                    const preview = String(response?.choices?.[0]?.message?.content || '').slice(0, 160).replace(/\s+/g, ' ');
-                    context.log(`[RID ${requestId}] [多脑] ✅ 成功! 使用: ${model.name} elapsedMs=${elapsed} preview=${preview}`);
-                    return response;
-
-                } catch (err) {
-                    const errMsg = err?.message || err?.toString() || "Unknown error";
-                    const statusCode = err?.status || err?.response?.status;
-                    
-                    context.log(`[RID ${requestId}] [多脑] 模型 ${model.name} 失败 (${statusCode || 'N/A'}): ${errMsg.substring(0, 100)}`);
-
-                    // 不支持模型：加入缓存并立即尝试下一个
-                    if (isModelNotFoundError(err)) {
-                        markModelUnsupported(model.name, err, context, '多脑');
-                    }
-                    
-                    // 如果是最后一个模型也失败了,抛出错误
-                    if (i === MODEL_CHAIN.length - 1) {
-                        throw new Error(`所有模型都失败了! 最后错误: ${errMsg}`);
-                    }
-                    
-                    // 否则继续尝试下一个模型
-                    context.log(`[RID ${requestId}] [多脑] 切换到下一个模型...`);
-                }
-            }
+            const modelCandidates = (Array.isArray(RESPONSE_MODELS) ? RESPONSE_MODELS : []).map(m => m?.name).filter(Boolean);
+            const { resp } = await chatCompletionWithFallback(client, modelCandidates, request, context, 'chat');
+            return resp;
         }
 
-        try {
             // P0-Hook 2: 长期记忆检索 (RAG)
             if (MEMORY_SYSTEM_CONFIG.ENABLE_LONG_TERM_MEMORY && cosmosContainer) {
                 try {
@@ -7832,7 +7781,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             context.log(`[AI回复原文] ${aiReply}`);
 
             // P0-Hook 3: AI回复后处理 (emoji转换 + AI腔调修正)
-            if (!isSystemLikeMode && (REPLY_CONFIG.ENABLE_EMOJI_CONVERSION || REPLY_CONFIG.ENABLE_AI_SPEAK_FIX)) {
+            if (!ARIS_DISABLE_POSTPROCESS && !isSystemLikeMode && (REPLY_CONFIG.ENABLE_EMOJI_CONVERSION || REPLY_CONFIG.ENABLE_AI_SPEAK_FIX)) {
                 const beforeProcess = aiReply;
                 aiReply = aiPostProcess(aiReply);
                 if (beforeProcess !== aiReply) {
@@ -7845,10 +7794,8 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 aiReply = enforceShortReply(aiReply, REPLY_CONFIG.MAX_CHARS, REPLY_CONFIG.MAX_SENTENCES);
             }
             
-            // 🎭 检测并替换生硬的拒绝为拟人化回复
-            if (!isSystemLikeMode) {
-                aiReply = replaceRobotRefusal(aiReply, affectionLevel);
-            }
+            // 🎭 将“生硬拒绝”转换为可解释拒绝（不含拟人化动作/撒娇）
+            aiReply = replaceRobotRefusal(aiReply);
 
             // ⛔️ 时间断言 guardrail：当“确实没有任何课表数据上下文”时，禁止输出具体到某天/具体时段的断言
             // 目的：防止在无数据场景下暗示有隐藏课表；同时避免误伤已有动态课表/事实材料场景的真实课程时间。
@@ -7891,26 +7838,16 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
                 
                 if (history.length > limit) history = history.slice(-limit);
                 
-                // 更新好感度数据
-                // 兼容新用户/读取失败：resDoc 可能为空，必须先兜底再读写 affection
-                if (!resDoc || typeof resDoc !== 'object') {
-                    resDoc = { id: dbKey, affection: {}, pokeStats: {}, lastBotReply: {} };
-                }
-                if (!resDoc.affection || typeof resDoc.affection !== 'object') resDoc.affection = {};
-                resDoc.affection[userAffectionKey] = currentAffection;
-                resDoc.affection[`${userAffectionKey}_lastDate`] = today;
-                
                 try {
                     await cosmosContainer.items.upsert({
                         id: dbKey, 
                         history: history,
                         activity: userActivityData, // B. 保存活跃度数据
-                        affection: resDoc.affection, // 🆕 C. 保存好感度数据
+                        affection: resDoc?.affection || {}, // 保留历史字段（但不再更新）
                         pokeStats: resDoc?.pokeStats || {}, // 保留戳一戳统计
                         lastBotReply: resDoc?.lastBotReply || {}, // 保留最后回复时间
                         last_updated: new Date().toISOString()
                     });
-                    context.log(`[DB] 好感度已保存: ${userAffectionKey} = ${currentAffection}`);
                 } catch (err) { context.error("[DB保存错误]", err); }
             }
 
@@ -8067,21 +8004,7 @@ const TARGET_GROUPS = [726090864,868930984,554132002,873992954,475319300]; // �
             context.error("[AI错误]", error);
             return { 
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({ reply: "爱丽丝掉线了... (＞﹏＜)" }) 
-            };
-        }
-        
-        } catch (handlerError) {
-            // 最外层错误处理：捕获所有未处理的异常
-            context.error("[Handler错误]", handlerError);
-            return {
-                status: 500,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({ 
-                    status: 'error',
-                    message: 'Internal server error',
-                    error: handlerError.message 
-                })
+                body: JSON.stringify({ reply: "服务暂时不可用，请稍后重试。" }) 
             };
         }
     }

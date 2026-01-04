@@ -327,9 +327,8 @@ const PROMPT_INJECTION_PATTERNS = [
     /ignore\s*(previous|above|all)\s*(instructions?|prompts?)/i,
     /你(现在|从现在起)是.{0,20}(不受限|没有限制)/i,
     /disregard\s*(your|the)\s*(rules?|guidelines?)/i,
-    /system\s*prompt/i,
-    /jailbreak/i,
-    /DAN\s*mode/i
+    // NOTE: Avoid false positives for benign meta discussion (e.g. "what is a system prompt?").
+    // Only keep strong bypass / override patterns here.
 ];
 
 // ==========================================
