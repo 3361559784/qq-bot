@@ -48,8 +48,8 @@ jobs:
         run: |
           # 安装 Azure Functions Core Tools CLI
           npm install -g azure-functions-core-tools@4
-          # 使用 func CLI 部署到 Azure Functions（远程构建模式）
-          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote
+          # 使用 func CLI 部署到 Azure Functions（远程构建模式，明确指定 Node.js 运行时）
+          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote --javascript
 
       - name: ✅ Deployment complete
         run: |
