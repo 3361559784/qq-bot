@@ -3120,7 +3120,7 @@ function preIntentSemanticResolver(currentMsg, history = [], context = null) {
             enhancedMessage = `[上下文: 承接上一轮对话] ${text}`;
         }
     }
-    
+
     return {
         subject,                    // 'model' | 'user' | 'third_party' | 'model_user_interaction' | 'unknown'
         subjectConfidence,          // 0~1
@@ -3183,6 +3183,31 @@ function normalizeIntentTool(raw) {
         return { intent: 'help', tool: 'help' };
     }
     return { intent: val || 'chat', tool: 'chat' };
+}
+
+// 🆕 [缺失层二] 语境澄清 - 生成反问提示
+function generateClarificationPrompt(ambiguousInput) {
+    const trimmed = (ambiguousInput || '').trim();
+    
+    // 根据输入类型生成不同的澄清问题
+    if (/^[永远一直从来总是]+$/.test(trimmed)) {
+        return `你说的"${trimmed}"是指：\n- 一个抽象概念/哲学思考？\n- 一首歌/活动/作品名？\n- 还是一种情绪表达？`;
+    }
+    if (/^那个|这个|那种|这种$/.test(trimmed)) {
+        return `你指的"${trimmed}"具体是什么？可以补充一下上下文吗？`;
+    }
+    if (/^就是.{0,3}$/.test(trimmed)) {
+        return `"${trimmed}"——你想表达什么？可以说得更具体一点吗？`;
+    }
+    if (/^.{1,4}吧$/.test(trimmed)) {
+        return `你说"${trimmed}"是想：\n- 结束当前话题？\n- 表示某种态度？\n- 还是有其他意思？`;
+    }
+    if (/^(是|对|嗯|哦|好)+$/.test(trimmed)) {
+        return `你的确认是针对：\n- 我上一句说的内容？\n- 还是有新的想法要表达？`;
+    }
+    
+    // 默认澄清
+    return `我不太确定你想表达什么，可以说得更具体一点吗？`;
 }
 
 function clampConfidence(v) {
@@ -3262,6 +3287,31 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
             needsSearch: false,
             needsSchedule: false,
             needsWeather: false
+        };
+    }
+    
+    // 🆕 [缺失层二] 语境澄清层 - 模糊/抽象输入触发反问
+    // "永远永远"、"那个东西"、单独的形容词/副词 → 先澄清再处理
+    const ambiguousPatterns = [
+        /^[永远一直从来总是]+$/,  // 纯副词
+        /^那个|这个|那种|这种$/,   // 指代不明
+        /^就是.{0,3}$/,            // "就是那个"类
+        /^.{1,4}吧$/,              // "算了吧"、"行吧"
+        /^(是|对|嗯|哦|好)+$/,     // 纯确认词
+    ];
+    const isAmbiguousInput = ambiguousPatterns.some(p => p.test(trimmed));
+    if (isAmbiguousInput) {
+        context?.log?.(`[IntentRouter] 语境澄清层: 检测到模糊输入 "${trimmed}"`);
+        return {
+            intent: 'clarify',
+            tool: 'clarify',
+            confidence: 0.95,
+            reason: 'ambiguous_input_needs_clarification',
+            shouldAskUser: true,
+            askUserPrompt: generateClarificationPrompt(trimmed),
+            needsSearch: false,  // 🔥 关键：不搜索！
+            needsSchedule: false,
+            needsWeather: false,
         };
     }
     
@@ -5710,6 +5760,37 @@ context.log(`[安全链路] 来源=${isCurrentFromQQ ? 'QQ' : 'Web'} | LLM判定
                         latencyMs: Date.now() - requestStartTs,
                         channel: 'web'
                     }
+                })
+            };
+        }
+
+        // 🆕 [缺失层二] 语境澄清层：当输入模糊/抽象时，先反问再处理
+        if (intentResult?.intent === 'clarify' && intentResult?.shouldAskUser && intentResult?.askUserPrompt) {
+            context.log(`[语境澄清] 检测到模糊输入，触发反问: "${msg}"`);
+            
+            // persona 选择：用户强制 professional > 默认 alice
+            const clarifyPersona = (body?.persona === 'professional') ? 'professional' : 'alice';
+            const isProfessionalMode = clarifyPersona === 'professional';
+            let clarifyReply;
+            
+            if (isProfessionalMode) {
+                // Pro 模式：直接反问
+                clarifyReply = intentResult.askUserPrompt;
+            } else {
+                // Alice 模式：加点温度
+                clarifyReply = `[thinking] ${intentResult.askUserPrompt}\n\n爱丽丝想确认一下再回答呢~`;
+            }
+            
+            context.log(`[语境澄清] reply=${clarifyReply.slice(0, 50)}...`);
+            
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({ 
+                    reply: clarifyReply,
+                    persona: clarifyPersona,
+                    needsMoreInfo: true,
+                    clarificationType: 'ambiguous_input'
                 })
             };
         }
