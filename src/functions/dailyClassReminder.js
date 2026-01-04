@@ -4,7 +4,7 @@ const { CosmosClient } = require("@azure/cosmos");
 // ==========================================
 // 配置
 // ==========================================
-const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:6009';
+const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://127.0.0.1:6009';
 const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
 const cosmosString = process.env["COSMOS_DB_STRING"];
 

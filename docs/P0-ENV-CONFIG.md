@@ -95,13 +95,13 @@ GITHUB_TOKEN=your_github_token_here
 COSMOS_DB_STRING=your_cosmos_connection_string
 
 # NapCat API 地址
-NAPCAT_API_URL=http://4.230.25.38:6009
+NAPCAT_API_URL=http://127.0.0.1:6009
 
 # NapCat Token (可选)
 NAPCAT_TOKEN=
 
 # 机器人 QQ 号
-BOT_QQ_ID=3551451303
+BOT_QQ_ID=123456789
 
 # 戳一戳配置
 POKE_WINDOW_MS=480000

@@ -95,7 +95,7 @@ curl -X POST "https://YOUR-AZURE-URL/api/schoolBot" \
   -d '{
     "post_type":"message",
     "message_type":"private",
-    "user_id":3361559784,
+    "user_id":123456789,
     "message":"test",
     "raw_message":"test",
     "sender":{"nickname":"test"}

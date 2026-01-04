@@ -127,8 +127,8 @@ git push
 ./deploy-functions.sh
 
 # 4. 验证部署结果
-curl https://campus-copilot-demo.azurewebsites.net/health
-curl https://school-bot.azurewebsites.net/api/schoolBot?test=1
+curl https://<your-app>.azurewebsites.net/health
+curl https://<your-function-app>.azurewebsites.net/api/schoolBot?test=1
 ```
 
 **🎉 从此告别 GitHub Actions 存储焦虑，部署更快更稳定！**

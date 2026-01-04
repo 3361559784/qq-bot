@@ -5,7 +5,7 @@
 
 const https = require('https');
 
-const SCRAPER_ENDPOINT = "https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io";
+const SCRAPER_ENDPOINT = process.env.SCRAPER_ENDPOINT;
 const testUrl = "https://kb.chaoxing.com/pc/course/286506260/326816896?clazzId=112566595&courseId=242163026&cpi=369869652";
 
 async function fetchJSON(url, options = {}) {
@@ -42,6 +42,12 @@ async function fetchJSON(url, options = {}) {
 }
 
 async function testScraper() {
+    if (!SCRAPER_ENDPOINT) {
+        console.error('❌ 缺少 SCRAPER_ENDPOINT 环境变量（远程爬虫服务端点）。');
+        console.error('   示例: export SCRAPER_ENDPOINT=https://<your-scraper-app>.azurecontainerapps.io');
+        process.exit(1);
+    }
+
     console.log('═══════════════════════════════════════════════════');
     console.log('  爬虫微服务 API 测试');
     console.log('═══════════════════════════════════════════════════\n');

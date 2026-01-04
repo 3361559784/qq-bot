@@ -388,7 +388,8 @@ ${merged || '无'}`;
 
 // 【优化1】分级记忆系统
 const MEMORY_CONFIG = {
-    ADMIN_ID: "3361559784",      // Sensei: 无限记忆
+    // 开源仓库：不要硬编码个人账号；如需无限记忆，请配置环境变量 ADMIN_ID
+    ADMIN_ID: process.env.ADMIN_ID || "",
     CLOSE_FRIENDS: [             // VIP 用户列表 (30条记忆)
         // "12345678",            // 示例: 添加好友QQ号
     ],
@@ -433,7 +434,7 @@ const POKE_STYLE_CONFIG = {
 };
 
 // NapCat API 配置
-const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:6009';
+const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://127.0.0.1:6009';
 const NAPCAT_TOKEN = process.env["NAPCAT_TOKEN"] || '';
 const BOT_QQ_ID = process.env["BOT_QQ_ID"] || ''; // 机器人自己的QQ号，用于防止自触发循环
 
@@ -1104,8 +1105,9 @@ const CITY_PINYIN_FALLBACK = {
 // 4. 爱丽丝语音路由核心配置 (Tier 1: GitHub 直链)
 // ==========================================
 
-// ✅ GitHub 仓库 Raw 文件地址前缀 (指向新的 aris-assets-video 仓库)
-const GITHUB_AUDIO_BASE = "https://raw.githubusercontent.com/3361559784/aris-assets-video/main/";
+// ✅ GitHub 仓库 Raw 文件地址前缀（开源仓库默认不内置个人仓库地址）
+// 示例: https://raw.githubusercontent.com/<your-username>/<your-audio-repo>/main/
+const GITHUB_AUDIO_BASE = process.env.GITHUB_AUDIO_BASE || "";
 
 // 关键词与文件名的映射表
 const AUDIO_MAP = {

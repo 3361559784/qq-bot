@@ -148,13 +148,29 @@ export async function POST(req: NextRequest) {
     }
     // 方式2: OCR图片识别（直接调用 Azure Functions）
     else if (imageUrl && typeof imageUrl === 'string') {
-      // const isDev = process.env.NODE_ENV !== 'production';
-      // const backendUrl = isDev
-      //   ? 'http://127.0.0.1:7071/api/ocrcourse'
-      //   : (process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL?.replace('/schoolbot', '/ocrcourse') || 
-      //      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrcourse');
-      
-      const backendUrl = 'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/ocrcourse';
+      const backendUrl = (() => {
+        const raw =
+          process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
+          process.env.AZURE_FUNCTION_URL ||
+          'http://127.0.0.1:7071/api/schoolbot';
+
+        const normalize = (value: string) => value.replace(/\/api\/schoolBot/gi, '/api/schoolbot');
+
+        const toOcr = (value: string) => {
+          const normalized = normalize(value);
+          if (/\/api\/ocrcourse/i.test(normalized)) return normalized.replace(/\/api\/ocrcourse/gi, '/api/ocrcourse');
+          if (/\/api\/schoolbot/i.test(normalized)) return normalized.replace(/\/api\/schoolbot/gi, '/api/ocrcourse');
+          return normalized.replace(/\/$/, '') + '/api/ocrcourse';
+        };
+
+        try {
+          const u = new URL(raw);
+          u.pathname = normalize(u.pathname);
+          return toOcr(u.toString());
+        } catch {
+          return toOcr(raw);
+        }
+      })();
 
       // 生成临时 userId 用于后端调用（前端无真实用户体系时使用匿名ID）
       const tempUserId = `web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

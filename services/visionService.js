@@ -114,10 +114,13 @@ async function checkAnimeDB(imgUrl, context, minConfidence = 0.7) {
 // 核心识图引擎: Custom Vision
 // ==========================================
 async function checkCustomVision(imgUrl, context) {
-    const predictionUrl = "https://arisvision-prediction.cognitiveservices.azure.com/customvision/v3.0/Prediction/15d48369-f604-460c-afa5-53beb0ebf705/classify/iterations/Iteration1/url";
-    const predictionKey = "6m6IwLKj33IXOTpE9b7RNXMluMhxCWW1LiRhJrBHDKXkzehKqpTxJQQJ99BKACi0881XJ3w3AAAIACOG5ymL"; 
+    const predictionUrl = process.env["CUSTOM_VISION_PREDICTION_URL"];
+    const predictionKey = process.env["CUSTOM_VISION_PREDICTION_KEY"]; 
 
-    if (!predictionKey || !predictionUrl) return null;
+    if (!predictionKey || !predictionUrl) {
+        context?.log?.(`[CustomVision] 未配置（CUSTOM_VISION_PREDICTION_URL / CUSTOM_VISION_PREDICTION_KEY），跳过`);
+        return null;
+    }
 
     try {
         context.log(`[CustomVision] 请求 Prediction API...`);

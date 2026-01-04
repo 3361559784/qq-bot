@@ -12,7 +12,7 @@
   - 不再因`undefined.schedule`导致服务崩溃
 
 ### ✅ 任务2: 增强OCR识别学习通课表截图
-- **目标图片**: `https://github.com/3361559784/text/blob/main/IMG_2539.PNG`
+- **目标图片**: `https://github.com/<your-username>/<your-repo>/blob/main/IMG_2539.PNG`
 - **状态**: ✅ 完成
 - **改进内容**:
   - 升级模型: `gpt-4o-mini` → `gpt-4o` (更高精度)

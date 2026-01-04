@@ -124,7 +124,7 @@ git push origin main
 # 测试 Emoji 转换
 curl -X POST "https://your-function.azurewebsites.net/api/schoolBot" \
   -H "Content-Type: application/json" \
-  -d '{"post_type":"message","message_type":"group","group_id":726090864,"user_id":3361559784,"raw_message":"@爱丽丝 今天好开心😊"}'
+  -d '{"post_type":"message","message_type":"group","group_id":123456789,"user_id":123456789,"raw_message":"@爱丽丝 今天好开心😊"}'
 
 # 4. 检查日志
 az functionapp logs tail --name <app-name> --resource-group <rg> | grep -E "语言检测|记忆系统"

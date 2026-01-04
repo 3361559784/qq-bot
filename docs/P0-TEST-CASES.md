@@ -25,8 +25,8 @@ curl -X POST "https://your-function.azurewebsites.net/api/schoolBot" \
   -d '{
     "post_type": "message",
     "message_type": "group",
-    "group_id": 726090864,
-    "user_id": 3361559784,
+    "group_id": 123456789,
+    "user_id": 123456789,
     "raw_message": "@爱丽丝 今天好开心😊"
   }'
 ```
@@ -122,12 +122,12 @@ ARIS_MAX_CHARS=150
 
 **验证 Cosmos DB:**
 ```sql
-SELECT * FROM c WHERE c.userId = '3361559784' AND c.type = 'conversation'
+SELECT * FROM c WHERE c.userId = '123456789' AND c.type = 'conversation'
 ORDER BY c.createdAt DESC
 ```
 
 **预期字段:**
-- `id`: `memory_3361559784_*`
+- `id`: `memory_123456789_*`
 - `content`: 包含"小明"和"18岁"
 - `vector`: 长度为 50 的数组
 - `ttl`: 2592000 (30天)
@@ -342,7 +342,7 @@ az functionapp logs tail --name <app-name> --resource-group <rg> | grep "ERROR"
 ```sql
 -- 查看最近记忆
 SELECT TOP 10 * FROM c 
-WHERE c.userId = '3361559784' 
+WHERE c.userId = '123456789' 
 ORDER BY c.createdAt DESC
 
 -- 统计记忆数量

@@ -66,13 +66,26 @@ export async function POST(req: Request) {
 
     const safeSessionId = typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : 'web_unknown';
     
-    // Azure Functions URL 选择策略（只走线上，避免本地/端口导致 502）：
+    // Azure Functions URL
     // - 优先使用 NEXT_PUBLIC_AZURE_FUNCTION_URL / AZURE_FUNCTION_URL
-    // - 未配置时默认走线上
-    const azureFunctionUrl =
-      process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
-      process.env.AZURE_FUNCTION_URL ||
-      'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot';
+    // - 未配置时默认走本地 Functions
+    // - 统一归一到 /api/schoolbot（避免大小写导致线上 404）
+    const azureFunctionUrl = (() => {
+      const raw =
+        process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
+        process.env.AZURE_FUNCTION_URL ||
+        'http://127.0.0.1:7071/api/schoolbot';
+
+      const normalize = (value: string) => value.replace(/\/api\/schoolBot/gi, '/api/schoolbot');
+
+      try {
+        const u = new URL(raw);
+        u.pathname = normalize(u.pathname);
+        return u.toString();
+      } catch {
+        return normalize(raw);
+      }
+    })();
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20_000);

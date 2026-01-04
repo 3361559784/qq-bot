@@ -49,6 +49,15 @@ out/
 *.tmp
 *.swp
 
+# 屏蔽备份/临时副本（避免误提交敏感信息）
+*.bak
+*.bak*
+*.backup*
+*.broken
+
+# generated reports (may contain real endpoints / ids)
+tools/TEST_REPORT.md
+
 # 屏蔽 OS 相关
 Thumbs.db
 

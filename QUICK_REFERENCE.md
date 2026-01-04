@@ -13,19 +13,19 @@
 
 ### 健康检查
 ```bash
-curl https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io/health
+curl https://<your-scraper-app>.azurecontainerapps.io/health
 ```
 
 ### 爬取课表
 ```bash
-curl -X POST https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io/scrape \
+curl -X POST https://<your-scraper-app>.azurecontainerapps.io/scrape \
   -H "Content-Type: application/json" \
   -d '{"url":"<学习通课表URL>"}'
 ```
 
 ### 带Cookies爬取(推荐)
 ```bash
-curl -X POST https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io/scrape \
+curl -X POST https://<your-scraper-app>.azurecontainerapps.io/scrape \
   -H "Content-Type: application/json" \
   -d '{
     "url": "<学习通课表URL>",
@@ -63,13 +63,13 @@ curl -X POST https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontain
 
 ### 本地测试爬虫
 ```bash
-cd /Users/liuziheng/qq-bot-aris-clean
+cd <path-to-your-repo>
 node tests/test-enhanced-features.js
 ```
 
 ### 重新部署爬虫
 ```bash
-cd /Users/liuziheng/aris-scraper
+cd <path-to-your-aris-scraper>
 ./scripts/build_and_push_local.sh --acr-name arisbotacr --image aris-scraper:v3
 az containerapp update \
   --name aris-scraper \
@@ -79,7 +79,7 @@ az containerapp update \
 
 ### 部署Functions后端
 ```bash
-cd /Users/liuziheng/qq-bot-aris-clean
+cd <path-to-your-repo>
 func azure functionapp publish aris-bot-func
 ```
 
@@ -99,8 +99,8 @@ func azure functionapp publish aris-bot-func
 
 ## 🔗 链接
 
-- [爬虫服务端点](https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io)
-- [Functions后端](https://aris-bot-func.azurewebsites.net)
+- [爬虫服务端点](https://<your-scraper-app>.azurecontainerapps.io)
+- [Functions后端](https://<your-function-app>.azurewebsites.net)
 - [Azure Portal](https://portal.azure.com)
 - [完整文档](./docs/enhancement-completion-report.md)
 

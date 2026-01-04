@@ -54,4 +54,4 @@ jobs:
       - name: ✅ Deployment complete
         run: |
           echo "🎉 后端部署成功！"
-          echo "📍 URL: https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot"
+          echo "📍 URL: https://<your-function-app>.azurewebsites.net/api/schoolbot"

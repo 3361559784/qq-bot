@@ -1,262 +1,212 @@
-# Design Philosophy: From "Making Her More Human" to "Making the System Less Harmful"
+\# Design Philosophy: From “Making Her More Human” to “Making the System Less Harmful”
 
-> **"我不再问'AI 能不能更像人'，而是问'我能不能让系统少害人'。"**
-
----
-
-## 这是一个关于觉醒的记录
-
-如果你只是想部署一个 QQ 机器人，请回到 [README.md](README.md)。  
-但如果你想知道这个项目**为什么会变成现在这样**，请继续往下读。
+> **“I no longer ask whether AI can be more like a human; I ask whether we can make the system harm people less.”**
 
 ---
 
-## 我的心路历程
+## This is a record of my personal journey
 
-### 第一阶段：我想被看见（2024年11月）
-
-刚开始做这个项目时，我想的是：
-
-> "我能不能做一个像 Neuro-sama 那样的 AI？有人格、有人气、会说话、会互动。"
-
-我花了大量时间让 Alice：
-- 有一个完整的人设（蓝色档案里的爱丽丝）
-- 会用颜文字、会撒娇、会说"邦邦咔邦！"
-- 看起来"像一个真正的人"
-
-那时我相信：
-- ✅ AI 能主动说话
-- ✅ AI 有连续性人格
-- ✅ AI 看起来"理解上下文"
-
-这是几乎所有第一次做 AI 项目的人的起点。**没有任何问题。**
+If you only want to deploy the QQ bot, go back to [README.md](README.md).  
+If you want to understand why this system evolved into its current form, keep reading.
 
 ---
 
-### 第二阶段：我开始害怕（2024年12月）
+## Three phases of my thinking
 
-随着用户越来越多，我开始看到问题：
+### Phase 1: Treating AI as an object of emotional projection (Nov 2024)
 
-1. **模型会乱说**
-   - 明明没有课表数据，却编造出"明天你有高等数学"
-   - 学生跑错教室、缺课、差点挂科
-   
-2. **模型会误解"谁在说话"**
-   - 我在讨论系统设计，它以为我在问它个人问题
-   - 我在调试 prompt，它以为我在"伤害它的感情"
+Early on, I tried to build something like Neuro-sama:
+a persistent persona, emotional reactions, playful responses, proactive interaction.
 
-3. **模型会用情绪覆盖事实**
-   - 我严肃地问它系统问题，它突然开始"表演"
-   - 用可爱的语气糊弄过去
+At that time, I wasn’t focused on “system reliability”, but on:
+- whether it felt human
+- whether it felt warm
+- whether it could be liked
 
-这时我开始意识到一个可怕的事实：
+This assumes something implicitly:
+**that AI can carry emotional expectations.**
 
-> **"理解"不是输出自然语言，而是对责任边界的把握。**
+Later I realized: that assumption itself is a source of risk.
 
-我开始引入：
-- 多层 LLM（第一层做安全检测，第二层做内容生成）
-- Evidence / Claim 分离（声称 vs 证据）
-- 渠道分离（QQ 走活泼链路，Web 走专业链路）
-- 人工确认机制
+### Phase 2: “Reasonable output” is not the same as a “responsible system” (Dec 2024)
 
-**这是第一次关键转折：我不再把 AI 当"角色"，而是当不可靠的部件。**
+In real usage, a fundamental issue became obvious:
 
----
+LLMs are optimized to produce answers that *sound* reasonable,
+but campus scenarios require behavior that is **accountable, verifiable, and able to refuse**.
 
-### 第三阶段：我想清楚了边界（2025年1月）
+Typical risks include:
+- making up schedules when data is missing
+- guessing user intent when context is unclear
+- using fluent language to hide uncertainty
 
-这是最重要的。
+This made me realize:
+**“Understanding” is not language fluency; it is the judgment of responsibility boundaries.**
 
-我现在问的不再是：
-> "她怎么才能更聪明？"
+So I introduced layered constraints:
+- separating Evidence vs. Claim
+- role separation across multiple LLM layers
+- decoupling channels from persona
+- explicit human confirmation points
 
-而是：
-> "她为什么会误解'我、你、她'？"
+### Phase 3: Accepting the non-replaceable boundary of AI (Jan 2025)
 
-我开始关注的是：
-- **指代**：谁在说话？说的是谁？
-- **语境**：这是讨论系统还是讨论人？
-- **责任归属**：谁为输出负责？
+When I seriously asked “If I keep pushing the ‘persona’ path, what will this system become?”
+the answer was clear:
 
-我终于明白了一件事：
+No matter how human it appears,
+it is still a system driven by prompts and probability distributions.
 
-> **AI 永远不可能代替一个人的位置。永远不可能。**
+Persona continuity is not understanding,
+and emotional reactions are not responsibility.
 
----
+I eventually settled on this principle:
+**AI can never—and should never—replace a human’s position.**
 
-## 机器人的义务不是
-
-- ❌ 被需要
-- ❌ 被依赖
-- ❌ 被投射情感
-
-## 机器人的义务是
-
-- ✅ 不误导
-- ✅ 不越权
-- ✅ 不伪装成理解人类的一切
+From that moment, the project goal shifted:
+not “more human”, but **no overreach, no misleading, and explainable refusal**.
 
 ---
 
-## 三个关键领悟
+## The bottom lines I set for this system
 
-### 领悟一：解释型拒绝层（Explainable Refusal Layer）
+While designing Alice, I learned that without deliberate limits,
+LLMs are easily used as “objects of emotional projection”.
 
-在做了几个月后，我发现系统真正缺的不是"更聪明"，而是**一个思考层**：
+So I explicitly prohibit these goals:
 
-**现在是：**
-```
-触发规则 → 拒绝 → 结束
-```
+- seeking to be needed
+- encouraging dependency
+- carrying emotional projection
 
-**应该是：**
-```
-触发规则
-  → 判定原因（越权 / 无数据 / 非职责）
-    → 用人类能理解的话解释
-      → 给一个可走的出口
-```
+The engineering goals are only three:
 
-**举例：**
-```
-❌ 现在：
-"抱歉，我无法提供此类建议。"
-
-✅ 应该：
-"这个问题涉及现实安全与法律风险，我不能直接给出建议。
-如果你愿意，我可以：
-1. 帮你梳理'遇到骚扰时的一般处理原则'
-2. 或协助你查找学校/公共渠道的官方资源"
-```
-
-👉 **不解决问题，但不"抛弃用户"**
+- don’t mislead
+- don’t overreach
+- don’t pretend to “understand everything about humans”
 
 ---
 
-### 领悟二：语境澄清层（Clarification Before Search）
+## Three key insights
 
-**现在是：**
-```
-不确定 → 搜索
-```
+### 1) Why I started building “Explainable Refusal”
 
-**应该是：**
-```
-不确定
-  → 判断：这是概念？情绪？比喻？闲聊？
-    → 若不清楚：反问澄清
-    → 明确后：再决定 搜索 / 回答 / 拒绝
-```
+Early versions simply refused when a rule was triggered.
+That was safe, but it failed the user experience:
 
-**举例（"永远永远"的正确处理）：**
-```
-❌ 现在：直接搜索"永远永远"
+- users don’t know what crossed the line
+- users can’t tell whether the conversation can continue
+- refusal becomes a hard “disconnect point”
 
-✅ 应该：
-"你是指：
-- 一个抽象概念？
-- 一首歌 / 活动？
-- 还是一种情绪表达？"
-```
+So I broke refusal into three steps:
+find the reason → explain it in human terms → provide a viable alternative path.
 
-👉 **澄清一次，胜过十次搜索**
+The goal is not to “solve everything”,
+but to **not abandon the user at the system level**.
 
----
+### 2) Why “clarify first” matters more than “search first”
 
-### 领悟三：轻思考模式（Think-Before-Speak Mode）
+When uncertain, an LLM tends to take the easiest route: search or answer immediately.
 
-系统现在是**两极化**的：
-- 要么 Professional：冷、硬、规则
-- 要么 Alice：人格、活泼
+But many failures are not knowledge errors — they are context errors.
 
-**但真正需要的是第三态：**
+So when the input is ambiguous, I want the system to pause and confirm:
+Is this conceptual discussion, emotional expression, or a concrete question?
 
-| 模式 | 特征 | 核心任务 |
-|-----|------|---------|
-| Professional | 冷、硬、规则 | 给出精确答案 |
-| Alice | 活泼、人设、陪伴 | 情感连接 |
-| **Translator** | 不陪伴、不表演、不搜百科 | **"想明白再说出来"** |
+One clarification
+is more reliable than ten searches.
 
-**Translator 模式的核心只有一句话：**
-> "我先确认我理解对了，再决定我该不该说。"
+### 3) Why I need a “don’t overstate” mode
+
+In persona mode, systems can become overconfident;
+in professional mode, they can become cold.
+
+What I found dangerous is not “being wrong”,
+but **answering too fast without thinking**.
+
+So I introduced an in-between state:
+no acting, no companionship, no rushing — just one thing:
+
+> Confirm I understood correctly, then decide whether to continue.
 
 ---
 
-## 我反对什么
+## Practical examples: how I keep the system from “doing random things”
 
-### 1. 反对"循环式 Agent"
+### Red-line awareness: if you don’t know, say you don’t know
 
-很多人热衷于让 AI 自我迭代、自我规划、自主执行。
+When users ask for concrete facts (e.g., schedules),
+the system first checks whether it has a clear data source.
 
-我反对。
+If structured schedule data exists → answer normally.
 
-因为：
-- 每一次循环都会放大误差
-- 没有人工确认点，责任链条断裂
-- 用户不知道 AI 在背后做了什么
+If not → clearly state the lack of data instead of guessing:
 
-### 2. 反对"情感陪伴 = 通用 LLM 的义务"
+“I don’t have your schedule data yet, so I can’t tell what classes you have tomorrow.
+If you want, you can upload your schedule or provide a source first.”
 
-AI 可以提供陪伴感，但：
-- 情感陪伴 ≠ 通用 LLM 的义务
-- 投射关系 ≠ 系统能力
-- 让人舒服 ≠ 对人负责
+I’d rather the system look “less capable”
+than let it fabricate a plausible-sounding answer.
 
-### 3. 反对"看起来像人就是成功"
+### One responsibility model: wording can vary, judgment cannot
 
-我曾经以为：让 AI 看起来越像人，就越成功。
+The system uses one decision framework:
 
-现在我认为：
-- **看起来像人 ≠ 对人负责**
-- **输出流畅 ≠ 理解边界**
-- **会撒娇 ≠ 值得信任**
+- is data sufficient?
+- is the responsibility boundary crossed?
+- is this an appropriate time to answer?
 
----
+“Relaxed” vs “serious” only affects wording intensity, not the decision path.
 
-## 核心设计原则的实际应用
+Once it involves:
 
-### 红线意识（不编造数据）
+- factual statements
+- behavioral suggestions
+- time / schedules / risk
 
-```
-用户: "明天有什么课？"
+the output automatically becomes conservative, explainable, and traceable.
 
-❌ 普通AI: "明天你有高等数学和英语课。"（幻觉）
+This is not style. It is responsibility priority.
 
-✅ Campus Copilot: 
-   "⚠️ 我还没有你的课表数据。
-   请先发送学习通课表链接，或上传 Excel/ICS。"
-```
+### Capability degradation must be stated explicitly
 
-**为什么这很重要？**
-- 课表错误 → 学生跑错教室 → 缺课 → 挂科风险
-- **AI 必须知道"不知道"比"乱说"更负责任**
+I intentionally make the system admit its limitations:
 
----
+“Before I have your personal data,
+I can only offer very limited assistance.
+I can’t understand your specific campus routine yet.”
 
-### 双链路架构（QQ 活泼 / Web 专业）
+This isn’t “weakness”; it prevents users from:
 
-| 场景 | 链路 | 风格 |
-|-----|------|------|
-| QQ 群聊 | Alice 链路 | 活泼、有人设、会撒娇 |
-| Web 端 | Copilot 链路 | 专业、简洁、无情绪标签 |
-| 决策规划 | 自动切换 Professional | 严谨、条目化、时间精确 |
-| 闲聊陪伴 | 自动切换 Alice | 可爱、有温度、游戏术语 |
+- overestimating the system’s capability
+- over-trusting outputs
+- mistaking language fluency for real understanding
 
-**为什么要分离？**
-- QQ 群聊需要"融入"，太专业会显得格格不入
-- Web 端需要"可信"，太活泼会显得不专业
-- **同一个系统，不同场景需要不同的责任边界**
+The system must tell users when it is “just a generic LLM.”
 
 ---
 
-### 承认能力退化
+## Paths I deliberately did not take
 
-```
-"如果没有您的课表数据，我只能进行非常有限的陪伴式对话；
-一旦您导入课表，我才能成为真正理解您校园生活节奏的 Campus Copilot。"
-```
+There are some “popular” directions I chose not to pursue (for now):
 
-**我们主动告诉用户：没有数据时，我们和 ChatGPT 没有本质区别。**
+- building a fully autonomous looping agent
+- making persona responsible for emotional companionship
+- optimizing for human-like, roleplay-heavy conversation
+
+Not because they are always wrong,
+but because at this stage,
+I cannot take responsibility for their consequences.
+
+---
+
+## I realized
+
+> **“Being cute” is not a liability waiver, and “having a persona” is not a trust foundation.**
+
+## Closing
+
+If you build AI, don’t only ask “how to make it smarter”. Ask “who gets hurt when it isn’t.”
 
 这不是示弱，这是**负责任**。
 

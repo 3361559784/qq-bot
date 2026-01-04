@@ -2,7 +2,8 @@
 // 语音服务模块 (Voice Service)
 // ==========================================
 
-const GITHUB_AUDIO_BASE = "https://raw.githubusercontent.com/3361559784/aris-assets-video/main/";
+// 示例: https://raw.githubusercontent.com/<your-username>/<your-audio-repo>/main/
+const GITHUB_AUDIO_BASE = process.env.GITHUB_AUDIO_BASE || "";
 
 const AUDIO_MAP = {
     // 核心招牌台词
@@ -52,6 +53,10 @@ const AUDIO_MAP = {
 
 function checkKeywordAudio(text, context) {
     if (!text) return null;
+    if (!GITHUB_AUDIO_BASE) {
+        context?.log?.('[Tier 1] 未配置 GITHUB_AUDIO_BASE，跳过语音直链');
+        return null;
+    }
     const cleanText = text.toLowerCase();
     
     for (const [keyword, fileName] of Object.entries(AUDIO_MAP)) {
@@ -65,6 +70,9 @@ function checkKeywordAudio(text, context) {
 }
 
 function getAudioSource(text, context, language = "auto") {
+    if (!GITHUB_AUDIO_BASE) {
+        return null;
+    }
     let detectedLang = language;
     if (language === "auto") {
         if (/[\u4e00-\u9fa5]/.test(text)) {

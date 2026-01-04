@@ -82,7 +82,7 @@ npm run build
 部署成功后测试端点：
 
 ```bash
-curl https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot
+curl https://<your-function-app>.azurewebsites.net/api/schoolbot
 ```
 
 ## 🛠️ 故障排查

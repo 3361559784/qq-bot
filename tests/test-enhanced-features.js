@@ -6,10 +6,27 @@
 
 const https = require('https');
 
-const SCRAPER_ENDPOINT = 'https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io';
+const SCRAPER_ENDPOINT = process.env.SCRAPER_ENDPOINT;
+
+function getScraperHostname() {
+    if (!SCRAPER_ENDPOINT) return null;
+    try {
+        const u = new URL(SCRAPER_ENDPOINT);
+        return u.hostname;
+    } catch {
+        return null;
+    }
+}
+
+const SCRAPER_HOSTNAME = getScraperHostname();
 
 // 测试1: 新URL格式爬取
 async function testNewUrlFormat() {
+    if (!SCRAPER_ENDPOINT || !SCRAPER_HOSTNAME) {
+        console.log('⏭️  未配置 SCRAPER_ENDPOINT，跳过远程爬虫测试。');
+        return { skipped: true };
+    }
+
     console.log('\n🧪 测试1: 新学习通URL格式爬取');
     console.log('='.repeat(60));
     
@@ -18,7 +35,7 @@ async function testNewUrlFormat() {
     const postData = JSON.stringify({ url: testUrl });
     
     const options = {
-        hostname: 'aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io',
+        hostname: SCRAPER_HOSTNAME,
         port: 443,
         path: '/scrape',
         method: 'POST',
@@ -90,6 +107,11 @@ async function testNewUrlFormat() {
 
 // 测试2: 健康检查
 async function testHealthCheck() {
+    if (!SCRAPER_ENDPOINT || !SCRAPER_HOSTNAME) {
+        console.log('⏭️  未配置 SCRAPER_ENDPOINT，跳过健康检查。');
+        return { skipped: true };
+    }
+
     console.log('\n🧪 测试2: 爬虫服务健康检查');
     console.log('='.repeat(60));
     
@@ -119,6 +141,11 @@ async function testHealthCheck() {
 
 // 测试3: 空课表容错
 async function testEmptyScheduleHandling() {
+    if (!SCRAPER_ENDPOINT || !SCRAPER_HOSTNAME) {
+        console.log('⏭️  未配置 SCRAPER_ENDPOINT，跳过空课表容错测试。');
+        return { skipped: true };
+    }
+
     console.log('\n🧪 测试3: 空课表容错处理');
     console.log('='.repeat(60));
     
@@ -128,7 +155,7 @@ async function testEmptyScheduleHandling() {
     const postData = JSON.stringify({ url: testUrl });
     
     const options = {
-        hostname: 'aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io',
+        hostname: SCRAPER_HOSTNAME,
         port: 443,
         path: '/scrape',
         method: 'POST',

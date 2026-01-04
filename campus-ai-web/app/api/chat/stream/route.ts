@@ -40,7 +40,7 @@ export async function POST(req: Request) {
       const raw =
         process.env.NEXT_PUBLIC_AZURE_FUNCTION_URL ||
         process.env.AZURE_FUNCTION_URL ||
-        'https://school-bot-gwb4a9gkdwcyhde5.koreacentral-01.azurewebsites.net/api/schoolbot';
+        'http://127.0.0.1:7071/api/schoolbot';
 
       const normalize = (value: string) =>
         value.replace(/\/api\/schoolBot/gi, '/api/schoolbot');

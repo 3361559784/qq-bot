@@ -12,7 +12,7 @@
 
 ### 1. 爬虫微服务 (Azure Container Apps)
 
-**服务端点**: `https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io`
+**服务端点**: `https://<your-scraper-app>.azurecontainerapps.io`
 
 **API接口**:
 - `GET /health` - 健康检查
@@ -136,7 +136,7 @@
 ### 场景2: 直接测试 API
 
 ```bash
-curl -X POST https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io/scrape \
+curl -X POST https://<your-scraper-app>.azurecontainerapps.io/scrape \
   -H "Content-Type: application/json" \
   -d '{"url":"https://kb.chaoxing.com/..."}'
 ```
@@ -150,7 +150,7 @@ curl -X POST https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontain
   "Values": {
     "AzureWebJobsStorage": "",
     "FUNCTIONS_WORKER_RUNTIME": "node",
-    "SCRAPER_ENDPOINT": "https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io",
+    "SCRAPER_ENDPOINT": "https://<your-scraper-app>.azurecontainerapps.io",
     "GITHUB_TOKEN": "your_token_here",
     "COSMOS_DB_STRING": "AccountEndpoint=https://..."
   }

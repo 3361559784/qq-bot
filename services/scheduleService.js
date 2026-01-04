@@ -1696,8 +1696,12 @@ function formatSingleWeekResult(result, context) {
 }
 
 async function fetchScheduleFromRemoteScraper(url, context, fetchFn, cookies = null) {
-  const SCRAPER_ENDPOINT = process.env.SCRAPER_ENDPOINT || 'https://aris-scraper.blueglacier-a914b85e.koreacentral.azurecontainerapps.io';
+  const SCRAPER_ENDPOINT = process.env.SCRAPER_ENDPOINT;
   if (!fetchFn) return { error: 'fetchFn is required for remote scraper' };
+  if (!SCRAPER_ENDPOINT) {
+    context?.log?.('[RemoteScraper] 未配置 SCRAPER_ENDPOINT，跳过远程爬虫备用方案');
+    return { error: '缺少 SCRAPER_ENDPOINT 环境变量（远程爬虫服务端点）' };
+  }
 
   context?.log?.(`[RemoteScraper] 调用远程爬虫 (备用方案): ${url}`);
 

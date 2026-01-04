@@ -203,13 +203,13 @@ curl -X POST http://localhost:7071/api/schoolBot \
 ### 前置条件
 - [ ] 用户已添加SSH公钥到GitHub: https://github.com/settings/keys
   ```
-  ssh-ed25519 AAAA... 3361559784@qq.com
+  ssh-ed25519 AAAA... user@example.com
   ```
 
 ### 部署步骤
 1. **Git提交**：
    ```bash
-   cd /Users/liuziheng/qq-bot-aris-clean
+  cd <path-to-your-repo>
    git add src/functions/schoolBot.js
    git commit -m "Apply MVP feedback: optimize prompts for professionalism and boundary handling"
    ```

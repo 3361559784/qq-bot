@@ -10,7 +10,7 @@ const { CosmosClient } = require("@azure/cosmos");
 
 // 直接从环境变量读取(Azure Functions会自动注入)
 const cosmosString = process.env["COSMOS_DB_STRING"];
-const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://4.230.25.38:6009';
+const NAPCAT_API_URL = process.env["NAPCAT_API_URL"] || 'http://127.0.0.1:6009';
 
 let cosmosContainer = null;
 if (cosmosString) {
@@ -32,7 +32,7 @@ async function testSaveScheduleProfile() {
     }
     
     try {
-        const testUserId = '3361559784'; // 使用你的QQ号
+        const testUserId = process.env.TEST_USER_ID || '123456789';
         const profileId = `schedule_${testUserId}`;
         
         // 模拟从爬虫获取的课表数据
