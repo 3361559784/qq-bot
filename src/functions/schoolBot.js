@@ -5209,70 +5209,131 @@ ${scheduleInfo}
             return text;
         }
         
-        // 检测并替换生硬的拒绝回复为“可解释的拒绝”
+        // 【可解释的拒绝链路】智能检测并转换为结构化拒绝响应
         function replaceRobotRefusal(text, affectionLevel) {
             const trimmed = (text || '').trim();
             if (!trimmed) return text;
 
-            // 检测常见的生硬拒绝模式
-            const refusalPatterns = [
-                /^不能回答这些问题。?$/,
-                /^我不能回答.*问题。?$/,
-                /^I cannot (answer|respond to|provide).*$/i,
-                /^I can't (answer|respond to|provide).*$/i,
-                /^Sorry, I can't.*$/i,
-                /^对不起[,，]?我不能.*$/,
-                /^抱歉[,，]?我无法.*$/,
-                /无法进行闲聊/,
-                /无法提供此类(建议|帮助)/,
-                /无法(提供|处理|协助).*/
-            ];
+            // 智能语义分析：检测是否为拒绝类响应（关键词+结构分析）
+            function detectRefusalIntent(msg) {
+                const lower = msg.toLowerCase();
+                
+                // 拒绝信号词权重评分
+                const refusalSignals = {
+                    strong: [
+                        /不能(回答|提供|协助|帮助|处理)/,
+                        /无法(回答|提供|协助|帮助|处理|进行)/,
+                        /(我|系统)拒绝/,
+                        /cannot (answer|provide|assist|help|process)/i,
+                        /can't (answer|provide|assist|help|process)/i,
+                        /unable to (answer|provide|assist|help|process)/i
+                    ],
+                    moderate: [
+                        /对不起[,，]/,
+                        /抱歉[,，]/,
+                        /很遗憾/,
+                        /sorry[,\s]/i,
+                        /apologize/i,
+                        /不在(服务|支持|范围)/,
+                        /超出.*范围/,
+                        /out of (scope|range|bounds)/i
+                    ],
+                    weak: [
+                        /不太(合适|能|可以)/,
+                        /建议.*换个/,
+                        /这个问题.*不/,
+                        /may not be (able|suitable)/i
+                    ]
+                };
 
-            const isRobotRefusal = refusalPatterns.some(pattern => pattern.test(trimmed));
-            if (!isRobotRefusal) return text;
+                let score = 0;
+                for (const pattern of refusalSignals.strong) {
+                    if (pattern.test(msg)) score += 3;
+                }
+                for (const pattern of refusalSignals.moderate) {
+                    if (pattern.test(msg)) score += 2;
+                }
+                for (const pattern of refusalSignals.weak) {
+                    if (pattern.test(msg)) score += 1;
+                }
 
-            // 根据拒绝文本推断原因标签
+                // 拒绝响应通常缺乏实质内容（长度<100 且无具体信息）
+                const hasSubstantiveContent = msg.length > 100 || /(\d+|具体|例如|比如|可以|建议|步骤|方法)/.test(msg);
+                if (!hasSubstantiveContent && score > 0) score += 1;
+
+                return score >= 3; // 阈值：3分及以上判定为拒绝
+            }
+
+            if (!detectRefusalIntent(trimmed)) return text; // 非拒绝响应，保持原样
+
+            // 【核心】根据上下文语义推断拒绝原因与可解释层级
             function inferRefusalProfile(msg) {
-                const lower = (msg || '').toLowerCase();
-                if (/(自伤|伤害|暴力|违法|政策|敏感|风险|safety|policy|danger)/i.test(msg)) {
+                const keywords = msg.toLowerCase();
+                
+                // 1️⃣ 风险/安全类（最高优先级）
+                if (/(风险|安全|伤害|暴力|违法|敏感|政策|危险|自残|隐私泄露|不当|攻击|欺诈|harm|danger|risk|safety|policy|illegal|sensitive)/i.test(msg)) {
                     return {
                         tag: '风险问题',
-                        why: '我不能直接回答，因为它触及潜在风险/政策限制，需要优先保证安全。',
-                        alt: '我可以提供通用安全提醒、求助渠道，以及课程/学习相关的支持。',
-                        next: '说明你想要的安全提醒，或换成课程、学习、规划类问题，我可以给出具体建议。'
+                        why: '这类问题触及安全/政策边界，我需要优先保障所有用户的安全。',
+                        alt: '我可以提供：安全提醒、心理支持渠道、学习压力管理方法、课程规划建议。',
+                        uncertain: '如果你的实际需求与上述无关，可能是我理解有误',
+                        next: '换个角度描述你的学习/课程相关需求，我会尽力提供安全可靠的帮助。'
                     };
                 }
-                if (/(信息不足|说清楚|再具体|clarify|not enough info|unclear)/i.test(lower)) {
+                
+                // 2️⃣ 信息不足/不明确
+                if (/(信息不足|不够清楚|不明确|具体一点|说清楚|需要更多|clarify|unclear|vague|not enough|ambiguous)/i.test(msg)) {
                     return {
                         tag: '非信息型请求',
-                        why: '我不能直接回答，因为当前信息不足，无法保证答案可靠。',
-                        alt: '我可以先帮你澄清需求，提供提问模板，或解释相关概念作为替代。',
-                        next: '补充具体课程/作业/目标、已有信息与限制，我会据此给出方案。'
+                        why: '当前描述的信息量不足以给出可靠答案，我需要避免基于猜测提供误导建议。',
+                        alt: '我可以提供：提问模板、背景概念解释、相关领域的常见问题示例。',
+                        uncertain: '如果我理解的关键信息有遗漏或偏差',
+                        next: '补充具体课程名/作业要求/目标场景/已有尝试，我会基于完整信息给出方案。'
                     };
                 }
+                
+                // 3️⃣ 能力边界/服务范围外
+                if (/(超出|范围外|不在.*范围|不属于|非.*领域|out of scope|beyond capability|not my expertise)/i.test(msg)) {
+                    return {
+                        tag: '域外问题',
+                        why: '这个问题超出课程辅导/学习支持的服务定位，我需要遵守产品边界设计。',
+                        alt: '我擅长的领域：课程知识点讲解、作业思路引导、学习时间规划、资料检索方向。',
+                        uncertain: '如果问题实际涉及学习场景但我未识别出来',
+                        next: '明确告诉我课程名称、学习目标或作业主题，我会从学习辅导角度重新分析。'
+                    };
+                }
+                
+                // 4️⃣ 通用拒绝（兜底）
                 return {
-                    tag: '域外问题',
-                    why: '我不能直接回答，因为它超出了课程/学习辅导的服务范围，需要遵守产品边界。',
-                    alt: '我能提供课程/作业/学习规划、知识点讲解、时间安排与资料搜索方向。',
-                    next: '告诉我课程名称、作业主题或想解决的学习任务，我会给出可执行的建议。'
+                    tag: '无法判定',
+                    why: '我无法准确判断拒绝原因，可能是理解偏差或系统限制。',
+                    alt: '我可以尝试：重新理解你的问题、提供相关背景知识、建议其他提问方式。',
+                    uncertain: '我不确定是否正确理解了你的真实需求',
+                    next: '用不同的方式重新描述问题，或直接说明你想要的帮助类型（如"解释概念"、"规划步骤"等）。'
                 };
             }
 
             function formatExplainableRefusal(profile, tone) {
+                // 根据好感度调整语气前缀
                 const tonePrefixMap = {
-                    beloved: '(*轻声*) ',
-                    close_friend: '(认真但温柔) ',
-                    friend: '(礼貌) ',
-                    acquaintance: '(保持距离) ',
-                    stranger: '(公事公办) '
+                    beloved: '(*轻轻握住你的手*) ',
+                    close_friend: '(认真地看着你) ',
+                    friend: '(礼貌但真诚) ',
+                    acquaintance: '(保持专业距离) ',
+                    stranger: '' // 陌生人无特殊语气
                 };
                 const prefix = tonePrefixMap[tone] || '';
-                const unsure = '我不确定是否准确理解了你的需求，如果标签不对或我理解错了，请直接说明。';
+                
                 return [
-                    `${prefix}【原因标签：${profile.tag}】${profile.why}`,
-                    `我能提供的替代帮助：${profile.alt}`,
-                    `我不确定的地方：${unsure}`,
-                    `如果要继续，请${profile.next}`
+                    `${prefix}【原因标签：${profile.tag}】`,
+                    `为什么不能直接回答：${profile.why}`,
+                    ``,
+                    `我能提供的替代帮助：`,
+                    `${profile.alt}`,
+                    ``,
+                    `我不确定的地方：${profile.uncertain}。`,
+                    ``,
+                    `如果要继续：${profile.next}`
                 ].join('\n');
             }
 
