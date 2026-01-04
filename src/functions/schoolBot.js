@@ -272,9 +272,9 @@ function evaluatePolicyGate(policy, intentResult) {
 function buildPolicyRefusal(policy, intent) {
     const intentLabel = intent || '当前请求';
     if (policy?.refusalStyle === 'soft') {
-        return `这个入口主要处理校园/课程相关问题，暂时无法直接回复「${intentLabel}」。可以试试课表、计划、天气或校园服务相关的问题。`;
+        return `这个入口主要处理校园/课程相关问题。无法直接回复「${intentLabel}」，原因是当前渠道的允许范围仅限课表、计划、天气或校园服务。可以换个相关问题，或告诉我你需要哪类校园信息。`;
     }
-    return `当前渠道策略限制，无法处理「${intentLabel}」。请改问课程、课表或校园服务相关内容。`;
+    return `当前渠道策略限制，无法处理「${intentLabel}」。原因：本通道只开放课程/课表/校园服务类请求，其他主题被策略拦截。如需继续，请改为课程、课表、时间规划或校园服务相关问题。`;
 }
 
 function deriveToolsFromIntent(intentResult) {
@@ -5159,8 +5159,11 @@ ${scheduleInfo}
             return text;
         }
         
-        // 检测并替换生硬的拒绝回复为拟人化版本
+        // 检测并替换生硬的拒绝回复为“可解释的拒绝”
         function replaceRobotRefusal(text, affectionLevel) {
+            const trimmed = (text || '').trim();
+            if (!trimmed) return text;
+
             // 检测常见的生硬拒绝模式
             const refusalPatterns = [
                 /^不能回答这些问题。?$/,
@@ -5168,47 +5171,63 @@ ${scheduleInfo}
                 /^I cannot (answer|respond to|provide).*$/i,
                 /^I can't (answer|respond to|provide).*$/i,
                 /^Sorry, I can't.*$/i,
-                /^对不起,我不能.*$/,
-                /^抱歉,我无法.*$/
+                /^对不起[,，]?我不能.*$/,
+                /^抱歉[,，]?我无法.*$/,
+                /无法进行闲聊/,
+                /无法提供此类(建议|帮助)/,
+                /无法(提供|处理|协助).*/
             ];
-            
-            const isRobotRefusal = refusalPatterns.some(pattern => pattern.test(text.trim()));
-            
+
+            const isRobotRefusal = refusalPatterns.some(pattern => pattern.test(trimmed));
             if (!isRobotRefusal) return text;
-            
-            // 根据好感度生成不同风格的拒绝
-            const refusalResponses = {
-                beloved: [
-                    "(脸红) 老...老师说什么呢! (捂住脸) 爱丽丝才不会回答这种问题啦!",
-                    "(▼皿▼#) Sensei真是的! (别过头去) 爱丽丝要生气了哦!",
-                    "(害羞) 这...这种事情...爱丽丝不能说的啦... (小声) 老师真坏..."
-                ],
-                close_friend: [
-                    "(歪头) 诶? 这个问题有点奇怪呢... (尴尬笑) 爱丽丝不太方便回答...",
-                    "(摆手) 不行不行! (认真脸) 这个爱丽丝可不能告诉你哦!",
-                    "(⊙o⊙) 唔...这个嘛... (挠头) 还是换个话题吧~"
-                ],
-                friend: [
-                    "(礼貌微笑) 抱歉,这个问题爱丽丝不太适合回答呢。(建议) 我们聊点别的吧?",
-                    "(摇头) 嗯...这个话题不太合适... (转移话题) 有什么爱丽丝能帮忙的吗?",
-                    "(认真) 这个问题超出了爱丽丝的回答范围... (鞠躬) 不好意思!"
-                ],
-                acquaintance: [
-                    "(保持距离) 抱歉,这类问题爱丽丝无法提供帮助。请问还有其他需要吗?",
-                    "(礼貌) 很抱歉,这不在爱丽丝的服务范围内。有什么正经事需要帮忙吗?",
-                    "(微笑但疏远) 不好意思,这个问题爱丽丝不能回答。"
-                ],
-                stranger: [
-                    "(保持礼貌距离) 很抱歉,您的问题不在服务范围内。请问有其他需要帮助的吗?",
-                    "(客气但冷淡) 对不起,爱丽丝无法回答此类问题。",
-                    "(公事公办) 抱歉,这个问题不适合回答。请提出其他问题。"
-                ]
-            };
-            
-            const levelResponses = refusalResponses[affectionLevel] || refusalResponses.friend;
-            const randomResponse = levelResponses[Math.floor(Math.random() * levelResponses.length)];
-            
-            return randomResponse;
+
+            // 根据拒绝文本推断原因标签
+            function inferRefusalProfile(msg) {
+                const lower = (msg || '').toLowerCase();
+                if (/(自伤|伤害|暴力|违法|政策|敏感|风险|safety|policy|danger)/i.test(msg)) {
+                    return {
+                        tag: '风险问题',
+                        why: '我不能直接回答，因为它触及潜在风险/政策限制，需要优先保证安全。',
+                        alt: '我可以提供通用安全提醒、求助渠道，以及课程/学习相关的支持。',
+                        next: '说明你想要的安全提醒，或换成课程、学习、规划类问题，我可以给出具体建议。'
+                    };
+                }
+                if (/(信息不足|说清楚|再具体|clarify|not enough info|unclear)/i.test(lower)) {
+                    return {
+                        tag: '非信息型请求',
+                        why: '我不能直接回答，因为当前信息不足，无法保证答案可靠。',
+                        alt: '我可以先帮你澄清需求，提供提问模板，或解释相关概念作为替代。',
+                        next: '补充具体课程/作业/目标、已有信息与限制，我会据此给出方案。'
+                    };
+                }
+                return {
+                    tag: '域外问题',
+                    why: '我不能直接回答，因为它超出了课程/学习辅导的服务范围，需要遵守产品边界。',
+                    alt: '我能提供课程/作业/学习规划、知识点讲解、时间安排与资料搜索方向。',
+                    next: '告诉我课程名称、作业主题或想解决的学习任务，我会给出可执行的建议。'
+                };
+            }
+
+            function formatExplainableRefusal(profile, tone) {
+                const tonePrefixMap = {
+                    beloved: '(*轻声*) ',
+                    close_friend: '(认真但温柔) ',
+                    friend: '(礼貌) ',
+                    acquaintance: '(保持距离) ',
+                    stranger: '(公事公办) '
+                };
+                const prefix = tonePrefixMap[tone] || '';
+                const unsure = '我不确定是否准确理解了你的需求，如果标签不对或我理解错了，请直接说明。';
+                return [
+                    `${prefix}【原因标签：${profile.tag}】${profile.why}`,
+                    `我能提供的替代帮助：${profile.alt}`,
+                    `我不确定的地方：${unsure}`,
+                    `如果要继续，请${profile.next}`
+                ].join('\n');
+            }
+
+            const profile = inferRefusalProfile(trimmed);
+            return formatExplainableRefusal(profile, affectionLevel);
         }
         
         // 提前加载历史记忆 (为了支持视觉模块的快速回复存储)

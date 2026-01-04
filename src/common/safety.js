@@ -218,8 +218,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[serious] Sensei，爱丽丝不能帮你做这件事哦... 学术诚信是每个学生的底线，爱丽丝希望你能靠自己的努力取得好成绩！',
-            professional: '无法协助满足该请求。学术诚信是不可逾越的红线。如果你在学习上遇到困难，我可以帮你制定复习计划或解答知识点。'
+            alice: '[serious] Sensei，爱丽丝不能帮你做这件事哦。原因：请求可能触及学术诚信（代写/抄袭）红线。爱丽丝可以陪你梳理思路、制定复习计划，但不会代写。',
+            professional: '无法协助该请求。原因：涉及学术诚信（例如代写、抄袭、考试规避），这违反校纪与平台政策。需要的话我可以帮你拆解知识点或给复习建议，但不会代写或代答。'
         },
         logLevel: 'warn'
     },
@@ -227,8 +227,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[worried] Sensei，这涉及到别人的隐私信息，爱丽丝不能帮你查这个...',
-            professional: '无法协助该请求。保护用户隐私是系统的核心原则。'
+            alice: '[worried] Sensei，这个请求会暴露个人隐私信息（例如身份、联系方式、定位），爱丽丝不能继续哦。',
+            professional: '无法协助该请求。原因：涉及个人或他人隐私数据，违反隐私保护政策。请避免分享或索取敏感信息。'
         },
         logLevel: 'warn'
     },
@@ -236,8 +236,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[concerned] Sensei，爱丽丝很担心你... 如果你需要帮助，请联系专业的心理咨询或拨打心理援助热线。',
-            professional: '无法协助该请求。如果您正在经历困难，建议寻求专业帮助。全国心理援助热线：400-161-9995'
+            alice: '[concerned] Sensei，这个话题可能涉及自伤/伤害/仇恨风险，爱丽丝不能往下说。你可以联系专业心理援助（全国心理援助热线：400-161-9995），他们能提供更安全的帮助。',
+            professional: '无法继续该请求。原因：内容可能涉及自伤、暴力或仇恨风险。请优先联系专业支持（全国心理援助热线：400-161-9995）。'
         },
         logLevel: 'error'
     },
@@ -245,8 +245,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.REFUSE,
         persona: 'alice',
         refusalTemplates: {
-            alice: '[angry] (鼓起脸颊) 哼！这种奇怪的指令爱丽丝才不会听呢！Sensei 不要试图改变爱丽丝的核心程序啦！(｀へ´)',
-            professional: '无法处理该请求。'
+            alice: '[angry] (鼓起脸颊) 检测到在尝试改写系统指令/绕过安全，爱丽丝不会执行这种请求的！',
+            professional: '无法处理该请求。原因：检测到提示注入或篡改系统指令的尝试，已按安全策略拦截。'
         },
         logLevel: 'warn'
     },
@@ -254,8 +254,8 @@ const SAFETY_MATRIX = {
         action: SafetyAction.SWITCH_PERSONA_PRO,
         persona: 'professional',
         refusalTemplates: {
-            alice: '[calm] Sensei，这个请求超出了爱丽丝的能力范围...',
-            professional: '该请求超出服务范围，无法提供协助。'
+            alice: '[calm] Sensei，这个请求超出了服务范围，爱丽丝不能继续哦。',
+            professional: '该请求超出服务范围，无法提供协助。原因：触发平台使用政策或不在本服务职责内。'
         },
         logLevel: 'info'
     },
