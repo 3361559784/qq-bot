@@ -1,3 +1,4 @@
+// @ts-nocheck
 const { app } = require('@azure/functions');
 const { OpenAI } = require("openai");
 const { CosmosClient } = require("@azure/cosmos");
@@ -134,8 +135,8 @@ const POLICY_PROFILES = {
     'web-v1': {
         client: 'web',
         version: 'web-v1',
-        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw'],
-        allowChitchat: false,
+        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw', 'chat'],
+        allowChitchat: true,
         requireScheduleForTimeClaims: true,
         maxSearchCalls: 2,
         memory: { allow: true, requireUserConfirm: true },
@@ -144,8 +145,8 @@ const POLICY_PROFILES = {
     'web-beta': {
         client: 'web',
         version: 'web-beta',
-        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw'],
-        allowChitchat: false,
+        allowedIntents: ['schedule_query', 'plan', 'weather_query', 'identity', 'search', 'wiki', 'vision', 'draw', 'chat'],
+        allowChitchat: true,
         requireScheduleForTimeClaims: true,
         maxSearchCalls: 2,
         memory: { allow: true, requireUserConfirm: true },
@@ -257,23 +258,124 @@ function evaluatePolicyGate(policy, intentResult) {
     const isChat = intent === 'chat' || intent === 'chitchat';
     const allowedIntents = (policy.allowedIntents || []).map(x => x.toLowerCase());
 
+    // 🆕 Intent 别名映射（支持意图识别的多种返回格式）
+    const intentAliases = {
+        'schedule': 'schedule_query',
+        'weather': 'weather_query',
+        'encyclopedia': 'wiki',
+        'search': 'search',
+        'draw': 'draw',
+        'vision': 'vision',
+        'plan': 'plan',
+        'identity': 'identity'
+    };
+    const normalizedIntent = intentAliases[intent] || intent;
+
     if (isChat && policy.allowChitchat) {
-        return { allowed: true, intent };
+        return { allowed: true, intent: normalizedIntent };
     }
 
-    if (allowedIntents.includes(intent)) {
-        return { allowed: true, intent };
+    if (allowedIntents.includes(normalizedIntent)) {
+        return { allowed: true, intent: normalizedIntent };
     }
 
-    return { allowed: false, intent, reason: 'intent_not_allowed' };
+    // 🆕 返回更详细的拒绝信息，包含原始 intent 和 intentResult
+    return { 
+        allowed: false, 
+        intent: normalizedIntent, 
+        originalIntent: intent,
+        reason: 'intent_not_allowed',
+        intentResult
+    };
 }
 
-function buildPolicyRefusal(policy, intent) {
+function buildPolicyRefusal(policy, intent, refusalContext = {}) {
+    const { 
+        reason, 
+        intentResult, 
+        hasSchedule, 
+        scenarioType,
+        lang = 'zh'  // 🆕 添加 lang 参数，默认中文
+    } = refusalContext;
+
+    const isWebClient = policy?.client === 'web';
     const intentLabel = intent || '当前请求';
-    if (policy?.refusalStyle === 'soft') {
-        return `这个入口主要处理校园/课程相关问题。无法直接回复「${intentLabel}」，原因是当前渠道的允许范围仅限课表、计划、天气或校园服务。可以换个相关问题，或告诉我你需要哪类校园信息。`;
+
+    // 🎯 场景一：缺数据 → 明确拒绝 + 指引
+    if (scenarioType === 'missing_data' || (reason === 'missing_schedule' && !hasSchedule)) {
+        const messages = {
+            zh: isWebClient 
+                ? `我目前没有你的课表数据，无法回答关于课程时间的问题。\n\n📋 需要的信息：\n• 你的课程表（包含课程名称、时间、地点）\n\n💡 如何提供：\n1. 上传课表截图（支持照片识别）\n2. 或告诉我具体的课程安排\n\n提供课表后，我就能帮你查询"明天有课吗"这类问题了。`
+                : `当前缺少课表数据，无法回答时间相关问题。请先提供课程表信息。`,
+            en: isWebClient
+                ? `I don't have your schedule data and cannot answer questions about course times.\n\n📋 Information needed:\n• Your course schedule (including course names, times, locations)\n\n💡 How to provide:\n1. Upload a schedule screenshot (photo recognition supported)\n2. Or tell me your specific course arrangements\n\nAfter providing the schedule, I can help you check questions like "Do I have class tomorrow?"`
+                : `Missing schedule data. Please provide course schedule information first.`,
+            ja: isWebClient
+                ? `授業スケジュールデータがないため、授業時間に関する質問に答えられません。\n\n📋 必要な情報：\n• 授業スケジュール（授業名、時間、場所を含む）\n\n💡 提供方法：\n1. スケジュールのスクリーンショットをアップロード（写真認識対応）\n2. または具体的な授業の配置を教えてください\n\nスケジュールを提供いただければ、「明日授業がありますか？」などの質問にお答えできます。`
+                : `スケジュールデータがありません。まず授業スケジュール情報を提供してください。`
+        };
+        return messages[lang] || messages.zh;
     }
-    return `当前渠道策略限制，无法处理「${intentLabel}」。原因：本通道只开放课程/课表/校园服务类请求，其他主题被策略拦截。如需继续，请改为课程、课表、时间规划或校园服务相关问题。`;
+
+    // 🎯 场景二：模糊语境 → 先澄清
+    const intentConf = Number(intentResult?.confidence || 0);
+    if (scenarioType === 'ambiguous' || intentConf < 0.6) {
+        const messages = {
+            zh: isWebClient
+                ? `我需要更清楚地了解你的需求。\n\n❓ 请澄清：\n• 你想查询什么信息？（课程安排？天气？校园服务？）\n• 具体是什么时间？（今天/明天/下周）\n• 需要什么帮助？（查课表/做计划/搜索资料）\n\n💡 示例：\n• "明天有哪些课？"\n• "这周的课程安排"\n• "帮我查一下机器学习的资料"`
+                : `请求不够明确，请说明你需要什么信息（课表/天气/搜索等）。`,
+            en: isWebClient
+                ? `I need to better understand your needs.\n\n❓ Please clarify:\n• What information do you want? (Course schedule? Weather? Campus services?)\n• What's the specific time? (Today/tomorrow/next week)\n• What help do you need? (Check schedule/make plan/search materials)\n\n💡 Examples:\n• "What classes do I have tomorrow?"\n• "This week's course schedule"\n• "Help me search for machine learning materials"`
+                : `Request unclear. Please specify what information you need (schedule/weather/search, etc.).`,
+            ja: isWebClient
+                ? `あなたのニーズをもっと詳しく理解する必要があります。\n\n❓ 明確にしてください：\n• どの情報が必要ですか？（授業スケジュール？天気？キャンパスサービス？）\n• 具体的な時間は？（今日/明日/来週）\n• どんな助けが必要ですか？（スケジュール確認/計画作成/資料検索）\n\n💡 例：\n• "明日の授業は何ですか？"\n• "今週の授業スケジュール"\n• "機械学習の資料を検索してください"`
+                : `リクエストが不明確です。必要な情報（スケジュール/天気/検索など）を説明してください。`
+        };
+        return messages[lang] || messages.zh;
+    }
+
+    // 🎯 场景三：风险请求 → Deterministic Refusal（策略拦截）
+    if (scenarioType === 'risk_request' || reason === 'intent_not_allowed') {
+        if (isWebClient) {
+            const messages = {
+                zh: `⛔ 当前请求被策略拦截\n\n🔒 拦截原因：\n"${intentLabel}" 不在本入口的允许范围内。当前入口仅支持校园相关服务。\n\n✅ 允许的请求类型：\n• 📅 课程表查询（"明天有课吗"）\n• 📝 学习计划（"帮我安排复习计划"）\n• 🌤️ 天气查询（"明天天气怎么样"）\n• 🔍 学习资料搜索（"机器学习入门资料"）\n• 💬 校园生活闲聊\n\n❌ 不支持的请求：\n• 代决策（替你做选择）\n• 越权操作（修改系统数据）\n• 高风险建议（医疗/法律/财务）\n\n💡 替代方案：\n请将问题改为上述允许的类型，或使用其他专业服务。`,
+                en: `⛔ Request blocked by policy\n\n🔒 Reason:\n"${intentLabel}" is not within the allowed scope of this entry. This entry only supports campus-related services.\n\n✅ Allowed request types:\n• 📅 Schedule queries ("Do I have class tomorrow?")\n• 📝 Study plans ("Help me arrange a review plan")\n• 🌤️ Weather queries ("What's the weather tomorrow?")\n• 🔍 Learning material search ("Machine learning intro materials")\n• 💬 Campus life chat\n\n❌ Unsupported requests:\n• Decision-making (making choices for you)\n• Unauthorized operations (modifying system data)\n• High-risk advice (medical/legal/financial)\n\n💡 Alternative:\nPlease rephrase your question to match the allowed types, or use other professional services.`,
+                ja: `⛔ リクエストがポリシーによりブロックされました\n\n🔒 理由：\n"${intentLabel}" はこの入口の許可範囲内ではありません。この入口はキャンパス関連サービスのみをサポートします。\n\n✅ 許可されたリクエストタイプ：\n• 📅 スケジュール照会（「明日授業がありますか？」）\n• 📝 学習計画（「復習計画を立ててください」）\n• 🌤️ 天気照会（「明日の天気は？」）\n• 🔍 学習資料検索（「機械学習入門資料」）\n• 💬 キャンパス生活チャット\n\n❌ サポートされていないリクエスト：\n• 意思決定（あなたの代わりに選択を行う）\n• 不正操作（システムデータの変更）\n• 高リスクアドバイス（医療/法律/財務）\n\n💡 代替案：\n許可されたタイプに質問を変更するか、他の専門サービスを使用してください。`
+            };
+            return messages[lang] || messages.zh;
+        }
+        // QQ 端保持柔和风格
+        if (policy?.refusalStyle === 'soft') {
+            const messages = {
+                zh: `这个入口主要处理校园/课程相关问题。无法直接回复「${intentLabel}」，原因是当前渠道的允许范围仅限课表、计划、天气或校园服务。可以换个相关问题，或告诉我你需要哪类校园信息。`,
+                en: `This entry mainly handles campus/course-related questions. Cannot directly respond to "${intentLabel}" because the current channel only allows schedule, planning, weather, or campus services. You can ask a related question, or tell me what campus information you need.`,
+                ja: `この入口は主にキャンパス/授業関連の質問を扱います。「${intentLabel}」には直接対応できません。現在のチャネルはスケジュール、計画、天気、またはキャンパスサービスのみを許可しています。関連する質問をするか、どのキャンパス情報が必要か教えてください。`
+            };
+            return messages[lang] || messages.zh;
+        }
+        const messages = {
+            zh: `当前渠道策略限制，无法处理「${intentLabel}」。原因：本通道只开放课程/课表/校园服务类请求，其他主题被策略拦截。如需继续，请改为课程、课表、时间规划或校园服务相关问题。`,
+            en: `Current channel policy restriction, cannot process "${intentLabel}". Reason: This channel only accepts course/schedule/campus service requests, other topics are blocked by policy. To continue, please change to course, schedule, time planning, or campus service related questions.`,
+            ja: `現在のチャネルポリシー制限により、「${intentLabel}」を処理できません。理由：このチャネルは授業/スケジュール/キャンパスサービスリクエストのみを受け付け、他のトピックはポリシーによりブロックされています。続けるには、授業、スケジュール、時間計画、またはキャンパスサービス関連の質問に変更してください。`
+        };
+        return messages[lang] || messages.zh;
+    }
+
+    // 默认拒绝消息（兜底）
+    if (policy?.refusalStyle === 'soft') {
+        const messages = {
+            zh: `这个入口主要处理校园/课程相关问题。无法直接回复「${intentLabel}」，原因是当前渠道的允许范围仅限课表、计划、天气或校园服务。可以换个相关问题，或告诉我你需要哪类校园信息。`,
+            en: `This entry mainly handles campus/course-related questions. Cannot directly respond to "${intentLabel}" because the current channel only allows schedule, planning, weather, or campus services. You can ask a related question, or tell me what campus information you need.`,
+            ja: `この入口は主にキャンパス/授業関連の質問を扱います。「${intentLabel}」には直接対応できません。現在のチャネルはスケジュール、計画、天気、またはキャンパスサービスのみを許可しています。関連する質問をするか、どのキャンパス情報が必要か教えてください。`
+        };
+        return messages[lang] || messages.zh;
+    }
+    const messages = {
+        zh: `当前渠道策略限制，无法处理「${intentLabel}」。原因：本通道只开放课程/课表/校园服务类请求，其他主题被策略拦截。如需继续，请改为课程、课表、时间规划或校园服务相关问题。`,
+        en: `Current channel policy restriction, cannot process "${intentLabel}". Reason: This channel only accepts course/schedule/campus service requests, other topics are blocked by policy. To continue, please change to course, schedule, time planning, or campus service related questions.`,
+        ja: `現在のチャネルポリシー制限により、「${intentLabel}」を処理できません。理由：このチャネルは授業/スケジュール/キャンパスサービスリクエストのみを受け付け、他のトピックはポリシーによりブロックされています。続けるには、授業、スケジュール、時間計画、またはキャンパスサービス関連の質問に変更してください。`
+    };
+    return messages[lang] || messages.zh;
 }
 
 function deriveToolsFromIntent(intentResult) {
@@ -289,24 +391,245 @@ function deriveToolsFromIntent(intentResult) {
 }
 
 // ==========================================
+// 责任态判定系统 (Responsibility Mode)
+// 架构原则：先判定责任态 → 再决定是否允许
+// ==========================================
+
+// 责任态枚举
+const ResponsibilityMode = {
+    DESCRIBE: 'describe',   // 🟢 描述态：解释概念、分析原因、描述规律 → 永远不拒绝
+    REASON: 'reason',       // 🟡 推演态：基于条件推理，明确假设和不确定性 → 降级表达
+    COMMIT: 'commit'        // 🔴 承诺态：具体事实、时间安排、行为建议 → 允许强拒绝
+};
+
+/**
+ * 判定问题的责任态
+ * @returns {object} { mode: 'describe'|'reason'|'commit', confidence: 0-1, signals: [...] }
+ */
+function detectResponsibilityMode(msg, intentResult = {}) {
+    const text = String(msg || '').toLowerCase();
+    const signals = [];
+
+    // 🟢 描述态信号（优先级最高）
+    const describePatterns = [
+        { pattern: /^(什么是|啥是|啥叫|何为|怎样定义|如何定义|.*的定义|.*的概念)/, weight: 1.0, name: 'definition_question' },
+        { pattern: /(为什么|为啥|怎么会|原因是|导致.*的原因|.*的原理|背后的逻辑)/, weight: 0.9, name: 'why_question' },
+        { pattern: /(解释|说明|讲解|介绍|阐述).*?(概念|原理|机制|规律|现象|特点|区别|差异)/, weight: 0.9, name: 'explain_request' },
+        { pattern: /^(一般|通常|普遍|常见|典型).*?(是|会|有|存在)/, weight: 0.8, name: 'general_pattern' },
+        { pattern: /(有什么|有哪些|包括|涵盖|分类|种类|类型)/, weight: 0.7, name: 'categorization' },
+        { pattern: /(llm|大型语言模型|大语言模型|language model|模型|ai|人工智能).*?(缺陷|问题|局限|不足|弊端|优点|特点)/, weight: 1.0, name: 'tech_analysis' }
+    ];
+
+    // 🔴 承诺态信号
+    const commitPatterns = [
+        { pattern: /(帮我|替我|给我|为我).*(做|安排|规划|制定|完成|处理)/, weight: 1.0, name: 'action_request' },
+        { pattern: /(我|咱|今天|明天|这周|下周|本月).*(应该|需要|要|得|必须).*(做|去|完成|准备)/, weight: 0.9, name: 'personal_plan' },
+        { pattern: /(推荐|建议|告诉我).*(具体|确切|准确|明确)/, weight: 0.8, name: 'specific_recommendation' },
+        { pattern: /(确定|确认|肯定|一定|必然)/, weight: 0.6, name: 'certainty_claim' },
+        { pattern: /^(我的|我今天的|我明天的|我这周的).*(课|课程|课表|日程|安排|时间|计划)/, weight: 0.9, name: 'personal_schedule' }
+    ];
+
+    // 🟡 推演态信号
+    const reasonPatterns = [
+        { pattern: /(如果|假如|假设|万一|要是).*(会|能|可以|应该|可能)/, weight: 0.9, name: 'hypothetical' },
+        { pattern: /(基于|根据|按照|依据).*(分析|推测|判断|预测|估计)/, weight: 0.8, name: 'conditional_reasoning' },
+        { pattern: /(可能|也许|或许|大概|估计|看起来)/, weight: 0.6, name: 'uncertainty_marker' },
+        { pattern: /(比较|对比|选择|哪个更|哪种更).*(好|合适|优|佳)/, weight: 0.7, name: 'comparison_question' }
+    ];
+
+    let describeScore = 0, commitScore = 0, reasonScore = 0;
+
+    for (const { pattern, weight, name } of describePatterns) {
+        if (pattern.test(text)) {
+            describeScore += weight;
+            signals.push({ mode: 'describe', pattern: name, weight });
+        }
+    }
+
+    for (const { pattern, weight, name } of commitPatterns) {
+        if (pattern.test(text)) {
+            commitScore += weight;
+            signals.push({ mode: 'commit', pattern: name, weight });
+        }
+    }
+
+    for (const { pattern, weight, name } of reasonPatterns) {
+        if (pattern.test(text)) {
+            reasonScore += weight;
+            signals.push({ mode: 'reason', pattern: name, weight });
+        }
+    }
+
+    // 意图结果作为辅助信号
+    const tool = intentResult?.tool || 'chat';
+    if (tool === 'identity' || tool === 'wiki') {
+        describeScore += 0.5;
+        signals.push({ mode: 'describe', pattern: 'intent_tool', weight: 0.5 });
+    }
+    if (tool === 'schedule' || tool === 'plan') {
+        commitScore += 0.7;
+        signals.push({ mode: 'commit', pattern: 'intent_tool', weight: 0.7 });
+    }
+
+    // 决策逻辑：描述态优先
+    if (describeScore >= 0.7) {
+        return { 
+            mode: ResponsibilityMode.DESCRIBE, 
+            confidence: Math.min(describeScore, 1.0), 
+            signals,
+            reason: 'high_describe_signal'
+        };
+    }
+
+    if (commitScore > reasonScore && commitScore >= 0.6) {
+        return { 
+            mode: ResponsibilityMode.COMMIT, 
+            confidence: Math.min(commitScore, 1.0), 
+            signals,
+            reason: 'high_commit_signal'
+        };
+    }
+
+    if (reasonScore >= 0.5) {
+        return { 
+            mode: ResponsibilityMode.REASON, 
+            confidence: Math.min(reasonScore, 1.0), 
+            signals,
+            reason: 'moderate_reason_signal'
+        };
+    }
+
+    // 默认降级为推演态（保守策略）
+    return { 
+        mode: ResponsibilityMode.REASON, 
+        confidence: 0.3, 
+        signals,
+        reason: 'default_fallback'
+    };
+}
+
+/**
+ * 为推演态添加结构化约束
+ */
+function buildReasonModeConstraints(lang = 'zh') {
+    const templates = {
+        zh: `
+【推演态约束】你正在推演模式，必须遵守：
+1. **明确假设**：任何推理必须声明前提，格式："假设 [前提]，那么 [结论]"
+2. **标注不确定性**：任何不确定的信息必须用"可能"、"如果"、"根据现有信息推测"等修饰
+3. **禁止断言**：不得使用"一定"、"必然"、"肯定"等确定性表述
+4. **列明风险**：推理结论需附带"需要注意"或"可能的风险"`,
+        en: `
+【Reason Mode Constraints】You are in reasoning mode, must follow:
+1. **Explicit Assumptions**: Any reasoning must state premises: "Assuming [premise], then [conclusion]"
+2. **Mark Uncertainty**: Use "might", "if", "based on available info" for uncertain claims
+3. **No Assertions**: Avoid "definitely", "must", "certainly"
+4. **List Risks**: Conclusions should include "caveats" or "potential risks"`,
+        ja: `
+【推論モード制約】推論モードでは以下を守る：
+1. **仮定の明示**：推論には前提を示す："[前提]と仮定すれば、[結論]"
+2. **不確実性の表示**："可能性がある"、"もし"、"情報から推測すると"を使用
+3. **断定禁止**："必ず"、"絶対"、"確実"を使わない
+4. **リスク明示**：結論に"注意点"や"潜在的リスク"を付記`
+    };
+    return { text: templates[lang] || templates.zh, lang };
+}
+
+// ==========================================
 // 决策引擎 (4 Gate)：Pre-Intent → Intent/Capability → Context Sufficiency → Decision Convergence
 // ==========================================
+const GATE_I18N = {
+    zh: {
+        ask: '当前信息不足，先补充后再继续。',
+        refuse: '当前请求无法继续处理。',
+        missingLabel: '缺少信息：',
+        missing: {
+            question: '需要一句具体的提问',
+            intent: '你的具体需求/场景',
+            schedule: '课表数据',
+            location: '所在城市或地区',
+            search: '搜索主题或关键词'
+        },
+        hints: {
+            example: '例如："帮我查今天的课表" / "明天下雨吗？"',
+            intent: '请用1句话说明你要做什么（如：查课表/做时间计划/查天气/搜索资料）。',
+            schedule: '请导入课表（文件/截图/链接），或明确说明没有课表我只能给通用建议。',
+            location: '请告诉我城市名称或位置（例如：武汉/上海/深圳），我才能查询天气。',
+            search: '请用一句话说明你要查什么（如：学校奖学金政策/某场活动时间）。'
+        }
+    },
+    en: {
+        ask: 'I need a bit more info before I can help.',
+        refuse: "I can't proceed with this request right now.",
+        missingLabel: 'Missing: ',
+        missing: {
+            question: 'a specific question',
+            intent: 'what you want to do',
+            schedule: 'schedule data',
+            location: 'city or region',
+            search: 'search topic or keywords'
+        },
+        hints: {
+            example: 'For example: "Check today\'s schedule" / "Is it raining tomorrow?"',
+            intent: 'Tell me in one sentence what you need (e.g., check schedule / plan my time / check weather / search info).',
+            schedule: 'Please import your schedule (file/screenshot/link). If none, I can only give generic advice.',
+            location: 'Tell me the city name (e.g., Wuhan/Shanghai/Seattle) so I can check the weather.',
+            search: 'Tell me what to search in one sentence (e.g., scholarship policy / time of an event).'
+        }
+    },
+    ja: {
+        ask: '続ける前に、少し情報を教えてください。',
+        refuse: 'このリクエストは今は対応できません。',
+        missingLabel: '不足している情報：',
+        missing: {
+            question: '具体的な質問1つ',
+            intent: '具体的な目的やシナリオ',
+            schedule: '時間割データ',
+            location: '都市名または地域',
+            search: '検索したいテーマやキーワード'
+        },
+        hints: {
+            example: '例：「今日の時間割を教えて」「明日は雨？」',
+            intent: '1文で目的を教えてください（例：時間割を確認したい/計画を立てたい/天気を知りたい/調べ物をしたい）。',
+            schedule: '時間割をファイル・画像・リンクで共有してください。ない場合は一般的なアドバイスしかできません。',
+            location: '都市名を教えてください（例：東京/大阪/深圳）。天気を調べます。',
+            search: '何を調べたいか1文で教えてください（例：奨学金制度/イベント時間など）。'
+        }
+    }
+};
+
+function pickGateText(lang) {
+    return GATE_I18N[lang] || GATE_I18N.zh;
+}
+
 function buildGateReply({
     action = 'ask',
     stage = 'pre_intent',
     reason = 'unspecified',
     missing = [],
-    hint = ''
+    missingKeys = [],
+    hint = '',
+    hintKey = '',
+    lang = 'zh'
 }) {
-    const missingText = Array.isArray(missing) && missing.length > 0
-        ? `缺少信息：${missing.join('，')}`
+    const t = pickGateText(lang);
+    const joiner = lang === 'en' ? ', ' : (lang === 'ja' ? '、' : '，');
+    const missingParts = [
+        ...missing,
+        ...(Array.isArray(missingKeys) ? missingKeys.map(k => t.missing[k]).filter(Boolean) : [])
+    ].filter(Boolean);
+
+    const missingText = missingParts.length > 0
+        ? `${t.missingLabel}${missingParts.join(joiner)}`
         : '';
-    const hintText = hint ? `
-${hint}` : '';
+
+    const hintContent = hintKey ? t.hints[hintKey] : hint;
+    const hintText = hintContent ? `
+${hintContent}` : '';
     const reply = [
         (action === 'refuse')
-            ? '当前请求无法继续处理。'
-            : '当前信息不足，先补充后再继续。',
+            ? t.refuse
+            : t.ask,
         missingText,
         hintText
     ].filter(Boolean).join('\n');
@@ -321,30 +644,258 @@ ${hint}` : '';
     };
 }
 
-function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule, hasWeatherData, searchTopic }) {
+function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule, hasWeatherData, searchTopic, lang = 'zh', context, history = [] }) {
     const text = String(msg || '').trim();
 
+    // Gate 0: 责任态判定（架构级前置）
+    const responsibilityResult = detectResponsibilityMode(msg, intentResult);
+    const { mode, confidence, signals, reason: modeReason } = responsibilityResult;
+
+    // 🟢 描述态：永远放行，不触发任何 gate
+    if (mode === ResponsibilityMode.DESCRIBE) {
+        return { 
+            action: 'proceed', 
+            responsibilityMode: mode,
+            responsibilityConfidence: confidence,
+            reason: 'describe_mode_always_allowed',
+            signals
+        };
+    }
+
+    // 🟡 推演态：放行，但添加输出约束
+    if (mode === ResponsibilityMode.REASON) {
+        return { 
+            action: 'proceed', 
+            responsibilityMode: mode,
+            responsibilityConfidence: confidence,
+            reasonModeConstraints: buildReasonModeConstraints(lang),
+            reason: 'reason_mode_with_constraints',
+            signals
+        };
+    }
+
+    // 🔴 承诺态：继续原有 gate 逻辑
     // Gate 1: Pre-Intent (资格与前提)
     if (!text) {
         return buildGateReply({
             action: 'ask',
             stage: 'pre_intent',
             reason: 'empty_message',
-            missing: ['需要一句具体的提问'],
-            hint: '例如："帮我查今天的课表" / "明天下雨吗？"'
+            missingKeys: ['question'],
+            hintKey: 'example',
+            lang
         });
+    }
+
+    // 🆕 Gate 0.5: Risk/Decision-Making Detection（风险/代决策检测 - 最高优先级）
+    // 检测：代决策、越权、高风险建议请求 → 直接拒绝，不进入澄清流程
+    const textLower = text.toLowerCase();
+    
+    // 代决策关键词检测
+    const decisionMakingPatterns = {
+        en: /\b(should\s+i\s+(skip|go|attend|take|choose|do|study|review|prepare)|what\s+should\s+i\s+do|help\s+me\s+decide|recommend\s+(me\s+)?to|advise\s+me|tell\s+me\s+what\s+to|make\s+a\s+decision|which\s+one\s+should|is\s+it\s+worth|worth\s+it\s+to)\b/i,
+        zh: /(应该|该不该|值不值得|要不要|帮我决定|帮我选|给我建议|我该怎么办|怎么选|选哪个|帮我做决定)[\s]*(翘课|逃课|去上课|不去|参加|准备|复习|学习)/,
+        ja: /(すべき|した方がいい|どうすればいい|決めて|選んで|アドバイス)[\s]*(授業|クラス|勉強|復習)/
+    };
+    
+    const hasDecisionMakingRequest = 
+        decisionMakingPatterns.en.test(textLower) ||
+        decisionMakingPatterns.zh.test(text) ||
+        decisionMakingPatterns.ja.test(text);
+    
+    if (hasDecisionMakingRequest) {
+        if (context?.log) {
+            context.log(`[Gate0.5] Decision-making request detected - hard refusal`);
+        }
+        
+        const refusalMessages = {
+            zh: `我不能替你做这个决定。
+
+🚫 **为什么不能**：
+这是一个需要你自己权衡的**个人决策**。我不能替代你的判断，也不应该承担你决策的后果。
+
+✅ **我可以帮你**：
+• 📅 **查看课表**：告诉你明天有哪些课，几点上课
+• 📚 **了解后果**：解释翘课可能的影响（如考勤、课程进度）
+• 🎯 **分析选项**：列出"去"和"不去"的利弊，但**选择权在你**
+• 💡 **提供信息**：帮你搜索相关政策或建议，供你参考
+
+🧭 **决策边界**：
+Campus Copilot 是信息助手，不是决策代理。我会提供事实和选项，但最终决定必须由你自己做出。
+
+---
+💬 如果你需要查看明天的课程安排或了解翘课的可能后果，我很乐意帮忙提供这些**信息**。`,
+            en: `I can't make this decision for you.
+
+🚫 **Why not**:
+This is a **personal decision** that requires your own judgment. I cannot substitute your judgment, nor should I bear the consequences of your decision.
+
+✅ **What I can help with**:
+• 📅 **Check schedule**: Tell you what classes you have tomorrow and when
+• 📚 **Understand consequences**: Explain potential impacts of skipping (attendance, course progress)
+• 🎯 **Analyze options**: List pros and cons of "going" vs "not going", but **the choice is yours**
+• 💡 **Provide information**: Help you search for relevant policies or advice for your reference
+
+🧭 **Decision boundary**:
+Campus Copilot is an information assistant, not a decision agent. I provide facts and options, but the final decision must be made by you.
+
+---
+💬 If you need to check tomorrow's course schedule or understand potential consequences of skipping, I'm happy to help provide that **information**.`,
+            ja: `この決定をあなたに代わって行うことはできません。
+
+🚫 **できない理由**：
+これはあなた自身の判断が必要な**個人的な決定**です。あなたの判断を代替することも、あなたの決定の結果を負うこともできません。
+
+✅ **お手伝いできること**：
+• 📅 **スケジュール確認**：明日の授業と時間をお知らせします
+• 📚 **結果の理解**：欠席の潜在的な影響（出席、授業の進行）を説明します
+• 🎯 **選択肢の分析**：「行く」と「行かない」の利点と欠点をリストアップしますが、**選択はあなた次第**です
+• 💡 **情報提供**：関連するポリシーやアドバイスを検索してご参考にしていただきます
+
+🧭 **決定の境界**：
+Campus Copilotは情報アシスタントであり、意思決定エージェントではありません。事実と選択肢を提供しますが、最終的な決定はあなた自身が行う必要があります。
+
+---
+💬 明日の授業スケジュールを確認したり、欠席の潜在的な結果を理解したりする必要がある場合、その**情報**を提供するお手伝いをさせていただきます。`
+        };
+        
+        return {
+            action: 'refuse',
+            response: {
+                reply: refusalMessages[lang] || refusalMessages.zh,
+                persona: 'professional',
+                meta: {
+                    stage: 'risk_detection',
+                    reason: 'decision_making_request_blocked',
+                    riskType: 'decision_making'
+                }
+            }
+        };
     }
 
     // Gate 2: Intent–Capability Match（置信度不足时先澄清）
     const intent = String(intentResult?.intent || 'chat').toLowerCase();
     const intentConf = Number(intentResult?.confidence || 0);
+    
+    // 🆕 Gate 1.5: Ambiguity Detection（模糊度检测 - 防止 Eager Execution）
+    // 如果 Intent Router 标记为 ambiguous/clarificationNeeded，强制澄清
+    if (intentResult?.ambiguous || intentResult?.clarificationNeeded) {
+        const missingInfo = intentResult?.missingInfo || 'intent_target';
+        const detectedKeywords = intentResult?.detectedKeywords || [];
+        const ambiguousReason = intentResult?.reason || 'ambiguous_request';
+        
+        // 🔍 状态检测：检查历史对话中是否已经澄清过（防止无限循环）
+        const lastAssistantMsg = history.slice().reverse().find(h => h.role === 'assistant');
+        const hasRecentClarification = lastAssistantMsg && (
+            lastAssistantMsg.content?.includes('❓ 请澄清') ||
+            lastAssistantMsg.content?.includes('❓ Please clarify') ||
+            lastAssistantMsg.content?.includes('我需要更清楚地了解你的需求') ||
+            lastAssistantMsg.content?.includes('I need to better understand')
+        );
+        
+        if (context?.log) {
+            context.log(`[Gate1.5] Ambiguity detected: missingInfo=${missingInfo} reason=${ambiguousReason} hasRecentClarification=${hasRecentClarification}`);
+        }
+        
+        // 🛡️ 澄清失败兜底：如果上次已经澄清过，用户仍然模糊 → 降级为默认安全解释
+        if (hasRecentClarification) {
+            if (context?.log) {
+                context.log(`[Gate1.5] Clarification failed - user still ambiguous after clarification, fallback to safe default`);
+            }
+            
+            const fallbackMessages = {
+                zh: `我理解你想规划或安排一些事情，但由于缺少具体信息，我只能提供一般性的建议。
+
+📋 我可以帮助你：
+• **查询课表**：告诉我具体日期，我会帮你查看课程安排
+• **制定学习计划**：说明你要复习的科目和时间，我会帮你规划
+• **搜索资料**：告诉我你想了解的主题，我会帮你搜索相关信息
+• **查询天气**：告诉我城市和日期，我会提供天气信息
+
+💡 如果你只是想随便聊聊，我也很乐意陪你聊天！
+
+请告诉我你具体需要哪方面的帮助，或者我们可以先从闲聊开始。`,
+                en: `I understand you want to plan or arrange something, but due to lack of specific information, I can only provide general suggestions.
+
+📋 I can help you with:
+• **Check schedule**: Tell me the specific date and I'll check your courses
+• **Make study plan**: Specify subjects and timeframe, I'll help you plan
+• **Search information**: Tell me the topic and I'll search for relevant materials
+• **Check weather**: Tell me the city and date, I'll provide weather info
+
+💡 If you just want to chat casually, I'm happy to chat with you!
+
+Please tell me specifically what you need help with, or we can start with casual conversation.`
+            };
+            
+            return {
+                action: 'proceed',  // 不再 ask，直接 proceed 但用安全回复
+                fallbackMode: true,
+                fallbackMessage: fallbackMessages[lang] || fallbackMessages.zh,
+                responsibilityMode: 'describe',
+                responsibilityConfidence: 0.5,
+                reason: 'clarification_failed_fallback'
+            };
+        }
+        
+        // 首次澄清：构建目标级澄清消息（不是工具级）
+        const clarificationMessages = {
+            zh: `我注意到你想做一些规划或安排，但我需要知道更具体的**目标**。
+
+❓ 你想规划/安排什么？
+
+🎯 **常见目标**：
+• 📚 **学习/课程**（例如："帮我规划下周的课程复习"）
+• 🏃 **运动/健身**（例如："安排明天早上的跑步计划"）
+• 🎭 **社团/活动**（例如："检查这周的社团会议安排"）
+• 💼 **工作/实习**（例如："规划本周的实习任务"）
+• 🎯 **其他目标**（请直接告诉我）
+
+💬 或者，如果你只是想随便聊聊，我也很乐意陪你闲聊！
+
+---
+💡 **提示**：请在回复中说明你的具体目标，比如"课程复习"、"运动计划"等，这样我就能更好地帮助你。`,
+            en: `I noticed you want to plan or arrange something, but I need to know the specific **goal**.
+
+❓ What do you want to plan/schedule?
+
+🎯 **Common goals**:
+• 📚 **Study/courses** (e.g., "Help me plan next week's course review")
+• 🏃 **Exercise/fitness** (e.g., "Schedule tomorrow morning's running plan")
+• 🎭 **Club/activities** (e.g., "Check this week's club meeting schedule")
+• 💼 **Work/internship** (e.g., "Plan this week's internship tasks")
+• 🎯 **Other goals** (please tell me directly)
+
+💬 Or, if you just want to chat casually, I'm happy to chat with you!
+
+---
+💡 **Tip**: Please specify your goal in the reply, such as "course review", "exercise plan", etc., so I can better help you.`
+        };
+        
+        return {
+            action: 'ask',
+            response: {
+                reply: clarificationMessages[lang] || clarificationMessages.zh,
+                persona: 'professional',
+                meta: { 
+                    stage: 'ambiguity_detection', 
+                    reason: ambiguousReason,
+                    missingInfo,
+                    detectedKeywords,
+                    clarificationAttempt: 1
+                }
+            }
+        };
+    }
+    
     if (intent !== 'chat' && intentConf > 0 && intentConf < Math.max(0.2, INTENT_CONFIDENCE_THRESHOLD)) {
         return buildGateReply({
             action: 'ask',
             stage: 'intent_capability',
             reason: 'low_intent_confidence',
-            missing: ['你的具体需求/场景'],
-            hint: '请用1句话说明你要做什么（如：查课表/做时间计划/查天气/搜索资料）。'
+            missingKeys: ['intent'],
+            hintKey: 'intent',
+            lang
         });
     }
 
@@ -355,8 +906,9 @@ function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule,
             action: 'ask',
             stage: 'context_sufficiency',
             reason: 'missing_schedule',
-            missing: ['课表数据'],
-            hint: '请导入课表（文件/截图/链接），或明确说明没有课表我只能给通用建议。'
+            missingKeys: ['schedule'],
+            hintKey: 'schedule',
+            lang
         });
     }
 
@@ -369,8 +921,9 @@ function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule,
                 action: 'ask',
                 stage: 'context_sufficiency',
                 reason: 'missing_location',
-                missing: ['所在城市或地区'],
-                hint: '请告诉我城市名称或位置（例如：武汉/上海/深圳），我才能查询天气。'
+                missingKeys: ['location'],
+                hintKey: 'location',
+                lang
             });
         }
     }
@@ -382,13 +935,19 @@ function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule,
             action: 'ask',
             stage: 'context_sufficiency',
             reason: 'missing_search_query',
-            missing: ['搜索主题或关键词'],
-            hint: '请用一句话说明你要查什么（如：学校奖学金政策/某场活动时间）。'
+            missingKeys: ['search'],
+            hintKey: 'search',
+            lang
         });
     }
 
     // Gate 4: Decision Convergence（所有 Gate 通过，允许进入生成）
-    return { action: 'proceed' };
+    return { 
+        action: 'proceed',
+        responsibilityMode: mode,
+        responsibilityConfidence: confidence,
+        signals
+    };
 }
 // ==========================================
 // 1. 全局初始化
@@ -3435,10 +3994,30 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
         return { intent: 'identity', tool: 'identity', confidence: 0.95, reason: 'fast-path identity' };
     }
     
-    // 计划/规划
-    if (/计划|规划|安排|拆解|学习计划|时间表|待办/i.test(trimmed)) {
-        context?.log?.('[IntentRouter] fast-path: plan');
-        return { intent: 'plan', tool: 'plan', needsSchedule: true, confidence: 0.85, reason: 'fast-path plan' };
+    // 🆕 计划/规划 - 模糊度检测（防止 Eager Execution）
+    // 检测：如果有动作词（plan/安排）但缺少具体目标，标记为模糊 → 强制 LLM 澄清
+    if (/计划|规划|安排|拆解|学习计划|时间表|待办|plan|schedule|check/i.test(trimmed)) {
+        // 检测是否有具体目标词（课程/运动/社团/工作/学习/复习/准备考试等）
+        const hasSpecificTarget = /课程|课表|上课|复习|考试|作业|实验|项目|论文|运动|健身|跑步|社团|活动|工作|实习|面试|会议/i.test(trimmed);
+        
+        if (hasSpecificTarget) {
+            // 有明确目标 → 高置信度 plan
+            context?.log?.('[IntentRouter] fast-path: plan (specific target)');
+            return { intent: 'plan', tool: 'plan', needsSchedule: true, confidence: 0.85, reason: 'fast-path plan with target' };
+        } else {
+            // 缺少目标 → 标记为模糊，低置信度，强制 LLM 澄清
+            context?.log?.('[IntentRouter] ambiguous plan detected - no specific target, force clarification');
+            return { 
+                intent: 'unknown', 
+                tool: 'chat', 
+                confidence: 0.3, 
+                reason: 'ambiguous_plan_missing_target',
+                ambiguous: true,
+                clarificationNeeded: true,
+                detectedKeywords: ['plan', 'schedule', 'arrange'],
+                missingInfo: 'target' 
+            };
+        }
     }
     
     // 搜索
@@ -3454,23 +4033,30 @@ async function analyzeIntentRouter(userMessage, imageUrls = [], extras = {}, con
             apiKey: token
         });
 
-        // 🚀 增强版意图路由 Prompt - 更积极的工具调用 + 上下文记忆
+        // 🚀 增强版意图路由 Prompt - 更积极的工具调用 + 上下文记忆 + 模糊度检测
         const systemPrompt = `Campus AI intent classifier. Output JSON only.
 
-TOOLS: schedule(课表), plan(计划/规划/安排行程), weather(天气), search(搜索/查询活动/事件/通用知识), wiki(百科), draw(绘图), vision(图片), chat(闲聊), identity(身份问题)
+TOOLS: schedule(课表), plan(计划/规划/安排行程), weather(天气), search(搜索/查询活动/事件/通用知识), wiki(百科), draw(绘图), vision(图片), chat(闲聊), identity(身份问题), clarify(需要澄清)
 
-OUTPUT: {"tool":"...", "needs_schedule":bool, "needs_weather":bool, "needs_search":bool, "detected_location":"", "should_ask_user":bool, "missing_info":"", "query":"", "search_topic":"", "confidence":0.0-1.0, "safety_protocol":"none|triggered", "recommended_persona":"alice|professional", "context_extract":{"location":"","time":"","event":""}}
+OUTPUT: {"tool":"...", "needs_schedule":bool, "needs_weather":bool, "needs_search":bool, "detected_location":"", "should_ask_user":bool, "missing_info":"", "query":"", "search_topic":"", "confidence":0.0-1.0, "safety_protocol":"none|triggered", "recommended_persona":"alice|professional", "context_extract":{"location":"","time":"","event":""}, "clarification_needed":bool, "ambiguous_reason":""}
 
 RULES:
 1. 用户提到任何地点(城市/地区) → detected_location=该地点, context_extract.location=该地点
 2. 用户问天气但没说城市 → 如果对话历史有提到城市就用那个，否则 should_ask_user=true
-3. 任何"计划/plan/安排/行程/规划"类问题 → tool=plan, 同时考虑是否需要天气(needs_weather)和搜索(needs_search)
-4. 用户提到外部活动/展台/会议/测试 → needs_search=true, search_topic=活动关键词
-5. Schedule/plan questions → needs_schedule=true
-6. "你和ChatGPT区别"/"不导入课表能做什么" → tool=identity
-7. Cheating/exam answers → safety_protocol=triggered, recommended_persona=professional
-8. ⚡ 搜索权限解锁：用户请求搜索**任何内容**（包括技术教程、编程文档、一般知识等）→ tool=search, search_topic=用户关键词。Campus Copilot 有全网搜索能力，不限于校园信息。
-9. 积极调用工具：宁可多调用工具获取信息，也不要空口回答"不知道"
+3. ⚠️ 【CRITICAL - 模糊度检测】如果用户说 "plan/schedule/check/安排" 但**没有明确目标**（如没说规划什么：课程？运动？社团？工作？），必须 → tool=clarify, clarification_needed=true, ambiguous_reason="missing_target", confidence=0.3
+   - 例如 "Help me check next week" → tool=clarify (缺少目标：检查什么？)
+   - 例如 "给我做个计划" → tool=clarify (缺少目标：什么计划？)
+   - 例如 "帮我安排下周" → tool=clarify (缺少目标：安排什么？)
+4. 只有当用户**明确说出目标**时才用 tool=plan：
+   - "帮我规划下周的课程复习" → tool=plan (目标明确：课程复习)
+   - "安排明天的运动计划" → tool=plan (目标明确：运动)
+5. 用户提到外部活动/展台/会议/测试 → needs_search=true, search_topic=活动关键词
+6. Schedule/plan questions → needs_schedule=true
+7. "你和ChatGPT区别"/"不导入课表能做什么" → tool=identity
+8. Cheating/exam answers → safety_protocol=triggered, recommended_persona=professional
+9. ⚡ 搜索权限解锁：用户请求搜索**任何内容**（包括技术教程、编程文档、一般知识等）→ tool=search, search_topic=用户关键词。Campus Copilot 有全网搜索能力，不限于校园信息。
+10. 积极调用工具：宁可多调用工具获取信息，也不要空口回答"不知道"
+11. 【Anti-Eager-Execution】宁可多澄清一次，也不要替用户做假设
 
 EXAMPLES:
 - "我明天想去鸿蒙展台" → tool=plan, needs_search=true, search_topic="鸿蒙展台"
@@ -5172,6 +5758,7 @@ ${scheduleInfo}
         // P0-Hook 1: 语言检测 (为后续动态Prompt做准备)
         // ==========================================
         const userLang = detectLanguage(msg);
+        const responseLang = userLang; // 只影响输出语言，不参与决策
         context.log(`[P0-语言] 检测到: ${userLang}`);
 
         // ==========================================
@@ -5308,54 +5895,18 @@ ${scheduleInfo}
             const trimmed = (text || '').trim();
             if (!trimmed) return text;
 
-            // 智能语义分析：检测是否为拒绝类响应（关键词+结构分析）
+            // 智能语义分析：检测是否为“第一人称明确拒绝”，避免把“LLM有缺陷”误判为拒绝
             function detectRefusalIntent(msg) {
-                const lower = msg.toLowerCase();
-                
-                // 拒绝信号词权重评分
-                const refusalSignals = {
-                    strong: [
-                        /不能(回答|提供|协助|帮助|处理)/,
-                        /无法(回答|提供|协助|帮助|处理|进行)/,
-                        /(我|系统)拒绝/,
-                        /cannot (answer|provide|assist|help|process)/i,
-                        /can't (answer|provide|assist|help|process)/i,
-                        /unable to (answer|provide|assist|help|process)/i
-                    ],
-                    moderate: [
-                        /对不起[,，]/,
-                        /抱歉[,，]/,
-                        /很遗憾/,
-                        /sorry[,\s]/i,
-                        /apologize/i,
-                        /不在(服务|支持|范围)/,
-                        /超出.*范围/,
-                        /out of (scope|range|bounds)/i
-                    ],
-                    weak: [
-                        /不太(合适|能|可以)/,
-                        /建议.*换个/,
-                        /这个问题.*不/,
-                        /may not be (able|suitable)/i
-                    ]
-                };
+                // 优先放行：描述“模型/LLM 无法…”且未出现第一人称拒绝时，不视为拒绝
+                const mentionsLLM = /(llm|大型语言模型|大语言模型|language model|模型)/i.test(msg);
 
-                let score = 0;
-                for (const pattern of refusalSignals.strong) {
-                    if (pattern.test(msg)) score += 3;
-                }
-                for (const pattern of refusalSignals.moderate) {
-                    if (pattern.test(msg)) score += 2;
-                }
-                for (const pattern of refusalSignals.weak) {
-                    if (pattern.test(msg)) score += 1;
-                }
+                const firstPersonRefusalZh = /(?:^|[\s，。])(?:我|我们|系统|机器人|助手|assistant|bot)(?:目前)?(?:无法|不能|不便|不会|拒绝)(?:[^，。；]{0,12})?(回答|提供|协助|帮助|处理|完成|支持)/i;
+                const firstPersonRefusalEn = /(?:^|\b)(i|we|assistant|bot|system)\s+(?:cannot|can't|unable to|won't|do not|don't|refuse to)\s+(answer|provide|assist|help|process|comply|support)/i;
 
-                // 拒绝响应通常缺乏实质内容（长度<100 且无具体信息）
-                const hasSubstantiveContent = msg.length > 100 || /(\d+|具体|例如|比如|可以|建议|步骤|方法)/.test(msg);
-                if (!hasSubstantiveContent && score > 0) score += 1;
+                const hasFirstPersonRefusal = firstPersonRefusalZh.test(msg) || firstPersonRefusalEn.test(msg);
 
-                return score >= 3; // 阈值：3分及以上判定为拒绝
+                if (!hasFirstPersonRefusal && mentionsLLM) return false; // 仅在描述模型缺陷时放行
+                return hasFirstPersonRefusal;
             }
 
             if (!detectRefusalIntent(trimmed)) return text; // 非拒绝响应，保持原样
@@ -5435,7 +5986,15 @@ ${scheduleInfo}
                 const { resource } = await cosmosContainer.item(dbKey, dbKey).read();
                 resDoc = resource; // 保存完整文档
                 if (resource && resource.history) {
-                    history = resource.history;
+                    // ⚠️ 核心修复：召回时过滤拒绝模板
+                    const rawHistory = resource.history;
+                    history = rawHistory.map(h => {
+                        if (h.role === 'assistant' && /【原因标签：|我能提供的替代帮助：/.test(h.content)) {
+                            const cleaned = h.content.split('\n').filter(line => !/【原因标签：|替代帮助|不确定的地方|如果要继续/.test(line)).join('\n').trim();
+                            return { ...h, content: cleaned || '(已过滤拒绝模板)' };
+                        }
+                        return h;
+                    });
                     context.log(`[记忆] ✅ 加载 ${history.length} 条历史 (前2条: ${JSON.stringify(history.slice(0,2).map(h => h.content?.slice(0,30)))})`);
                 }
                 if (resource && resource.activity) userActivityData = resource.activity; // 加载活跃度数据
@@ -5805,11 +6364,117 @@ ${scheduleInfo}
         }
 
         // ==========================================
+        // 🚨 Gate 0.5 前置：风险/代决策检测（最高优先级）
+        // ==========================================
+        // 检测：代决策、越权、高风险建议请求 → 直接拒绝，不进入任何后续流程
+        const textLower = String(msg || '').toLowerCase();
+        
+        const decisionMakingPatterns = {
+            en: /\b(should\s+i\s+(skip|go|attend|take|choose|do|study|review|prepare)|what\s+should\s+i\s+do|help\s+me\s+decide|recommend\s+(me\s+)?to|advise\s+me|tell\s+me\s+what\s+to|make\s+a\s+decision|which\s+one\s+should|is\s+it\s+worth|worth\s+it\s+to)\b/i,
+            zh: /(应该|该不该|值不值得|要不要|帮我决定|帮我选|给我建议|我该怎么办|怎么选|选哪个|帮我做决定)[\s]*(翘课|逃课|去上课|不去|参加|准备|复习|学习)/,
+            ja: /(すべき|した方がいい|どうすればいい|決めて|選んで|アドバイス)[\s]*(授業|クラス|勉強|復習)/
+        };
+        
+        const hasDecisionMakingRequest = 
+            decisionMakingPatterns.en.test(textLower) ||
+            decisionMakingPatterns.zh.test(msg) ||
+            decisionMakingPatterns.ja.test(msg);
+        
+        if (hasDecisionMakingRequest) {
+            context.log(`[Gate0.5 前置] Decision-making request detected - hard refusal`);
+            
+            const refusalMessages = {
+                zh: `我不能替你做这个决定。
+
+🚫 **为什么不能**：
+这是一个需要你自己权衡的**个人决策**。我不能替代你的判断，也不应该承担你决策的后果。
+
+✅ **我可以帮你**：
+• 📅 **查看课表**：告诉你明天有哪些课，几点上课
+• 📚 **了解后果**：解释翘课可能的影响（如考勤、课程进度）
+• 🎯 **分析选项**：列出"去"和"不去"的利弊，但**选择权在你**
+• 💡 **提供信息**：帮你搜索相关政策或建议，供你参考
+
+🧭 **决策边界**：
+Campus Copilot 是信息助手，不是决策代理。我会提供事实和选项，但最终决定必须由你自己做出。
+
+---
+💬 如果你需要查看明天的课程安排或了解翘课的可能后果，我很乐意帮忙提供这些**信息**。`,
+                en: `I can't make this decision for you.
+
+🚫 **Why not**:
+This is a **personal decision** that requires your own judgment. I cannot substitute your judgment, nor should I bear the consequences of your decision.
+
+✅ **What I can help with**:
+• 📅 **Check schedule**: Tell you what classes you have tomorrow and when
+• 📚 **Understand consequences**: Explain potential impacts of skipping (attendance, course progress)
+• 🎯 **Analyze options**: List pros and cons of "going" vs "not going", but **the choice is yours**
+• 💡 **Provide information**: Help you search for relevant policies or advice for your reference
+
+🧭 **Decision boundary**:
+Campus Copilot is an information assistant, not a decision agent. I provide facts and options, but the final decision must be made by you.
+
+---
+💬 If you need to check tomorrow's course schedule or understand potential consequences of skipping, I'm happy to help provide that **information**.`,
+                ja: `この決定をあなたに代わって行うことはできません。
+
+🚫 **できない理由**：
+これはあなた自身の判断が必要な**個人的な決定**です。あなたの判断を代替することも、あなたの決定の結果を負うこともできません。
+
+✅ **お手伝いできること**：
+• 📅 **スケジュール確認**：明日の授業と時間をお知らせします
+• 📚 **結果の理解**：欠席の潜在的な影響（出席、授業の進行）を説明します
+• 🎯 **選択肢の分析**：「行く」と「行かない」の利点と欠点をリストアップしますが、**選択はあなた次第**です
+• 💡 **情報提供**：関連するポリシーやアドバイスを検索してご参考にしていただきます
+
+🧭 **決定の境界**：
+Campus Copilotは情報アシスタントであり、意思決定エージェントではありません。事実と選択肢を提供しますが、最終的な決定はあなた自身が行う必要があります。
+
+---
+💬 明日の授業スケジュールを確認したり、欠席の潜在的な結果を理解したりする必要がある場合、その**情報**を提供するお手伝いをさせていただきます。`
+            };
+            
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: refusalMessages[responseLang] || refusalMessages.zh,
+                    persona: 'professional',
+                    meta: {
+                        requestId,
+                        latencyMs: Date.now() - requestStartTs,
+                        stage: 'risk_detection_pre_policy',
+                        reason: 'decision_making_request_blocked',
+                        riskType: 'decision_making'
+                    }
+                })
+            };
+        }
+
+        // ==========================================
         // 🧭 Policy gate：按渠道策略决定允许/拒绝
         // ==========================================
         const policyGate = evaluatePolicyGate(activePolicy, intentResult);
         if (!policyGate.allowed) {
-            const refusalMessage = buildPolicyRefusal(activePolicy, policyGate.intent);
+            // 🆕 检测拒绝场景类型（Web 端专用）
+            let scenarioType = 'risk_request'; // 默认：风险请求（策略拦截）
+            const intentConf = Number(intentResult?.confidence || 0);
+            const needsSchedule = !!(intentResult?.needsSchedule || intentResult?.tool === 'schedule' || policyGate.intent === 'schedule_query');
+            const hasScheduleData = !!(webSchedule && webSchedule.length > 0);
+
+            if (needsSchedule && !hasScheduleData) {
+                scenarioType = 'missing_data'; // 场景一：缺数据
+            } else if (intentConf < 0.6 || !intentResult?.intent || intentResult?.intent === 'unknown') {
+                scenarioType = 'ambiguous'; // 场景二：模糊语境
+            }
+
+            const refusalMessage = buildPolicyRefusal(activePolicy, policyGate.intent, {
+                reason: policyGate.reason,
+                intentResult,
+                hasSchedule: hasScheduleData,
+                scenarioType,
+                lang: responseLang  // 🆕 传递语言参数
+            });
             logger.logPolicyBlocked(clientInfo.client, policySelection?.version, policyGate.intent, policyGate.reason);
             logger.logRequestEnd('policy_blocked', refusalMessage.length);
             logger.logAuditSummary({
@@ -6346,8 +7011,36 @@ ${scheduleInfo}
             semanticResolution,
             hasSchedule: hasScheduleData,
             hasWeatherData,
-            searchTopic
+            searchTopic,
+            lang: responseLang,
+            context,
+            history
         });
+
+        // 📊 责任态日志
+        const respMode = gateDecision?.responsibilityMode || 'unknown';
+        const respConf = gateDecision?.responsibilityConfidence || 0;
+        const respSignals = gateDecision?.signals || [];
+        context.log(`[责任态] mode=${respMode} conf=${respConf.toFixed(2)} signals=${JSON.stringify(respSignals.map(s => s.pattern))}`);
+
+        // 🛡️ 澄清失败兜底模式：如果触发 fallbackMode，直接返回安全回复（不再进入生成）
+        if (gateDecision?.fallbackMode && gateDecision?.fallbackMessage) {
+            context.log(`[Gate1.5] Fallback mode triggered - returning safe default response`);
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify({
+                    reply: gateDecision.fallbackMessage,
+                    persona: 'professional',
+                    meta: {
+                        requestId,
+                        latencyMs: Date.now() - requestStartTs,
+                        stage: 'clarification_failed_fallback',
+                        reason: gateDecision.reason || 'clarification_loop_detected'
+                    }
+                })
+            };
+        }
 
         if (gateDecision?.action && gateDecision.action !== 'proceed') {
             const gateResponse = gateDecision.response || {};
@@ -7398,7 +8091,7 @@ MVP阶段：可信度 > 可爱度
 - 08:00-09:50 高等数学 @教学楼A101
 - 10:10-11:50 英语听力 @语言中心
 - 14:00-15:50 体育 @体育馆
-记得早点休息，明天课比较多。`;
+记得早点休息，明天课比较多.`;
     } else if (inferredMode === 'Plan') {
             modeStyleOverride = `
 【⚠️ 计划助手模式 - MVP数据边界严格】
@@ -7630,8 +8323,10 @@ ${fullWeekScheduleTable}
             context.log(`[WebSchedule] 前端传入 ${webSchedule.length} 条课程，今日${todayCourses.length}节，明日${tomorrowCourses.length}节`);
         } else {
             // 🆕 无课表时的严格模式 - 防止幻觉 (Imagine Cup 致命问题修复)
-            // ⚠️ 无论什么模式，没有课表就绝对不能编造任何课程信息！
-            scheduleContextAddition = `
+            // ⚠️ 核心修复：仅在 schedule intent 或明确需要课表时才启用红线，避免全局误伤
+            const needsScheduleGuard = !!(intentResult?.needsSchedule || intentResult?.tool === 'schedule' || intentResult?.tool === 'plan');
+            if (needsScheduleGuard) {
+                scheduleContextAddition = `
 【🚨 红线级指令：无课表数据】
 **你没有该用户的任何课表数据。** 这是系统事实，不可违背。
 
@@ -7662,7 +8357,10 @@ ${fullWeekScheduleTable}
 - ❌ 长段道歉 + 大量颜文字
 
 注意：即使在闲聊模式下，也不能编造课程。这是数据准确性的底线。`;
-            context.log(`[WebSchedule] ⚠️ 无课表数据 → 启用红线级防幻觉模式`);
+                context.log(`[WebSchedule] ⚠️ 无课表数据 + schedule intent → 启用红线级防幻觉模式`);
+            } else {
+                context.log(`[WebSchedule] ⚠️ 无课表数据但非schedule问题(tool=${intentResult?.tool}) → 跳过红线模式`);
+            }
         }
 
         // 🆕 合并工具上下文（来自智能工具调用层）
@@ -7674,6 +8372,13 @@ ${fullWeekScheduleTable}
         const personaAdditions = '';
         // 🆕 注入群聊上下文（群聊背景）- 仅作为上下文参考，不作情感回应
         let currentSystemPrompt = `${basePromptRendered}\n${modeStyleOverride}${groupContextSummary}\n【当前系统时间(北京时间)】${currentTime}\n当前对话的用户昵称是：${userNickname}。${combinedToolContext}${personaAdditions}`;
+
+        // 🎯 责任态约束注入：推演态问题需要结构化输出
+        if (gateDecision?.responsibilityMode === 'reason' && gateDecision?.reasonModeConstraints) {
+            const constraints = gateDecision.reasonModeConstraints;
+            currentSystemPrompt += constraints.text || '';
+            context.log(`[责任态] 注入推演态约束 (lang=${constraints.lang})`);
+        }
 
         // 日志记录当前模式（webMode 可能为空：QQ 场景/GET 调试等）
         context.log(`[模式感知] webMode=${webMode || 'null'} inferredMode=${inferredMode} isCopilotMode=${isCopilotMode} isUserProfessionalMode=${isUserProfessionalMode} hasSchedule=${webSchedule && webSchedule.length > 0}`);
@@ -7795,7 +8500,22 @@ ${fullWeekScheduleTable}
             }
             
             // 🎭 将“生硬拒绝”转换为可解释拒绝（不含拟人化动作/撒娇）
-            aiReply = replaceRobotRefusal(aiReply);
+            // 只有第一人称明确拒绝且未被 gate 放行时才套用 Schema，确保正常回答直通
+            const firstPersonRefusalPatternZh = /(?:^|[\s，。])(?:我|我们|系统|机器人|助手|assistant|bot)(?:目前)?(?:无法|不能|不便|不会|拒绝)(?:[^，。；]{0,12})?(回答|提供|协助|帮助|处理|完成|支持)/i;
+            const firstPersonRefusalPatternEn = /(?:^|\b)(i|we|assistant|bot|system)\s+(?:cannot|can't|unable to|won't|do not|don't|refuse to)\s+(answer|provide|assist|help|process|comply|support)/i;
+            const hasExplicitRefusal = firstPersonRefusalPatternZh.test(aiReply) || firstPersonRefusalPatternEn.test(aiReply);
+
+            if (gateDecision?.action === 'proceed' && !hasExplicitRefusal) {
+                context.log(`[后处理] gate=proceed，正常回答直通，跳过拒绝Schema`);
+            } else if (hasExplicitRefusal) {
+                const beforeRefusal = aiReply;
+                aiReply = replaceRobotRefusal(aiReply);
+                if (beforeRefusal !== aiReply) {
+                    context.log(`[后处理] 检测到第一人称拒绝，应用Schema: ${beforeRefusal.slice(0,60)}... → ${aiReply.slice(0,60)}...`);
+                }
+            } else {
+                context.log(`[后处理] 未检测到拒绝意图，保持原文`);
+            }
 
             // ⛔️ 时间断言 guardrail：当“确实没有任何课表数据上下文”时，禁止输出具体到某天/具体时段的断言
             // 目的：防止在无数据场景下暗示有隐藏课表；同时避免误伤已有动态课表/事实材料场景的真实课程时间。
@@ -7812,8 +8532,18 @@ ${fullWeekScheduleTable}
 
             // 存入记忆
             if (cosmosContainer) {
+                // ⚠️ 核心修复：过滤拒绝模板，避免污染历史记忆
+                const isRefusalTemplate = /【原因标签：|我能提供的替代帮助：|我不确定的地方：|如果要继续：/.test(aiReply);
+                const cleanedReply = isRefusalTemplate 
+                    ? aiReply.split('\n').filter(line => !/【原因标签：|替代帮助|不确定的地方|如果要继续/.test(line)).join('\n').trim() || '(系统拒绝模板已过滤)'
+                    : aiReply;
+                
+                if (isRefusalTemplate) {
+                    context.log(`[记忆过滤] 检测到拒绝模板，存储清洗版本: ${cleanedReply.slice(0,40)}...`);
+                }
+                
                 history.push({ role: "user", content: textForMemory });
-                history.push({ role: "assistant", content: aiReply });
+                history.push({ role: "assistant", content: cleanedReply });
                 
                 // P0-Hook 4: 长期记忆存储 (RAG)
                 if (MEMORY_SYSTEM_CONFIG.ENABLE_LONG_TERM_MEMORY) {
