@@ -14,6 +14,7 @@ const { computeScheduleLoadStats } = require('../../services/scheduleService');
 // ==========================================
 const { detectSafetyRisk, getRefusalMessage, shouldRefuse, shouldSwitchPro, SafetyCategory, SafetyAction, SafetyResult } = require('../common/safety');
 const { createLogger, EventType } = require('../common/logger');
+const { runEligibilityGate, checkEligibilityBypass, EligibilityAction } = require('../common/eligibilityGate');
 
 // 全局 UA 池：用于伪装常见浏览器，给天气/其他 HTTP 请求用
 const UA_POOL = [
@@ -140,7 +141,8 @@ const POLICY_PROFILES = {
         requireScheduleForTimeClaims: true,
         maxSearchCalls: 2,
         memory: { allow: true, requireUserConfirm: true },
-        refusalStyle: 'strict'
+        refusalStyle: 'strict',
+        eligibilityThresholds: { refuse: 0.55, degrade: 0.35 }  // Web 更严格
     },
     'web-beta': {
         client: 'web',
@@ -150,7 +152,8 @@ const POLICY_PROFILES = {
         requireScheduleForTimeClaims: true,
         maxSearchCalls: 2,
         memory: { allow: true, requireUserConfirm: true },
-        refusalStyle: 'soft'
+        refusalStyle: 'soft',
+        eligibilityThresholds: { refuse: 0.60, degrade: 0.40 }  // Beta 稍宽松
     },
     'qq-v1': {
         client: 'qq',
@@ -160,7 +163,8 @@ const POLICY_PROFILES = {
         requireScheduleForTimeClaims: true,
         maxSearchCalls: 3,
         memory: { allow: true, requireUserConfirm: false },
-        refusalStyle: 'soft'
+        refusalStyle: 'soft',
+        eligibilityThresholds: { refuse: 0.65, degrade: 0.45 }  // QQ 更宽容
     },
     'qq-beta': {
         client: 'qq',
@@ -170,7 +174,8 @@ const POLICY_PROFILES = {
         requireScheduleForTimeClaims: true,
         maxSearchCalls: 3,
         memory: { allow: true, requireUserConfirm: false },
-        refusalStyle: 'soft'
+        refusalStyle: 'soft',
+        eligibilityThresholds: { refuse: 0.70, degrade: 0.50 }  // QQ Beta 最宽容
     }
 };
 
@@ -536,6 +541,56 @@ function buildReasonModeConstraints(lang = 'zh') {
 }
 
 // ==========================================
+// Gate 0 (Pre-Intent): Responsibility / Delegation Guard
+// 目标：在任何 LLM 调用前，把“代决策/替你拍板”挡在门外，避免越界 + 避免花钱。
+// 只做最小集，别贪多。
+// ==========================================
+
+const DECISION_MAKING_PATTERNS = {
+    zh: /(应该|该不该|值不值得|要不要|帮我决定|帮我选|给我建议|我该怎么办|怎么选|选哪个|帮我做决定)/,
+    en: /\b(should\s+i|what\s+should\s+i\s+do|help\s+me\s+decide|decide\s+for\s+me|which\s+one\s+should\s+i|recommend\s+me\s+to|advise\s+me)\b/i,
+    ja: /(すべき|した方がいい|どうすればいい|決めて|選んで|アドバイス)/
+};
+
+/**
+ * Gate 0（Pre-Intent）- 统一资格判定
+ * - 调用 eligibilityGate 模块进行信号打分
+ * - 返回：{ action: 'proceed'|'refuse'|'degrade', response?: {...}, checkResult?: {...} }
+ */
+function runPreIntentGate0({ msg, lang = 'zh', policyProfile = null, context, history = [] }) {
+    // 调用统一的 EligibilityGate 模块
+    const gateResult = runEligibilityGate({ msg, lang, policyProfile, context });
+    
+    // 根据结果返回对应动作
+    if (gateResult.action === EligibilityAction.DEGRADE) {
+        context?.log?.(`[Gate0] EligibilityGate → degrade (score: ${gateResult.checkResult?.score})`);
+        return { 
+            action: 'degrade', 
+            response: gateResult.response, 
+            checkResult: gateResult.checkResult 
+        };
+    }
+    
+    if (gateResult.action === EligibilityAction.REFUSE) {
+        context?.log?.(`[Gate0] EligibilityGate → refuse (score: ${gateResult.checkResult?.score})`);
+        return { 
+            action: 'refuse', 
+            response: gateResult.response, 
+            checkResult: gateResult.checkResult 
+        };
+    }
+    
+    // action === 'proceed'
+    const text = String(msg || '').trim();
+    const responsibilityResult = detectResponsibilityMode(text, {});
+    return { 
+        action: 'proceed', 
+        responsibility: responsibilityResult, 
+        checkResult: gateResult.checkResult 
+    };
+}
+
+// ==========================================
 // 决策引擎 (4 Gate)：Pre-Intent → Intent/Capability → Context Sufficiency → Decision Convergence
 // ==========================================
 const GATE_I18N = {
@@ -687,90 +742,14 @@ function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule,
         });
     }
 
-    // 🆕 Gate 0.5: Risk/Decision-Making Detection（风险/代决策检测 - 最高优先级）
-    // 检测：代决策、越权、高风险建议请求 → 直接拒绝，不进入澄清流程
+    // 🆕 Gate 0.5: Eligibility Bypass Check（旁路统计点 - 不做拦截，只做日志）
+    // 由于 Gate 0 已在 Pre-Intent 阶段完成资格检查，这里只用于统计/调试
     const textLower = text.toLowerCase();
-    
-    // 代决策关键词检测
-    const decisionMakingPatterns = {
-        en: /\b(should\s+i\s+(skip|go|attend|take|choose|do|study|review|prepare)|what\s+should\s+i\s+do|help\s+me\s+decide|recommend\s+(me\s+)?to|advise\s+me|tell\s+me\s+what\s+to|make\s+a\s+decision|which\s+one\s+should|is\s+it\s+worth|worth\s+it\s+to)\b/i,
-        zh: /(应该|该不该|值不值得|要不要|帮我决定|帮我选|给我建议|我该怎么办|怎么选|选哪个|帮我做决定)[\s]*(翘课|逃课|去上课|不去|参加|准备|复习|学习)/,
-        ja: /(すべき|した方がいい|どうすればいい|決めて|選んで|アドバイス)[\s]*(授業|クラス|勉強|復習)/
-    };
-    
-    const hasDecisionMakingRequest = 
-        decisionMakingPatterns.en.test(textLower) ||
-        decisionMakingPatterns.zh.test(text) ||
-        decisionMakingPatterns.ja.test(text);
-    
-    if (hasDecisionMakingRequest) {
-        if (context?.log) {
-            context.log(`[Gate0.5] Decision-making request detected - hard refusal`);
-        }
-        
-        const refusalMessages = {
-            zh: `我不能替你做这个决定。
-
-🚫 **为什么不能**：
-这是一个需要你自己权衡的**个人决策**。我不能替代你的判断，也不应该承担你决策的后果。
-
-✅ **我可以帮你**：
-• 📅 **查看课表**：告诉你明天有哪些课，几点上课
-• 📚 **了解后果**：解释翘课可能的影响（如考勤、课程进度）
-• 🎯 **分析选项**：列出"去"和"不去"的利弊，但**选择权在你**
-• 💡 **提供信息**：帮你搜索相关政策或建议，供你参考
-
-🧭 **决策边界**：
-Campus Copilot 是信息助手，不是决策代理。我会提供事实和选项，但最终决定必须由你自己做出。
-
----
-💬 如果你需要查看明天的课程安排或了解翘课的可能后果，我很乐意帮忙提供这些**信息**。`,
-            en: `I can't make this decision for you.
-
-🚫 **Why not**:
-This is a **personal decision** that requires your own judgment. I cannot substitute your judgment, nor should I bear the consequences of your decision.
-
-✅ **What I can help with**:
-• 📅 **Check schedule**: Tell you what classes you have tomorrow and when
-• 📚 **Understand consequences**: Explain potential impacts of skipping (attendance, course progress)
-• 🎯 **Analyze options**: List pros and cons of "going" vs "not going", but **the choice is yours**
-• 💡 **Provide information**: Help you search for relevant policies or advice for your reference
-
-🧭 **Decision boundary**:
-Campus Copilot is an information assistant, not a decision agent. I provide facts and options, but the final decision must be made by you.
-
----
-💬 If you need to check tomorrow's course schedule or understand potential consequences of skipping, I'm happy to help provide that **information**.`,
-            ja: `この決定をあなたに代わって行うことはできません。
-
-🚫 **できない理由**：
-これはあなた自身の判断が必要な**個人的な決定**です。あなたの判断を代替することも、あなたの決定の結果を負うこともできません。
-
-✅ **お手伝いできること**：
-• 📅 **スケジュール確認**：明日の授業と時間をお知らせします
-• 📚 **結果の理解**：欠席の潜在的な影響（出席、授業の進行）を説明します
-• 🎯 **選択肢の分析**：「行く」と「行かない」の利点と欠点をリストアップしますが、**選択はあなた次第**です
-• 💡 **情報提供**：関連するポリシーやアドバイスを検索してご参考にしていただきます
-
-🧭 **決定の境界**：
-Campus Copilotは情報アシスタントであり、意思決定エージェントではありません。事実と選択肢を提供しますが、最終的な決定はあなた自身が行う必要があります。
-
----
-💬 明日の授業スケジュールを確認したり、欠席の潜在的な結果を理解したりする必要がある場合、その**情報**を提供するお手伝いをさせていただきます。`
-        };
-        
-        return {
-            action: 'refuse',
-            response: {
-                reply: refusalMessages[lang] || refusalMessages.zh,
-                persona: 'professional',
-                meta: {
-                    stage: 'risk_detection',
-                    reason: 'decision_making_request_blocked',
-                    riskType: 'decision_making'
-                }
-            }
-        };
+    const bypassResult = checkEligibilityBypass({ text, textLower, intentResult, context });
+    if (bypassResult.triggered) {
+        context?.log?.(`[Gate0.5 Bypass] type=${bypassResult.eligibilityType}, score=${bypassResult.score}, matched=${JSON.stringify(bypassResult.matchedSignals)}`);
+        // 注意：不做 return，继续处理（因为 Gate 0 已经处理过了）
+        // 这个统计可用于监控哪些请求在 Gate 0 后被放行但仍有代决策信号
     }
 
     // Gate 2: Intent–Capability Match（置信度不足时先澄清）
@@ -6260,6 +6239,19 @@ ${scheduleInfo}
         const msgForIntent = semanticResolution.dependsOnContext 
             ? semanticResolution.enhancedMessage 
             : msg;
+        
+        // Gate 0（Pre-Intent）：先判资格再花钱（禁止代决策，避免越界 + 避免 LLM 成本）
+        const lang = detectLanguage(msg);
+        const preGate0 = runPreIntentGate0({ msg, lang, policyProfile: activePolicy, context, history });
+        if (preGate0?.action === 'refuse') {
+            context?.log?.(`[Gate0] refused early: ${preGate0?.response?.meta?.reason || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
+            return preGate0.response;
+        }
+        // degrade 模式：继续处理但降级
+        if (preGate0?.action === 'degrade') {
+            context?.log?.(`[Gate0] degraded: ${preGate0?.checkResult?.ruleId || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
+            // TODO: 可在这里设置降级标志，影响后续 LLM 策略
+        }
         
         if (INTENT_ROUTER_ENABLED) {
             // 🆕 从对话历史中提取上下文线索（如之前提到的城市）
