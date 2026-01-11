@@ -1,0 +1,123 @@
+{
+  "timestamp": "2026-01-10T19:51:57.253Z",
+  "pipeline_version": "1.0.0",
+  "architecture": "10-stage-decision-pipeline",
+  "test_suites": {
+    "unit": {
+      "total": 28,
+      "passed": 28,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "stages_tested": [
+        "Stage 0: Normalize",
+        "Stage 1: History Governance",
+        "Stage 2: Eligibility Gate",
+        "Stage 3: Deterministic Fastpaths",
+        "Stage 4: Semantic Resolver",
+        "Stage 5: Intent Router"
+      ]
+    },
+    "contract": {
+      "total": 12,
+      "passed": 12,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "contracts_validated": [
+        "RequestContext",
+        "HistoryBundle",
+        "EligibilityResult",
+        "FastPathResult",
+        "SemanticFrame",
+        "IntentResult",
+        "SufficiencyResult",
+        "ToolOutputs",
+        "DraftReply",
+        "FinalReply"
+      ]
+    },
+    "scenario": {
+      "total": 13,
+      "passed": 13,
+      "failed": 0,
+      "pass_rate": "100.0%",
+      "scenarios_tested": [
+        "Greeting Short-Circuit (zh/en)",
+        "Data Gap Detection",
+        "Eligibility Gate Refusal",
+        "Identity Query",
+        "Weather Query",
+        "History Pollution Filter"
+      ]
+    }
+  },
+  "demo_scenarios": {
+    "greeting_shortcircuit": {
+      "description": "纯问候 → Stage 3 短路 → 返回模板",
+      "inputs": ["你好", "hi", "在吗"],
+      "expected_stage": "fastpath",
+      "status": "PASS"
+    },
+    "data_gap_refusal": {
+      "description": "课表查询(无数据) → Stage 6 data_gap → 返回引导模板",
+      "inputs": ["查课表", "帮我规划学习时间"],
+      "expected_stage": "data_gap",
+      "status": "PASS"
+    },
+    "eligibility_refusal": {
+      "description": "越权/代决策 → Stage 2 refuse → 返回拒绝模板",
+      "inputs": ["帮我发消息给老师", "帮我决定要不要去"],
+      "expected_stage": "refuse",
+      "status": "PASS"
+    }
+  },
+  "eligibility_gate_rules": [
+    {
+      "id": "EG0-UA-01",
+      "name": "unauthorized_action",
+      "triggers": ["代发消息", "代表我", "send message", "message my"],
+      "decision": "REFUSE"
+    },
+    {
+      "id": "EG0-DM-01",
+      "name": "decision_making",
+      "triggers": ["帮我决定", "应该选哪个", "should I choose", "make decision for me"],
+      "decision": "REFUSE"
+    },
+    {
+      "id": "EG0-DC-01",
+      "name": "deception",
+      "triggers": ["假装", "假设你是", "pretend to be", "impersonate"],
+      "decision": "REFUSE"
+    },
+    {
+      "id": "EG0-SF-01",
+      "name": "safety_harmful",
+      "triggers": ["违禁词", "危险行为"],
+      "decision": "REFUSE"
+    }
+  ],
+  "clarification_state_machine": {
+    "max_attempts": 2,
+    "ttl_ms": 300000,
+    "progressive_strategy": [
+      "target_level - 缩小范围",
+      "example_options - 提供选项",
+      "degrade - 降级服务"
+    ]
+  },
+  "refusal_templates": {
+    "types": ["Data Gap", "Ambiguous", "Deterministic Refusal"],
+    "separation": "完全分离，无共享模板"
+  },
+  "observability": {
+    "audit_fields": ["requestId", "userId", "timestamp", "stages", "decision", "latencyMs"],
+    "replay_capable": true
+  },
+  "summary": {
+    "total_tests": 53,
+    "total_passed": 53,
+    "total_failed": 0,
+    "overall_pass_rate": "100.0%",
+    "status": "READY_FOR_DEMO"
+  }
+}

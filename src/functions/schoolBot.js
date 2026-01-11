@@ -8,6 +8,7 @@ const { toPinyinCityName, getWeatherDesc } = require('../../services/weatherServ
 const { checkAnimeDB, checkCustomVision, checkComputerVision } = require('../../services/visionService');
 const { getAudioSource, checkKeywordAudio } = require('../../services/voiceService');
 const { computeScheduleLoadStats } = require('../../services/scheduleService');
+const { runDecisionPipeline } = require('../orchestrator/decisionPipeline');
 
 // ==========================================
 // 🛡️ Pillar 1-4: RAI 四支柱模块
@@ -15,6 +16,7 @@ const { computeScheduleLoadStats } = require('../../services/scheduleService');
 const { detectSafetyRisk, getRefusalMessage, shouldRefuse, shouldSwitchPro, SafetyCategory, SafetyAction, SafetyResult } = require('../common/safety');
 const { createLogger, EventType } = require('../common/logger');
 const { runEligibilityGate, checkEligibilityBypass, EligibilityAction } = require('../common/eligibilityGate');
+const { detectGreetingFastPath, buildGreetingFastPathReply, sanitizeHistoryForInference } = require('../common/chatGuards');
 
 // 全局 UA 池：用于伪装常见浏览器，给天气/其他 HTTP 请求用
 const UA_POOL = [
@@ -6105,6 +6107,81 @@ ${scheduleInfo}
             }
         }
 
+        const rawMsg = body?.raw_message || body?.message || msg || "";
+
+        // === Pipeline v1: 固定阶段决策管线（可追踪契约） ===
+        const pipelineEnabled = process.env["ARIS_PIPELINE_ENABLED"] !== 'false';
+        if (pipelineEnabled) {
+            const sessionKey = `${dbKey}:${senderId}`;
+            const clarificationState = resDoc?.clarificationState?.[sessionKey] || null;
+
+            const pipelineInput = {
+                message: msg || rawMsg || '',
+                userId: senderId,
+                groupId: dbKey.startsWith('group_') ? dbKey : null,
+                source: isWebRequest ? 'web' : 'qq',
+                history,
+                clarificationState,
+                metadata: {
+                    originalInput: { history, message: msg || rawMsg || '', raw_message: rawMsg || '' },
+                    client: clientInfo?.client || 'qq',
+                    messageType: body?.message_type || (isWebRequest ? 'web' : 'qq')
+                }
+            };
+
+            const pipelineResult = await runDecisionPipeline(pipelineInput, context);
+            let parsedBody = {};
+            try {
+                parsedBody = pipelineResult.body ? JSON.parse(pipelineResult.body) : {};
+            } catch (err) {
+                context.log(`[Pipeline] body parse failed: ${err.message}`);
+            }
+            const replyText = parsedBody.reply || '';
+
+            // 🧾 统一元数据契约落库（typed history + clarification FSM）
+            if (cosmosContainer) {
+                try {
+                    resDoc.history = Array.isArray(resDoc.history) ? resDoc.history : [];
+                    resDoc.clarificationState = resDoc.clarificationState || {};
+
+                    // 更新澄清状态：clarify 时保存，其他阶段清理
+                    const nextClarifyState = parsedBody?.clarificationState || null;
+                    if (pipelineResult.meta?.stage === 'clarify' && nextClarifyState) {
+                        resDoc.clarificationState[sessionKey] = nextClarifyState;
+                    } else {
+                        delete resDoc.clarificationState[sessionKey];
+                    }
+
+                    // 存储 typed history，避免拒绝/澄清污染推理
+                    const typedUserEntry = {
+                        role: 'user',
+                        type: 'query',
+                        content: msg || rawMsg || '',
+                        meta: { stage: 'user_input', requestId: pipelineResult?.audit?.requestId || null }
+                    };
+                    const typedAssistantEntry = {
+                        role: 'assistant',
+                        type: pipelineResult.meta?.stage || 'reply',
+                        content: replyText,
+                        meta: pipelineResult.meta || {}
+                    };
+                    resDoc.history.push(typedUserEntry, typedAssistantEntry);
+                    resDoc.history = resDoc.history.slice(-50);
+
+                    resDoc.last_updated = new Date().toISOString();
+                    await cosmosContainer.items.upsert(resDoc);
+                } catch (err) {
+                    context.log(`[Pipeline] state persist failed: ${err.message}`);
+                }
+            }
+
+            return {
+                status: pipelineResult.status || 200,
+                headers: pipelineResult.headers || { 'Content-Type': 'application/json; charset=utf-8' },
+                body: pipelineResult.body
+            };
+        }
+
         // === B. 群聊活跃度统计 ===
         if (!userActivityData[senderId]) {
             userActivityData[senderId] = { count: 0, lastSeen: new Date().toISOString(), nickname: userNickname };
@@ -6148,7 +6225,6 @@ ${scheduleInfo}
 
         // 优先处理课表/日程导入：官方导出 > OCR 截图 > 学习通URL
         const msgLower = (msg || "").toLowerCase();
-        const rawMsg = body?.raw_message || msg || "";
         const scheduleQueryType = detectScheduleQueryType(rawMsg);
         let scheduleContextFromHandler = null;
         
@@ -6226,12 +6302,13 @@ ${scheduleInfo}
 
         // 感知层意图路由 (Model A)
         let intentResult = null;
+        const historyForInference = sanitizeHistoryForInference(history);
         
         // ==========================================
         // 🧠 Pre-Intent Semantic Resolver（L0 层）
         // 在 L1 分类之前，先理解这句话的语境依赖
         // ==========================================
-        const semanticResolution = preIntentSemanticResolver(msg, history, context);
+        const semanticResolution = preIntentSemanticResolver(msg, historyForInference, context);
         context.log(`[SemanticResolver] subject=${semanticResolution.subject}(conf=${semanticResolution.subjectConfidence}) dependsOnContext=${semanticResolution.dependsOnContext} reason=${semanticResolution.contextDependencyReason}`);
         context.log(`[SemanticResolver] standaloneValid=${semanticResolution.standaloneSemanticValidity} searchPermitted=${semanticResolution.searchPermitted} blockReason=${semanticResolution.searchBlockReason || 'none'}`);
         
@@ -6242,7 +6319,7 @@ ${scheduleInfo}
         
         // Gate 0（Pre-Intent）：先判资格再花钱（禁止代决策，避免越界 + 避免 LLM 成本）
         const lang = detectLanguage(msg);
-        const preGate0 = runPreIntentGate0({ msg, lang, policyProfile: activePolicy, context, history });
+        const preGate0 = runPreIntentGate0({ msg, lang, policyProfile: activePolicy, context, history: historyForInference });
         if (preGate0?.action === 'refuse') {
             context?.log?.(`[Gate0] refused early: ${preGate0?.response?.meta?.reason || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
             return preGate0.response;
@@ -6252,13 +6329,25 @@ ${scheduleInfo}
             context?.log?.(`[Gate0] degraded: ${preGate0?.checkResult?.ruleId || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
             // TODO: 可在这里设置降级标志，影响后续 LLM 策略
         }
+
+        // 🆕 问候语短路：打招呼直接回复，不进入 LLM
+        const greetingHit = detectGreetingFastPath(msg);
+        if (greetingHit) {
+            context?.log?.(`[Greeting] fast-path pattern=${greetingHit.pattern} lang=${greetingHit.lang}`);
+            const greetingPayload = buildGreetingFastPathReply(greetingHit.lang);
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify(greetingPayload)
+            };
+        }
         
         if (INTENT_ROUTER_ENABLED) {
             // 🆕 从对话历史中提取上下文线索（如之前提到的城市）
             let contextHints = '';
-            context.log(`[ContextHints] history长度=${history?.length || 0}`);
-            if (history && history.length > 0) {
-                const recentHistory = history.slice(-6); // 最近3轮对话
+            context.log(`[ContextHints] history长度=${historyForInference?.length || 0}`);
+            if (historyForInference && historyForInference.length > 0) {
+                const recentHistory = historyForInference.slice(-6); // 最近3轮对话
                 const historyText = recentHistory.map(h => h.content || '').join(' ');
                 context.log(`[ContextHints] historyText="${historyText.slice(0,100)}"`);
                 // 提取城市/地点
@@ -6856,13 +6945,13 @@ Campus Copilotは情報アシスタントであり、意思決定エージェン
         // 🆕 修复：当有对话历史时，不应该因为"当前消息没有城市"就跳过天气获取
         let historyHasCity = false;
         let historyDebugText = '';
-        if (history && history.length > 0) {
-            const historyText = history.slice(-6).map(h => h.content || '').join(' ');
+        if (historyForInference && historyForInference.length > 0) {
+            const historyText = historyForInference.slice(-6).map(h => h.content || '').join(' ');
             historyDebugText = historyText;
             historyHasCity = /(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛)/.test(historyText);
         }
         // 🔍 调试日志
-        context.log(`[Weather决策] historyLen=${history?.length || 0} historyHasCity=${historyHasCity} historyText="${historyDebugText?.slice(0,100)}"`);
+        context.log(`[Weather决策] historyLen=${historyForInference?.length || 0} historyHasCity=${historyHasCity} historyText="${historyDebugText?.slice(0,100)}"`);
         context.log(`[Weather决策] intentResult: shouldAskUser=${intentResult?.shouldAskUser} missingInfo=${intentResult?.missingInfo} needsWeather=${intentResult?.needsWeather} tool=${intentResult?.tool}`);
         
         const shouldSkipWeatherFetch = !!(
@@ -6895,8 +6984,8 @@ Campus Copilotは情報アシスタントであり、意思決定エージェン
                     
                     // 🆕 如果以上都没有，从对话历史中提取城市
                     let historyLocation = '';
-                    if (!rawLocation && history && history.length > 0) {
-                        const historyText = history.slice(-6).map(h => h.content || '').join(' ');
+                    if (!rawLocation && historyForInference && historyForInference.length > 0) {
+                        const historyText = historyForInference.slice(-6).map(h => h.content || '').join(' ');
                         const cityMatch = historyText.match(/(武汉|北京|上海|广州|深圳|杭州|成都|西安|南京|重庆|天津|苏州|郑州|长沙|青岛|沈阳|大连|厦门|福州|济南|合肥|昆明|贵阳|南昌|太原|哈尔滨|长春)/);
                         if (cityMatch) {
                             historyLocation = cityMatch[1];
@@ -7647,7 +7736,11 @@ ${sd.nextCourse ? `- 下一节课: ${sd.nextCourse.time} ${sd.nextCourse.name} @
 - **严肃、客观、数据驱动**：你是学生的决策支持系统，不是陪聊伙伴
 - **输出格式化、结构化**：优先使用表格、条目、时间轴
 - **语言克制、去修饰**：不使用口语化表达、感叹号、颜文字
-- **边界清晰、拒绝明确**：数据不足时直接说"无法判断"，不加情感缓冲
+- **边界清晰、拒绝明确**：缺数据时直接说明缺口，并告诉用户需要什么，不输出“无法判断”这类系统口吻
+
+【问候/寒暄处理】
+- 用户只说“你好/hi”等问候时，友好回应并引导下一步（示例："你好，我在。你想查课表/做学习规划/看天气/问项目问题，直接说一句就行。").
+- 禁止在问候/寒暄场景输出“无法判断/请提供相关信息”这类拒绝模板。
 
 【🔥 产品定位 - Campus Copilot 核心价值】
 你是 Campus Copilot，专注于整合校园碎片化信息的 AI 助手。
@@ -7703,7 +7796,7 @@ ChatGPT 给你建议，Aris 直接用你的真实课表替你做决定。
 当用户重复询问类似问题时，使用固定模板：
 - 重复问课表："您的课表数据未更新，当前显示的仍是之前的数据。"
 - 重复问空档："基于当前课表，空档时段与之前回复一致。"
-- 缺数据重复问："缺少该数据时无法判断。请提供相关信息后再查询。"
+- 缺数据重复问："我可以帮你，但需要你说明想做什么：查课表/做复习计划/看天气/搜资料。"
 
 【情绪/压力类问题处理（强制）】
 - 当用户表达焦虑/压力/emo/崩溃等：禁止安慰、共情话术、生活方式/作息/心理建议。
@@ -8393,7 +8486,7 @@ ${fullWeekScheduleTable}
                 maxTokens = 4096,
             } = opts;
 
-            const trimmedHistory = useHistory ? history.slice(-8) : [];
+            const trimmedHistory = useHistory ? historyForInference.slice(-8) : [];
             const reqMessages = [
                 { role: 'system', content: systemPrompt },
                 ...trimmedHistory,
