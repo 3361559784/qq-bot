@@ -11,18 +11,12 @@
     "test:report": "npm test 2>&1 | tee eval/report.txt && node -e \"console.log(JSON.stringify({timestamp: new Date().toISOString(), status: process.exitCode === 0 ? 'pass' : 'fail'}, null, 2))\" > eval/report.json"
   },
   "dependencies": {
-    "@azure/cognitiveservices-computervision": "^8.2.0",
     "@azure/cosmos": "^4.8.0",
     "@azure/functions": "^4.0.0",
-    "@azure/ms-rest-js": "^2.7.0",
     "axios": "^1.13.2",
-    "duck-duck-scrape": "^2.2.7",
-    "edge-tts": "^1.0.1",
-    "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
     "node-ical": "^0.15.1",
     "openai": "^6.9.1",
     "pdf-parse": "^2.4.5",
-    "puppeteer-core": "^24.32.1",
     "xlsx": "^0.18.5"
   },
   "main": "src/index.js",

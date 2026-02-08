@@ -5146,6 +5146,7 @@ app.http('schoolBot', {
             let webMode = null;      // 🆕 前端模式 (Ask/Plan/Class/Search)
             let userPersonaMode = null; // 🆕 用户选择的人格（alice/professional），用于回复风格
             let webChatHistory = null; // 🆕 前端传入的对话历史（用于上下文记忆）
+            let isWebRequest = false; // 🆕 Web 请求标记，需全局作用域以供 pipeline 使用
             let clientInfo = detectClient(request, {});
             let policySelection = selectPolicyProfile(clientInfo.client, requestId);
             let activePolicy = policySelection.profile;
@@ -5178,6 +5179,9 @@ app.http('schoolBot', {
                 context.log(`[RID ${requestId}] 事件接收 post_type=${body.post_type}, notice_type=${body.notice_type || 'N/A'}, sub_type=${body.sub_type || 'N/A'}, message_type=${body.message_type || 'N/A'}, msg_type=${msgType || 'N/A'}, sub_msg_type=${subMsgType || 'N/A'}`);
                 
                 const selfId = body.self_id; // 机器人的 QQ 号
+
+                // Web 请求特征：有 message 字段，但没有 post_type 字段
+                isWebRequest = !body?.post_type && !!body?.message;
 
                 // === 检测灰条消息类型的戳一戳 (NapCat 原始格式) ===
                 // msgType=5 是灰条消息, subMsgType=12 是戳一戳
@@ -5306,8 +5310,8 @@ app.http('schoolBot', {
 
                 // 🆕 检测是否是来自 Web 前端的请求（campus-ai-web）
                 // Web 请求特征：有 message 字段，但没有 post_type 字段
-                const isWebRequest = !body.post_type && body.message;
-                
+                // isWebRequest 已在上层作用域计算
+
                 // 非消息且非通知且非Web请求，忽略
                 if (body.post_type !== 'message' && !isWebRequest) {
                     return {
