@@ -97,17 +97,21 @@ const INTENT_DATA_REQUIREMENTS = {
 /**
  * 检查课表数据
  */
-async function checkScheduleData(userId, context) {
-    // TODO: 实际从 Cosmos DB 检查
-    // 这里返回占位结果
+async function checkScheduleData(requestContext, context) {
+    // 优先使用前端透传的 inline schedule（评委 demo / web 场景）
+    const inline = requestContext?.metadata?.schedule;
+    if (Array.isArray(inline) && inline.length > 0) {
+        return {
+            available: true,
+            data: { source: 'inline', count: inline.length },
+            lastUpdated: null
+        };
+    }
+
+    // TODO: 从 Cosmos DB / 其它存储检查
+    const userId = requestContext?.userId || 'anonymous';
     context?.log?.(`[ContextSufficiency] Checking schedule data for user: ${userId}`);
-    
-    // 模拟：假设没有课表数据
-    return {
-        available: false,
-        data: null,
-        lastUpdated: null
-    };
+    return { available: false, data: null, lastUpdated: null };
 }
 
 /**
@@ -202,15 +206,15 @@ async function checkContextSufficiency(intentResult, requestContext, semanticFra
         
         let checkResult = { available: false };
         
-        switch (dataType) {
-            case 'schedule':
-                checkResult = await checkScheduleData(userId, context);
-                break;
-            case 'weather':
-                checkResult = await checkWeatherData(slots.location, context);
-                break;
-            case 'userProfile':
-                checkResult = await checkUserProfile(userId, context);
+            switch (dataType) {
+                case 'schedule':
+                    checkResult = await checkScheduleData(requestContext, context);
+                    break;
+                case 'weather':
+                    checkResult = await checkWeatherData(slots.location, context);
+                    break;
+                case 'userProfile':
+                    checkResult = await checkUserProfile(userId, context);
                 break;
         }
         
@@ -230,7 +234,7 @@ async function checkContextSufficiency(intentResult, requestContext, semanticFra
             
             switch (dataType) {
                 case 'schedule':
-                    checkResult = await checkScheduleData(userId, context);
+                    checkResult = await checkScheduleData(requestContext, context);
                     break;
             }
             

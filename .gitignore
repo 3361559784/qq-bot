@@ -55,9 +55,6 @@ out/
 *.backup*
 *.broken
 
-# generated reports (may contain real endpoints / ids)
-tools/TEST_REPORT.md
-
 # 屏蔽 OS 相关
 Thumbs.db
 

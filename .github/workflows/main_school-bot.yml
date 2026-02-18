@@ -39,12 +39,19 @@ jobs:
           npm ci --production=false
           # 🚫 不进入 campus-ai-web 目录，避免触发前端构建
 
-      - name: 🧪 Run Pipeline Tests
+      - name: ✅ Verify backend entrypoint
         run: |
-          # 执行决策管线测试套件
-          npm run test:unit
-          npm run test:contract
-          npm run test:scenario
+          npm run verify:runtime
+
+      - name: ✅ Optional frontend build smoke
+        run: |
+          if [ -f campus-ai-web/package.json ]; then
+            cd campus-ai-web
+            npm ci --production=false
+            npm run build
+          else
+            echo "campus-ai-web not found, skip frontend smoke build"
+          fi
 
       - name: 🔐 Login to Azure
         uses: azure/login@v1

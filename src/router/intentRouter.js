@@ -36,6 +36,7 @@ const RULE_BASED_INTENTS = {
                 /(查|看|有什么).*(课|课表|课程)/,
                 /(今天|明天|后天|周[一二三四五六日天]).*(课|有什么)/,
                 /(几点|什么时候).*(上课|下课)/,
+                /(什么时候上|何时上|下一节课|下节课)/,
                 /(空闲|空档|没课|有课)/,
                 /课表/
             ],
@@ -43,6 +44,7 @@ const RULE_BASED_INTENTS = {
                 /(check|show|what).*(class|schedule|course)/i,
                 /(today|tomorrow).*(class|have)/i,
                 /(when|what time).*(class|lecture)/i,
+                /(next\s+class)/i,
                 /(free|available|no class)/i
             ]
         },

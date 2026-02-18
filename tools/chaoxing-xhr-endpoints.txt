@@ -1,9 +1,0 @@
-/apis/curriculum/getAllLessons
-getAllLessons
-getMyLessons
-getOtherLessons
-getMeetInfo
-getZhiboktStatus
-getFormAddOrEditUrl
-getLocationConfig
-copyCurriculum

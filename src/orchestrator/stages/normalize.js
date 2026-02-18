@@ -182,7 +182,11 @@ function normalizeRequest(input, context) {
     const dayOfWeek = getDayOfWeek(beijingTime);
     
     const policyProfile = selectPolicyProfile(source, requestId);
-    
+
+    // Inline data from web frontend (do not assume persistence).
+    const inlineSchedule = Array.isArray(input.schedule) ? input.schedule : null;
+    const curriculumUuid = typeof input.curriculumUuid === 'string' ? input.curriculumUuid : null;
+
     // 用户ID处理
     let userId = input.userId || input.user_id || input.senderId || 'anonymous';
     if (typeof userId === 'number') userId = userId.toString();
@@ -208,6 +212,9 @@ function normalizeRequest(input, context) {
             imageUrls: input.images || (input.imageUrl ? [input.imageUrl] : []),
             hasFile: !!(input.files?.length || input.fileUrl),
             fileUrls: input.files || (input.fileUrl ? [input.fileUrl] : []),
+            hasSchedule: !!(inlineSchedule && inlineSchedule.length > 0),
+            schedule: inlineSchedule,
+            curriculumUuid,
             isAtBot: input.isAtBot ?? true,
             messageType: input.messageType || 'text',
             originalInput: input

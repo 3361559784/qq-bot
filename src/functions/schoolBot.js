@@ -6115,23 +6115,32 @@ ${scheduleInfo}
 
         // === Pipeline v1: 固定阶段决策管线（可追踪契约） ===
         const pipelineEnabled = process.env["ARIS_PIPELINE_ENABLED"] !== 'false';
-        if (pipelineEnabled) {
-            const sessionKey = `${dbKey}:${senderId}`;
-            const clarificationState = resDoc?.clarificationState?.[sessionKey] || null;
+	        if (pipelineEnabled) {
+	            const sessionKey = `${dbKey}:${senderId}`;
+	            const clarificationState = resDoc?.clarificationState?.[sessionKey] || null;
 
-            const pipelineInput = {
-                message: msg || rawMsg || '',
-                userId: senderId,
-                groupId: dbKey.startsWith('group_') ? dbKey : null,
-                source: isWebRequest ? 'web' : 'qq',
-                history,
-                clarificationState,
-                metadata: {
-                    originalInput: { history, message: msg || rawMsg || '', raw_message: rawMsg || '' },
-                    client: clientInfo?.client || 'qq',
-                    messageType: body?.message_type || (isWebRequest ? 'web' : 'qq')
-                }
-            };
+	            // Web 前端可能会透传已导入课表；新管线需要显式拿到它才能查询。
+	            const inlineSchedule = Array.isArray(body?.schedule) ? body.schedule : null;
+	            const curriculumUuid = typeof body?.curriculumUuid === 'string' ? body.curriculumUuid : null;
+
+	            const pipelineInput = {
+	                message: msg || rawMsg || '',
+	                userId: senderId,
+	                groupId: dbKey.startsWith('group_') ? dbKey : null,
+	                source: isWebRequest ? 'web' : 'qq',
+	                // Inline data (from web) for pipeline stages/tools (do not log secrets).
+	                schedule: inlineSchedule,
+	                curriculumUuid,
+	                history,
+	                clarificationState,
+	                metadata: {
+	                    originalInput: { history, message: msg || rawMsg || '', raw_message: rawMsg || '' },
+	                    client: clientInfo?.client || 'qq',
+	                    messageType: body?.message_type || (isWebRequest ? 'web' : 'qq'),
+	                    hasInlineSchedule: !!(inlineSchedule && inlineSchedule.length > 0),
+	                    curriculumUuid: curriculumUuid || undefined
+	                }
+	            };
 
             const pipelineResult = await runDecisionPipeline(pipelineInput, context);
             let parsedBody = {};

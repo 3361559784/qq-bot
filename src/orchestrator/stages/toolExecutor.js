@@ -55,6 +55,171 @@ const INTENT_TO_TOOLS = {
     unclear: []
 };
 
+function weekdayFromDate(date) {
+    const d = date instanceof Date ? date : new Date(date || Date.now());
+    const js = d.getDay(); // 0=Sun..6=Sat
+    return js === 0 ? 7 : js;
+}
+
+function addDays(date, days) {
+    const d = date instanceof Date ? new Date(date.getTime()) : new Date(date || Date.now());
+    d.setDate(d.getDate() + days);
+    return d;
+}
+
+function hhmmToMinutes(hhmm) {
+    const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+    return h * 60 + min;
+}
+
+function formatDayLabel(weekday, lang) {
+    const zh = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+    const en = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return (lang === 'en' ? en : zh)[weekday] || String(weekday);
+}
+
+function buildScheduleTable(courses, lang) {
+    if (!Array.isArray(courses) || courses.length === 0) {
+        return lang === 'en' ? 'No classes found.' : '当天没有课程。';
+    }
+
+    const header = lang === 'en'
+        ? '| Time | Course | Location | Instructor |\\n|---|---|---|---|'
+        : '| 时间 | 课程 | 地点 | 老师 |\\n|---|---|---|---|';
+
+    const rows = courses.map((c) => {
+        const time = `${c.startTime || ''}-${c.endTime || ''}`.replace(/^-|-$/g, '');
+        const name = c.courseName || c.name || '未知课程';
+        const loc = c.location || '-';
+        const ins = c.instructor || c.teacher || '-';
+        return `| ${time || '-'} | ${name} | ${loc} | ${ins} |`;
+    });
+
+    return [header, ...rows].join('\\n');
+}
+
+function pickCourseNameFromMessage(message, schedule) {
+    const text = String(message || '').trim();
+    if (!text) return null;
+    const names = Array.from(new Set((Array.isArray(schedule) ? schedule : [])
+        .map((c) => String(c?.courseName || '').trim())
+        .filter(Boolean)));
+
+    let best = null;
+    const compactText = text.replace(/\\s+/g, '');
+    for (const name of names) {
+        if (!name) continue;
+        if (text.includes(name)) {
+            if (!best || name.length > best.length) best = name;
+            continue;
+        }
+        const compactName = name.replace(/\\s+/g, '');
+        if (compactName && compactText.includes(compactName)) {
+            if (!best || compactName.length > best.length) best = name;
+        }
+    }
+    return best;
+}
+
+function handleScheduleQuery(params, requestContext) {
+    const lang = requestContext?.lang || params?.lang || 'zh';
+    const schedule = Array.isArray(params?.schedule)
+        ? params.schedule
+        : (Array.isArray(requestContext?.metadata?.schedule) ? requestContext.metadata.schedule : []);
+    const now = requestContext?.timestamp instanceof Date ? requestContext.timestamp : new Date();
+    const message = String(params?.message || requestContext?.message || '').trim();
+
+    const wantsNext = /(下一节课|下节课|next\\s+class)/i.test(message);
+    const explicitToday = /(今天|today)/i.test(message);
+    const explicitTomorrow = /(明天|tomorrow)/i.test(message);
+    const explicitDayAfter = /(后天)/.test(message);
+    const askedWhen = /(什么时候|几点|何时|when|what\\s+time)/i.test(message);
+    const courseName = pickCourseNameFromMessage(message, schedule);
+
+    if (courseName && askedWhen) {
+        const matches = schedule.filter((c) => String(c?.courseName || '').includes(courseName));
+        matches.sort((a, b) => (a.weekday || 0) - (b.weekday || 0) || String(a.startTime || '').localeCompare(String(b.startTime || '')));
+        if (matches.length === 0) {
+            return {
+                replyText: lang === 'en'
+                    ? `No entries found for \"${courseName}\".`
+                    : `没有在课表里找到「${courseName}」。`
+            };
+        }
+        const lines = matches.map((c) => {
+            const day = formatDayLabel(Number(c.weekday || 0), lang);
+            const time = `${c.startTime || ''}-${c.endTime || ''}`.replace(/^-|-$/g, '');
+            const loc = c.location ? ` @${c.location}` : '';
+            return lang === 'en'
+                ? `- ${day} ${time}: ${courseName}${loc}`
+                : `- ${day} ${time}：${courseName}${loc}`;
+        });
+        return {
+            replyText: (lang === 'en'
+                ? `Here are the schedule entries for \"${courseName}\":\\n\\n`
+                : `「${courseName}」上课时间如下：\\n\\n`) + lines.join('\\n')
+        };
+    }
+
+    let target = weekdayFromDate(now);
+    if (explicitTomorrow || params?.date === 'tomorrow') target = weekdayFromDate(addDays(now, 1));
+    if (explicitDayAfter || params?.date === 'day_after_tomorrow') target = weekdayFromDate(addDays(now, 2));
+    if (explicitToday || params?.date === 'today') target = weekdayFromDate(now);
+
+    const coursesByWeekday = (wd) => schedule
+        .filter((c) => Number(c?.weekday) === Number(wd))
+        .slice()
+        .sort((a, b) => String(a.startTime || '').localeCompare(String(b.startTime || '')));
+
+    if (wantsNext) {
+        const todayCourses = coursesByWeekday(weekdayFromDate(now));
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        let next = todayCourses.find((c) => {
+            const startMin = hhmmToMinutes(c.startTime);
+            return startMin != null && startMin > nowMin;
+        });
+
+        let dayOffset = 0;
+        while (!next && dayOffset < 7) {
+            dayOffset += 1;
+            const wd = weekdayFromDate(addDays(now, dayOffset));
+            const arr = coursesByWeekday(wd);
+            if (arr.length > 0) {
+                next = arr[0];
+                break;
+            }
+        }
+
+        if (!next) {
+            return { replyText: lang === 'en' ? 'No upcoming classes found.' : '没有找到接下来一周内的课程。' };
+        }
+        const day = formatDayLabel(Number(next.weekday || weekdayFromDate(now)), lang);
+        const time = `${next.startTime || ''}-${next.endTime || ''}`.replace(/^-|-$/g, '');
+        const loc = next.location ? ` @${next.location}` : '';
+        return {
+            replyText: lang === 'en'
+                ? `Next class: ${day} ${time} ${next.courseName || 'Unknown'}${loc}`
+                : `下一节课：${day} ${time} ${next.courseName || '未知课程'}${loc}`
+        };
+    }
+
+    const dayCourses = coursesByWeekday(target);
+    const label = (explicitTomorrow || params?.date === 'tomorrow')
+        ? (lang === 'en' ? 'Tomorrow' : '明天')
+        : (explicitDayAfter || params?.date === 'day_after_tomorrow')
+            ? (lang === 'en' ? 'The day after tomorrow' : '后天')
+            : (lang === 'en' ? 'Today' : '今天');
+
+    const table = buildScheduleTable(dayCourses, lang);
+    return {
+        replyText: `${label}（${formatDayLabel(target, lang)}）${lang === 'en' ? ' schedule:' : '课表：'}\\n\\n${table}`
+    };
+}
+
 /**
  * @typedef {Object} ToolOutput
  * @property {string} name - 工具名称
@@ -91,8 +256,23 @@ async function executeTool(toolName, params, context) {
     }
     
     try {
+        if (toolName === 'schedule_query') {
+            const schedule = Array.isArray(params?.schedule) ? params.schedule : null;
+            if (schedule && schedule.length > 0) {
+                const result = handleScheduleQuery(params, params?.requestContext);
+                return {
+                    name: toolName,
+                    success: true,
+                    latencyMs: Date.now() - startTime,
+                    result,
+                    evidenceRef: `tool:${toolName}:${Date.now()}`,
+                    error: null
+                };
+            }
+        }
+
         // TODO: 实际工具调用
-        // const handler = require(`./tools/${tool.handler}`);
+        // const handler = require(`../handlers/${tool.handler}`);
         // const result = await handler(params, context);
         
         // 占位实现
@@ -182,7 +362,11 @@ async function executeTools(intentResult, requestContext, availableData, context
         const params = {
             ...slots,
             userId: requestContext.userId,
-            lang: requestContext.lang
+            lang: requestContext.lang,
+            message: requestContext.message,
+            schedule: requestContext?.metadata?.schedule,
+            curriculumUuid: requestContext?.metadata?.curriculumUuid,
+            requestContext
         };
         
         const output = await executeTool(toolName, params, context);

@@ -137,7 +137,14 @@ async function callLLM(messages, context) {
     context?.log?.(`[LLMResponse] Calling LLM with ${messages.length} messages`);
     
     // 占位实现
-    const userMessage = messages.find(m => m.role === 'user')?.content || '';
+    // Use the latest user message (history can contain older user turns).
+    let userMessage = '';
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]?.role === 'user') {
+            userMessage = messages[i]?.content || '';
+            break;
+        }
+    }
     
     // 简单的规则响应（用于测试）
     let content = '我收到了你的消息，但 LLM 调用尚未实现。';
@@ -171,6 +178,21 @@ async function callLLM(messages, context) {
  * @returns {Promise<DraftReply>}
  */
 async function generateLLMResponse(requestContext, intentResult, toolOutputs, sanitizedHistory, context) {
+    // If tools already produced a deterministic reply, prefer it (no LLM needed).
+    const scheduleReply = toolOutputs?.aggregatedData?.schedule_query?.replyText;
+    if (typeof scheduleReply === 'string' && scheduleReply.trim()) {
+        return {
+            content: scheduleReply.trim(),
+            model: 'deterministic(schedule_query)',
+            tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+            persona: 'professional',
+            confidence: 1.0,
+            evidence: toolOutputs.calls
+                .filter(c => c?.success && c?.evidenceRef)
+                .map(c => c.evidenceRef)
+        };
+    }
+
     // 构建 Prompt
     const messages = buildPrompt(requestContext, intentResult, toolOutputs, sanitizedHistory, context);
     
