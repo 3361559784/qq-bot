@@ -11,6 +11,21 @@
 - `ARIS_PIPELINE_ENABLED`: enable/disable new pipeline.
 - `ARIS_DEBUG_RESPONSE`: include `meta._debug` when `true`.
 
+## SchoolBot Engine Routing
+
+- `ARIS_SCHOOLBOT_ENGINE`: `legacy|v2|shadow` (default: `legacy`)
+- `ARIS_SCHOOLBOT_V2_PERCENT`: `0..100` (default: `0`)
+
+## Ingress Auth (Optional, recommended in production)
+
+- `ARIS_REQUIRE_INGRESS_AUTH`: `true|false` (default: `false`)
+- `ARIS_INGRESS_SHARED_KEY`: shared secret header key
+- `ARIS_INGRESS_SIGNATURE_SECRET`: HMAC-SHA256 signature secret
+- `ARIS_INGRESS_SIGNATURE_SKEW_SEC`: max timestamp skew in seconds (default: `300`)
+- Header contract:
+  - Shared key: `x-aris-key` (or `Authorization: Bearer <key>`)
+  - Signature: `x-aris-timestamp` + `x-aris-signature` (`sha256=<hex>`)
+
 ## Search / Weather
 
 - `SERPAPI_KEY`

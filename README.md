@@ -24,9 +24,15 @@ Backend service for a campus assistant built on Azure Functions.
 Core modules after refactor:
 
 - Runtime config: `src/functions/schoolbot/config/runtime.js`
+- Thin HTTP orchestrator: `src/functions/schoolbot/http/handler.js`
+- Legacy engine fallback: `src/functions/schoolbot/runtime/legacyEngine.js`
+- v2 engine bridge: `src/functions/schoolbot/runtime/v2Engine.js`
+- Engine selector (gray/shadow): `src/functions/schoolbot/runtime/engineSelector.js`
 - Policy gates: `src/functions/schoolbot/policy/gates.js`
 - Request parsing: `src/functions/schoolbot/http/requestParser.js`
 - Non-chat event routing: `src/functions/schoolbot/http/eventRouter.js`
+- Response adapter: `src/functions/schoolbot/http/responseAdapter.js`
+- Ingress auth guard: `src/functions/schoolbot/http/authGuard.js`
 - Poke subsystem: `src/functions/schoolbot/features/poke.js`
 - Media helpers: `src/functions/schoolbot/features/media.js`
 - Public bridge API: `src/functions/schoolbot/publicApi.js`
@@ -92,11 +98,15 @@ Primary routes:
 - Use env vars for all credentials.
 - Hardcoded deployment-sensitive GPT-SoVITS values are removed.
 - `_debug` response metadata is disabled by default (`ARIS_DEBUG_RESPONSE=false`).
+- Engine defaults: `ARIS_SCHOOLBOT_ENGINE=legacy`, `ARIS_SCHOOLBOT_V2_PERCENT=0`.
+- Optional ingress auth is supported by `ARIS_REQUIRE_INGRESS_AUTH`.
 
 - 严禁把密钥提交到 git。
 - 所有凭据必须使用环境变量。
 - GPT-SoVITS 的敏感硬编码默认值已移除。
 - 响应中的 `_debug` 默认关闭（`ARIS_DEBUG_RESPONSE=false`）。
+- 运行默认是 legacy 引擎（`ARIS_SCHOOLBOT_ENGINE=legacy`，`ARIS_SCHOOLBOT_V2_PERCENT=0`）。
+- 支持可配置入口鉴权（`ARIS_REQUIRE_INGRESS_AUTH`）。
 
 Please read `SECURITY.md` for vulnerability reporting.
 

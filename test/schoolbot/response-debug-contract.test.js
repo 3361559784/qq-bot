@@ -1,12 +1,32 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
+const { adaptV2ToLegacyHttp, parseHttpJsonBody } = require('../../src/functions/schoolbot/http/responseAdapter');
 
-test('handler keeps debug payload behind runtime flag', () => {
-  const file = path.join(__dirname, '../../src/functions/schoolbot/http/handler.js');
-  const text = fs.readFileSync(file, 'utf8');
+test('debug payload is hidden by default and shown only with runtime flag', () => {
+  const base = {
+    v2Response: {
+      content: 'hello',
+      persona: 'professional',
+      safety: { action: 'pass', reason_code: '' },
+      tool_calls: [],
+      meta: { request_id: 'rid' },
+      latency_ms: 1
+    },
+    requestId: 'rid',
+    client: 'web',
+    engineMeta: { mode: 'v2', primary: 'v2', percent: 100, bucket: 0 },
+    latencyMs: 1
+  };
 
-  assert.match(text, /if \(RUNTIME_CONFIG\.response\.exposeDebugMeta\)/);
-  assert.match(text, /responsePayload\.meta\._debug/);
+  const hidden = parseHttpJsonBody(adaptV2ToLegacyHttp({
+    ...base,
+    runtimeConfig: { response: { exposeDebugMeta: false } }
+  }));
+  assert.equal(hidden.meta._debug, undefined);
+
+  const shown = parseHttpJsonBody(adaptV2ToLegacyHttp({
+    ...base,
+    runtimeConfig: { response: { exposeDebugMeta: true } }
+  }));
+  assert.equal(typeof shown.meta._debug, 'object');
 });

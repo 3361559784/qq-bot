@@ -14,6 +14,9 @@ Do not disclose public proof-of-concept until a fix is prepared.
 - Do not commit any tokens, keys, credentials, or connection strings.
 - Use `local.settings.json` for local-only secrets.
 - Use cloud secret management for production.
+- Production should enable ingress protection for `/api/schoolbot`:
+  - `ARIS_REQUIRE_INGRESS_AUTH=true`
+  - Configure `ARIS_INGRESS_SHARED_KEY` and/or `ARIS_INGRESS_SIGNATURE_SECRET`
 
 ## Supported Scope
 

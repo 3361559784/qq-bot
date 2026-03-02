@@ -8,5 +8,6 @@ module.exports = {
   detectLanguage: handler.detectLanguage,
   getPromptByLanguage: handler.getPromptByLanguage,
   simpleVectorize: handler.simpleVectorize,
-  cosineSimilarity: handler.cosineSimilarity
+  cosineSimilarity: handler.cosineSimilarity,
+  selectSchoolBotEngine: handler.selectSchoolBotEngine
 };

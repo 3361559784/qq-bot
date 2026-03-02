@@ -26,3 +26,31 @@ export interface SchoolBotResponse {
   meta?: SchoolBotMeta;
   auto_escape?: boolean;
 }
+
+export type SchoolBotEngineMode = 'legacy' | 'v2' | 'shadow';
+export type SchoolBotEngineTarget = 'legacy' | 'v2';
+
+export interface SchoolBotEngineRequest {
+  requestId: string;
+  userId: string;
+  channel: Channel;
+  mode: SchoolBotEngineMode;
+  percent: number;
+}
+
+export interface SchoolBotEngineResponse {
+  mode: SchoolBotEngineMode;
+  primary: SchoolBotEngineTarget;
+  shadow: SchoolBotEngineTarget | null;
+  percent: number;
+  bucket: number;
+  sampledToV2: boolean;
+}
+
+export interface IngressAuthResult {
+  ok: boolean;
+  status?: number;
+  reason?: string;
+  mode?: 'disabled' | 'shared_key' | 'signature';
+  message?: string;
+}
