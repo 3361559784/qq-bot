@@ -1,0 +1,32 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+
+    "GITHUB_TOKEN": "",
+    "COSMOS_DB_STRING": "",
+
+    "ARIS_MOCK_CHAT": "false",
+    "ARIS_PIPELINE_ENABLED": "false",
+    "ARIS_DEBUG_RESPONSE": "false",
+
+    "SENIVERSE_API_KEY": "",
+    "SERPAPI_KEY": "",
+
+    "SCRAPER_ENDPOINT": "",
+    "NAPCAT_API_URL": "http://127.0.0.1:6009",
+    "NAPCAT_TOKEN": "",
+    "BOT_QQ_ID": "",
+
+    "ARIS_GPTSOVITS_API_URL": "",
+    "ARIS_GPTSOVITS_GPT_WEIGHTS": "GPT_weights_v2/Aris-e15.ckpt",
+    "ARIS_GPTSOVITS_SOVITS_WEIGHTS": "SoVITS_weights_v2/Aris_e16_s272.pth",
+    "ARIS_GPTSOVITS_REF_AUDIO_PATH": "",
+    "ARIS_GPTSOVITS_REF_PROMPT_TEXT": "",
+    "ARIS_GPTSOVITS_REF_PROMPT_LANG": "ja"
+  },
+  "Host": {
+    "CORS": "*"
+  }
+}

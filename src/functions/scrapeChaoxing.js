@@ -8,7 +8,7 @@
 
 const { app } = require('@azure/functions');
 const { scrapeRemote, cleanScrapedText, isChaoxingUrl } = require('./chaoxingScraperRemote');
-const { handleScheduleRequest, cosmosContainer, token } = require('./schoolBot');
+const { handleScheduleRequest, getCosmosContainer, getGithubToken } = require('./schoolBot');
 
 /**
  * Azure Function HTTP 触发器
@@ -69,10 +69,20 @@ app.http('scrapeChaoxing', {
                 msg: cleanedText,     // 用爬取的文本作为消息体
                 senderId: userId,
                 dbKey: dbKey,
-                cosmosContainer: cosmosContainer,
+                cosmosContainer: getCosmosContainer(),
                 context: context,
-                token: token
+                token: getGithubToken()
             });
+
+            let parsedPayload = {};
+            try {
+                const bodyText = typeof parseResult?.body === 'string'
+                    ? parseResult.body
+                    : JSON.stringify(parseResult?.body || {});
+                parsedPayload = bodyText ? JSON.parse(bodyText) : {};
+            } catch (err) {
+                context.log(`[ScrapeChaoxing] 解析课表响应失败: ${err.message}`);
+            }
 
             // 6. 返回结果
             return {
@@ -83,11 +93,11 @@ app.http('scrapeChaoxing', {
                     url: url,
                     screenshotPath: scrapeResult.screenshotPath,
                     textLength: cleanedText.length,
-                    parsed: parseResult.parsed || false,
-                    events: parseResult.events || [],
-                    summary: parseResult.summary || '未能解析出课程事件',
-                    needsConfirmation: parseResult.needsConfirmation || false,
-                    rawReply: parseResult.rawReply || ''
+                    parsed: !!parseResult,
+                    events: parsedPayload.events || [],
+                    summary: parsedPayload.summary || parsedPayload.reply || '未能解析出课程事件',
+                    needsConfirmation: !!parsedPayload.needsConfirmation,
+                    rawReply: parsedPayload.reply || ''
                 },
                 headers: {
                     'Content-Type': 'application/json'

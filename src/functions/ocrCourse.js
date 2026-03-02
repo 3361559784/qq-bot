@@ -1,9 +1,5 @@
 const { app } = require('@azure/functions');
-const {
-    handleScheduleRequest,
-    cosmosContainer,
-    token
-} = require('./schoolBot');
+const { handleScheduleRequest, getCosmosContainer, getGithubToken } = require('./schoolBot');
 
 // 引入新的 GPT-4o 视觉 OCR 流程
 const { ocrScheduleWorkflow } = require('../../services/ocrSchedule');
@@ -103,9 +99,9 @@ app.http('ocrCourse', {
                 msg: rawMsg || '',
                 senderId: String(userId),
                 dbKey,
-                cosmosContainer,
+                cosmosContainer: getCosmosContainer(),
                 context,
-                token
+                token: getGithubToken()
             });
 
             // handleScheduleRequest 已返回 HTTP 响应结构（或 null）

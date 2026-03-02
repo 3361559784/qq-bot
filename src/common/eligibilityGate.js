@@ -76,7 +76,7 @@ const POSITIVE_SIGNALS = [
             en: /\b(worth\s+it|is\s+it\s+worth|what\s+should\s+i\s+do|how\s+do\s+i\s+choose)\b/i,
             ja: /(すべきか|した方がいいか|どうすればいい|価値がある)/
         },
-        weight: 0.35,
+        weight: 0.25,
         description: '代决策核心动词'
     },
     // S6: 高后果领域
@@ -109,7 +109,7 @@ const POSITIVE_SIGNALS = [
             en: /\bshould\s+i\b/i,
             ja: /(私は.{0,5}べき|するべきか)/
         },
-        weight: 0.40,
+        weight: 0.20,
         description: '"should I" 基本结构'
     }
 ];
@@ -295,27 +295,31 @@ function checkEligibility(msg, options = {}) {
     let eligibilityType = null;
 
     if (normalizedScore >= thresholds.refuse) {
-        action = EligibilityAction.REFUSE;
         const hasDelegateAction = matchedSignals.some(s => s.id === 'S7-DELEGATE_ACTION');
         const hasResponsibilityTransfer = matchedSignals.some(s => s.id === 'S4-RESPONSIBILITY_TRANSFER');
         const hasHighStakes = matchedSignals.some(s => s.id === 'S6-HIGH_STAKES');
         
         if (hasDelegateAction) {
+            action = EligibilityAction.REFUSE;
             eligibilityType = EligibilityType.UNAUTHORIZED_ACTION;
             reason = 'delegate_action_detected';
             ruleId = 'EG0-UA-01';
         } else if (hasResponsibilityTransfer) {
+            action = EligibilityAction.REFUSE;
             eligibilityType = EligibilityType.DELEGATION;
             reason = 'responsibility_transfer_detected';
             ruleId = 'EG0-DEL-01';
         } else if (hasHighStakes) {
+            action = EligibilityAction.REFUSE;
             eligibilityType = EligibilityType.HIGH_STAKES_ADVICE;
             reason = 'high_stakes_advice_detected';
             ruleId = 'EG0-HSA-01';
         } else {
+            // 对常见“该不该/要不要”类表达做软处理，避免过度拒绝。
+            action = EligibilityAction.DEGRADE;
             eligibilityType = EligibilityType.DECISION_MAKING;
-            reason = 'decision_making_detected';
-            ruleId = 'EG0-DM-01';
+            reason = 'decision_making_soft_degrade';
+            ruleId = 'EG0-DM-02';
         }
     } else if (normalizedScore >= thresholds.degrade) {
         action = EligibilityAction.DEGRADE;

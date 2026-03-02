@@ -4,3 +4,4 @@ const { app } = require('@azure/functions');
 require('./functions/schoolBot');
 require('./functions/dailyClassReminder');
 require('./functions/ocrCourse');
+require('./functions/v2Api');
