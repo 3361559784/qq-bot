@@ -32,7 +32,7 @@ function resolveToolName(toolCalls) {
   return first ? String(first.tool) : null;
 }
 
-function mapTrustMeta(toolName) {
+function mapTrustMeta(toolName, computerUseOutput = null) {
   if (!toolName) return { sourceLabel: null, trustLevel: null };
 
   if (toolName.startsWith('schedule.')) {
@@ -45,6 +45,15 @@ function mapTrustMeta(toolName) {
     return { sourceLabel: 'Search Engine', trustLevel: 'live_search' };
   }
   if (toolName === 'computer.use') {
+    const transport = String(computerUseOutput?.transport || '').trim().toLowerCase();
+    const provider = String(computerUseOutput?.provider || '').trim().toLowerCase();
+
+    if (transport === 'mcp_stdio') {
+      if (provider === 'chatgpt_plus_relay_poc') {
+        return { sourceLabel: 'ChatGPT Plus Relay (PoC)', trustLevel: 'experimental' };
+      }
+      return { sourceLabel: 'Local MCP Computer Use', trustLevel: 'local_automation_mcp' };
+    }
     return { sourceLabel: 'Local Computer Agent', trustLevel: 'local_automation' };
   }
 
@@ -62,11 +71,11 @@ function adaptV2ToLegacyHttp({
   const response = v2Response || {};
   const toolCalls = Array.isArray(response.tool_calls) ? response.tool_calls : [];
   const toolName = resolveToolName(response.tool_calls);
-  const trustMeta = mapTrustMeta(toolName);
   const computerUseCall = toolCalls.find((x) => x && x.tool === 'computer.use');
   const computerUseOutput = computerUseCall?.output && typeof computerUseCall.output === 'object'
     ? computerUseCall.output
     : null;
+  const trustMeta = mapTrustMeta(toolName, computerUseOutput);
 
   const payload = {
     reply: String(response.content || ''),
@@ -90,7 +99,9 @@ function adaptV2ToLegacyHttp({
       channel: String(client || response.meta?.channel || 'unknown'),
       engine: String(engineMeta?.primary || 'v2'),
       computer_use_job_id: computerUseOutput?.job_id || null,
-      computer_use_status: computerUseOutput?.status || null
+      computer_use_status: computerUseOutput?.status || null,
+      computer_use_transport: computerUseOutput?.transport || null,
+      computer_use_provider: computerUseOutput?.provider || null
     },
     auto_escape: false
   };

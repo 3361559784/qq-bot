@@ -28,6 +28,7 @@ const V2_DEFAULTS = Object.freeze({
   computerUse: {
     runtimeProfile,
     enabled: parseBool(process.env.ARIS_CU_ENABLED, runtimeProfile === 'host'),
+    transport: normalizeMode(process.env.ARIS_CU_TRANSPORT, 'mcp_stdio', ['mcp_stdio', 'http_agent', 'hybrid']),
     triggerMode: normalizeMode(process.env.ARIS_CU_TRIGGER_MODE, 'both', ['explicit', 'auto', 'both']),
     confirmMode: normalizeMode(process.env.ARIS_CU_CONFIRM_MODE, 'periodic', ['periodic', 'always', 'never']),
     confirmEverySteps: Number(process.env.ARIS_CU_CONFIRM_EVERY_STEPS || 5),
@@ -35,7 +36,10 @@ const V2_DEFAULTS = Object.freeze({
     maxSteps: Number(process.env.ARIS_CU_MAX_STEPS || 30),
     syncWaitMs: Number(process.env.ARIS_CU_SYNC_WAIT_MS || 18000),
     leaseTtlSec: Number(process.env.ARIS_CU_LEASE_TTL_SEC || 45),
-    plannerModel: String(process.env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini')
+    plannerModel: String(process.env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini'),
+    mcpServerCmd: String(process.env.ARIS_CU_MCP_SERVER_CMD || 'python3 main.py'),
+    mcpServerCwd: String(process.env.ARIS_CU_MCP_SERVER_CWD || 'local/mcp-computer-use-server'),
+    mcpTimeoutMs: Number(process.env.ARIS_CU_MCP_TIMEOUT_MS || 30000)
   },
   limits: {
     maxContentChars: Number(process.env.V2_MAX_CONTENT_CHARS || 6000),

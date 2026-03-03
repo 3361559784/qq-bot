@@ -1,16 +1,21 @@
-import base64
-import io
 import json
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
-import pyautogui
 from fastapi import FastAPI
-from pydantic import BaseModel
 from openai import OpenAI
+from pydantic import BaseModel
+
+
+SHARED_MCP_ROOT = Path(__file__).resolve().parents[1] / "mcp-computer-use-server"
+if str(SHARED_MCP_ROOT) not in os.sys.path:
+    os.sys.path.insert(0, str(SHARED_MCP_ROOT))
+
+from executor.desktop_executor import DesktopExecutor  # noqa: E402
 
 
 BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:7071/api").rstrip("/")
@@ -26,6 +31,7 @@ stop_event = threading.Event()
 worker_started = False
 worker_lock = threading.Lock()
 openai_client: Optional[OpenAI] = OpenAI(api_key=os.getenv("OPENAI_API_KEY")) if os.getenv("OPENAI_API_KEY") else None
+executor = DesktopExecutor()
 
 
 class ExecuteStepRequest(BaseModel):
@@ -36,44 +42,18 @@ class ExecuteStepRequest(BaseModel):
 def auth_headers() -> Dict[str, str]:
     return {
         "Content-Type": "application/json",
-        "x-aris-agent-token": AGENT_TOKEN
+        "x-aris-agent-token": AGENT_TOKEN,
     }
 
 
 def screenshot_base64() -> str:
-    image = pyautogui.screenshot()
-    buf = io.BytesIO()
-    image.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+    return executor.screenshot_base64()
 
 
 def execute_step(action: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    act = str(action or "").strip().lower()
-    started = time.time()
-
-    if act == "click":
-        pyautogui.click(int(params.get("x", 0)), int(params.get("y", 0)))
-    elif act == "double_click":
-        pyautogui.doubleClick(int(params.get("x", 0)), int(params.get("y", 0)))
-    elif act == "right_click":
-        pyautogui.rightClick(int(params.get("x", 0)), int(params.get("y", 0)))
-    elif act == "type":
-        pyautogui.write(str(params.get("text", "")), interval=0.02)
-    elif act == "hotkey":
-        keys = params.get("keys", [])
-        if not isinstance(keys, list) or not keys:
-            raise ValueError("hotkey requires non-empty keys array")
-        pyautogui.hotkey(*[str(k) for k in keys])
-    elif act == "scroll":
-        pyautogui.scroll(int(params.get("dy", 0)))
-    elif act == "wait":
-        time.sleep(max(0.1, float(params.get("ms", 500)) / 1000.0))
-    else:
-        raise ValueError(f"unsupported_action:{act}")
-
-    duration_ms = int((time.time() - started) * 1000)
+    out = executor.execute(action, params)
     time.sleep(STEP_DELAY_SEC)
-    return {"ok": True, "duration_ms": duration_ms}
+    return out
 
 
 def plan_next_step(objective: str, screenshot_b64: str, steps_executed: int, max_steps: int) -> Dict[str, Any]:
@@ -82,7 +62,7 @@ def plan_next_step(objective: str, screenshot_b64: str, steps_executed: int, max
             "action": "finish",
             "input": {},
             "done": True,
-            "summary": "OPENAI_API_KEY not configured on agent."
+            "summary": "OPENAI_API_KEY not configured on agent.",
         }
 
     system_prompt = (
@@ -106,9 +86,9 @@ def plan_next_step(objective: str, screenshot_b64: str, steps_executed: int, max
                 "role": "user",
                 "content": [
                     {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}}
-                ]
-            }
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{screenshot_b64}"}},
+                ],
+            },
         ],
     )
     text = (resp.choices[0].message.content or "").strip()
@@ -146,20 +126,23 @@ def process_job(job: Dict[str, Any]) -> None:
         plan = plan_next_step(objective, shot, step_idx, max_steps)
 
         if plan.get("done") or plan.get("action") == "finish":
-            post_json("/v2/computer-use/agent/report", {
-                "job_id": job_id,
-                "agent_id": AGENT_ID,
-                "lease_token": lease_token,
-                "report_type": "final",
-                "result": {
-                    "success": True,
-                    "summary": plan.get("summary") or "Task finished by planner.",
-                    "last_screenshot_ref": f"inline://{len(shot)}",
-                    "output": {
-                        "final_action": "finish"
-                    }
-                }
-            })
+            post_json(
+                "/v2/computer-use/agent/report",
+                {
+                    "job_id": job_id,
+                    "agent_id": AGENT_ID,
+                    "lease_token": lease_token,
+                    "report_type": "final",
+                    "result": {
+                        "success": True,
+                        "summary": plan.get("summary") or "Task finished by planner.",
+                        "last_screenshot_ref": f"inline://{len(shot)}",
+                        "output": {
+                            "final_action": "finish",
+                        },
+                    },
+                },
+            )
             return
 
         action = str(plan.get("action", "wait"))
@@ -173,78 +156,93 @@ def process_job(job: Dict[str, Any]) -> None:
                 executed = execute_step(action, params)
                 success = True
                 duration_ms = int(executed.get("duration_ms", 0))
-                post_json("/v2/computer-use/agent/report", {
-                    "job_id": job_id,
-                    "agent_id": AGENT_ID,
-                    "lease_token": lease_token,
-                    "report_type": "step",
-                    "step": {
-                        "index": step_idx,
-                        "action": action,
-                        "status": "success",
-                        "duration_ms": duration_ms,
-                        "retry_count": retry,
-                        "screenshot_ref": f"inline://{len(shot)}",
-                        "output": {"input": params}
-                    }
-                })
+                post_json(
+                    "/v2/computer-use/agent/report",
+                    {
+                        "job_id": job_id,
+                        "agent_id": AGENT_ID,
+                        "lease_token": lease_token,
+                        "report_type": "step",
+                        "step": {
+                            "index": step_idx,
+                            "action": action,
+                            "status": "success",
+                            "duration_ms": duration_ms,
+                            "retry_count": retry,
+                            "screenshot_ref": f"inline://{len(shot)}",
+                            "output": {"input": params},
+                        },
+                    },
+                )
                 break
-            except Exception as exc:
+            except Exception as exc:  # pragma: no cover
                 last_error = str(exc)
                 if retry < step_max_retry:
                     continue
-                post_json("/v2/computer-use/agent/report", {
+                post_json(
+                    "/v2/computer-use/agent/report",
+                    {
+                        "job_id": job_id,
+                        "agent_id": AGENT_ID,
+                        "lease_token": lease_token,
+                        "report_type": "step",
+                        "step": {
+                            "index": step_idx,
+                            "action": action,
+                            "status": "failed",
+                            "duration_ms": duration_ms,
+                            "retry_count": retry,
+                            "error": last_error,
+                            "screenshot_ref": f"inline://{len(shot)}",
+                            "output": {"input": params},
+                        },
+                    },
+                )
+
+        if not success:
+            post_json(
+                "/v2/computer-use/agent/report",
+                {
                     "job_id": job_id,
                     "agent_id": AGENT_ID,
                     "lease_token": lease_token,
-                    "report_type": "step",
-                    "step": {
-                        "index": step_idx,
-                        "action": action,
-                        "status": "failed",
-                        "duration_ms": duration_ms,
-                        "retry_count": retry,
-                        "error": last_error,
-                        "screenshot_ref": f"inline://{len(shot)}",
-                        "output": {"input": params}
-                    }
-                })
+                    "report_type": "final",
+                    "result": {
+                        "success": False,
+                        "summary": f"Task failed at step {step_idx}",
+                        "error": last_error or "step_failed",
+                        "last_screenshot_ref": f"inline://{len(shot)}",
+                    },
+                },
+            )
+            return
 
-        if not success:
-            post_json("/v2/computer-use/agent/report", {
+        heartbeat = post_json(
+            "/v2/computer-use/agent/heartbeat",
+            {
                 "job_id": job_id,
                 "agent_id": AGENT_ID,
                 "lease_token": lease_token,
-                "report_type": "final",
-                "result": {
-                    "success": False,
-                    "summary": f"Task failed at step {step_idx}",
-                    "error": last_error or "step_failed",
-                    "last_screenshot_ref": f"inline://{len(shot)}"
-                }
-            })
-            return
-
-        heartbeat = post_json("/v2/computer-use/agent/heartbeat", {
-            "job_id": job_id,
-            "agent_id": AGENT_ID,
-            "lease_token": lease_token
-        })
+            },
+        )
         current = heartbeat.get("job") or {}
         if current.get("status") == "waiting_confirmation":
             return
 
-    post_json("/v2/computer-use/agent/report", {
-        "job_id": job_id,
-        "agent_id": AGENT_ID,
-        "lease_token": lease_token,
-        "report_type": "final",
-        "result": {
-            "success": False,
-            "summary": "Task stopped because max steps reached.",
-            "error": "max_steps_reached"
-        }
-    })
+    post_json(
+        "/v2/computer-use/agent/report",
+        {
+            "job_id": job_id,
+            "agent_id": AGENT_ID,
+            "lease_token": lease_token,
+            "report_type": "final",
+            "result": {
+                "success": False,
+                "summary": "Task stopped because max steps reached.",
+                "error": "max_steps_reached",
+            },
+        },
+    )
 
 
 def polling_worker() -> None:
@@ -266,7 +264,7 @@ def health() -> Dict[str, Any]:
         "ok": True,
         "agent_id": AGENT_ID,
         "backend": BACKEND_BASE_URL,
-        "worker_started": worker_started
+        "worker_started": worker_started,
     }
 
 

@@ -49,6 +49,10 @@ function sanitizeComputerUseJob(job = {}, options = {}) {
     output: job.output ?? null,
     error: job.error || null,
     last_screenshot_ref: job.last_screenshot_ref || '',
+    transport: job.transport || 'http_agent',
+    provider: job.provider || 'unknown',
+    provider_attempts: Number(job.provider_attempts || 0),
+    provider_error_chain: Array.isArray(job.provider_error_chain) ? job.provider_error_chain : [],
     created_at: job.created_at,
     updated_at: job.updated_at,
     lease: includeLease ? job.lease || null : undefined
@@ -293,6 +297,7 @@ async function v2ComputerUseJobsCreateHandler(request, context) {
     confirm_every_steps: body.confirm_every_steps,
     step_max_retry: body.step_max_retry,
     max_steps: body.max_steps,
+    transport: 'http_agent',
     metadata: body.metadata || {}
   }, context);
 

@@ -231,6 +231,7 @@ components:
           type: object
         output:
           oneOf:
+            - $ref: '#/components/schemas/ComputerUseToolOutput'
             - type: object
             - type: string
             - type: 'null'
@@ -304,8 +305,50 @@ components:
           type: integer
         max_steps:
           type: integer
+        transport:
+          type: string
+          enum: [mcp_stdio, http_agent, hybrid]
+        provider:
+          type: string
         metadata:
           type: object
+    ComputerUseProviderError:
+      type: object
+      properties:
+        provider:
+          type: string
+        code:
+          type: string
+        message:
+          type: string
+    ComputerUseToolOutput:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+        summary:
+          type: string
+        steps_executed:
+          type: integer
+        last_screenshot_ref:
+          type: string
+        confirm_round:
+          type: integer
+        transport:
+          type: string
+          enum: [mcp_stdio, http_agent, hybrid]
+        provider:
+          type: string
+        provider_attempts:
+          type: integer
+        provider_fallback_used:
+          type: boolean
+        provider_error_chain:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComputerUseProviderError'
     ComputerUseStep:
       type: object
       properties:

@@ -74,6 +74,10 @@ async function createComputerUseJob(payload = {}, context = null) {
     error: null,
     summary: '',
     last_screenshot_ref: '',
+    transport: String(payload.transport || 'http_agent'),
+    provider: String(payload.provider || 'unknown'),
+    provider_attempts: clampInt(payload.provider_attempts, 0, 1000, 0),
+    provider_error_chain: Array.isArray(payload.provider_error_chain) ? payload.provider_error_chain.slice(0, 20) : [],
     metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {},
     created_at: nowIso(),
     updated_at: nowIso(),
@@ -195,6 +199,17 @@ async function reportComputerUseProgress(report = {}, context = null) {
     updated.output = result.output ?? updated.output ?? null;
     updated.error = success ? null : String(result.error || report.error || updated.error || 'execution_failed');
     updated.last_screenshot_ref = String(result.last_screenshot_ref || updated.last_screenshot_ref || '');
+    updated.transport = String(result.transport || updated.transport || 'http_agent');
+    updated.provider = String(result.provider || updated.provider || 'unknown');
+    updated.provider_attempts = clampInt(
+      Number(result.provider_attempts ?? updated.provider_attempts ?? 0),
+      0,
+      1000,
+      0
+    );
+    updated.provider_error_chain = Array.isArray(result.provider_error_chain)
+      ? result.provider_error_chain.slice(0, 20)
+      : (Array.isArray(updated.provider_error_chain) ? updated.provider_error_chain : []);
     updated.lease = null;
 
     await upsertDoc('computerUseJobs', JOB_PARTITION_KEY, {
@@ -284,6 +299,53 @@ async function waitForComputerUseJob(jobId, timeoutMs = 18000, pollMs = 500, con
   return getComputerUseJob(jobId, context);
 }
 
+async function setComputerUseJobState(jobId, patch = {}, context = null) {
+  return updateComputerUseJob(jobId, (job) => {
+    const next = { ...job };
+    if (patch.status) next.status = String(patch.status);
+    if (Object.prototype.hasOwnProperty.call(patch, 'summary')) next.summary = String(patch.summary || '');
+    if (Object.prototype.hasOwnProperty.call(patch, 'error')) {
+      next.error = patch.error ? String(patch.error) : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'output')) next.output = patch.output ?? null;
+    if (Object.prototype.hasOwnProperty.call(patch, 'steps_executed')) {
+      next.steps_executed = clampInt(patch.steps_executed, 0, 100000, Number(job.steps_executed || 0));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'confirm_round')) {
+      next.confirm_round = clampInt(patch.confirm_round, 0, 9999, Number(job.confirm_round || 0));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'last_screenshot_ref')) {
+      next.last_screenshot_ref = String(patch.last_screenshot_ref || '');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'transport')) {
+      next.transport = String(patch.transport || next.transport || 'http_agent');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'provider')) {
+      next.provider = String(patch.provider || next.provider || 'unknown');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'provider_attempts')) {
+      next.provider_attempts = clampInt(
+        patch.provider_attempts,
+        0,
+        1000,
+        Number(next.provider_attempts || 0)
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'provider_error_chain')) {
+      next.provider_error_chain = Array.isArray(patch.provider_error_chain)
+        ? patch.provider_error_chain.slice(0, 20)
+        : [];
+    }
+    if (Array.isArray(patch.steps)) {
+      next.steps = patch.steps.slice(0, 200);
+    }
+    if (isTerminalStatus(next.status) || next.status === JOB_STATUS.WAITING_CONFIRMATION) {
+      next.lease = null;
+    }
+    return next;
+  }, context);
+}
+
 function sanitizeJobForAgent(job = {}) {
   return {
     id: job.id,
@@ -300,7 +362,11 @@ function sanitizeJobForAgent(job = {}) {
     steps_executed: job.steps_executed || 0,
     confirm_round: job.confirm_round || 0,
     lease: job.lease,
-    metadata: job.metadata || {}
+    metadata: job.metadata || {},
+    transport: job.transport || 'http_agent',
+    provider: job.provider || 'unknown',
+    provider_attempts: Number(job.provider_attempts || 0),
+    provider_error_chain: Array.isArray(job.provider_error_chain) ? job.provider_error_chain : []
   };
 }
 
@@ -316,6 +382,6 @@ module.exports = {
   confirmComputerUseJob,
   cancelComputerUseJob,
   waitForComputerUseJob,
+  setComputerUseJobState,
   sanitizeJobForAgent
 };
-
