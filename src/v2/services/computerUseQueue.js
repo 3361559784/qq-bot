@@ -76,8 +76,11 @@ async function createComputerUseJob(payload = {}, context = null) {
     last_screenshot_ref: '',
     transport: String(payload.transport || 'http_agent'),
     provider: String(payload.provider || 'unknown'),
+    provider_mode: String(payload.provider_mode || 'unknown'),
     provider_attempts: clampInt(payload.provider_attempts, 0, 1000, 0),
     provider_error_chain: Array.isArray(payload.provider_error_chain) ? payload.provider_error_chain.slice(0, 20) : [],
+    planner_model_selected: String(payload.planner_model_selected || ''),
+    planner_model_attempts: clampInt(payload.planner_model_attempts, 0, 1000, 0),
     metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {},
     created_at: nowIso(),
     updated_at: nowIso(),
@@ -201,8 +204,16 @@ async function reportComputerUseProgress(report = {}, context = null) {
     updated.last_screenshot_ref = String(result.last_screenshot_ref || updated.last_screenshot_ref || '');
     updated.transport = String(result.transport || updated.transport || 'http_agent');
     updated.provider = String(result.provider || updated.provider || 'unknown');
+    updated.provider_mode = String(result.provider_mode || updated.provider_mode || 'unknown');
     updated.provider_attempts = clampInt(
       Number(result.provider_attempts ?? updated.provider_attempts ?? 0),
+      0,
+      1000,
+      0
+    );
+    updated.planner_model_selected = String(result.planner_model_selected || updated.planner_model_selected || '');
+    updated.planner_model_attempts = clampInt(
+      Number(result.planner_model_attempts ?? updated.planner_model_attempts ?? 0),
       0,
       1000,
       0
@@ -323,12 +334,26 @@ async function setComputerUseJobState(jobId, patch = {}, context = null) {
     if (Object.prototype.hasOwnProperty.call(patch, 'provider')) {
       next.provider = String(patch.provider || next.provider || 'unknown');
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'provider_mode')) {
+      next.provider_mode = String(patch.provider_mode || next.provider_mode || 'unknown');
+    }
     if (Object.prototype.hasOwnProperty.call(patch, 'provider_attempts')) {
       next.provider_attempts = clampInt(
         patch.provider_attempts,
         0,
         1000,
         Number(next.provider_attempts || 0)
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'planner_model_selected')) {
+      next.planner_model_selected = String(patch.planner_model_selected || '');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'planner_model_attempts')) {
+      next.planner_model_attempts = clampInt(
+        patch.planner_model_attempts,
+        0,
+        1000,
+        Number(next.planner_model_attempts || 0)
       );
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'provider_error_chain')) {

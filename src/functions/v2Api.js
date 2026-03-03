@@ -51,8 +51,11 @@ function sanitizeComputerUseJob(job = {}, options = {}) {
     last_screenshot_ref: job.last_screenshot_ref || '',
     transport: job.transport || 'http_agent',
     provider: job.provider || 'unknown',
+    provider_mode: job.provider_mode || 'unknown',
     provider_attempts: Number(job.provider_attempts || 0),
     provider_error_chain: Array.isArray(job.provider_error_chain) ? job.provider_error_chain : [],
+    planner_model_selected: String(job.planner_model_selected || ''),
+    planner_model_attempts: Number(job.planner_model_attempts || 0),
     created_at: job.created_at,
     updated_at: job.updated_at,
     lease: includeLease ? job.lease || null : undefined

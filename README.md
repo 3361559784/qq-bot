@@ -109,5 +109,11 @@ If `@azure/cosmos` is missing, install it temporarily for migration only.
 
 ## Notes
 
+- This repo is backend-only for now; no built-in frontend shell in P0.
+- `computer-use` defaults to GitHub Models-compatible planner chain:
+  - `ARIS_CU_PROVIDER_MODE=auto`
+  - `ARIS_CU_PLANNER_MODELS=openai/gpt-5-nano,openai/gpt-4.1-mini,openai/gpt-4o-mini`
+  - `ARIS_CU_OPENAI_BASE_URL=https://models.github.ai/inference`
+- Recommended key is `GITHUB_MODELS_TOKEN` (also supports `GITHUB_TOKEN` / `GH_TOKEN`).
 - `computer-use` is host-first. In container mode, prefer `ARIS_CU_TRANSPORT=http_agent` and run local agent on host.
 - Legacy Azure docs moved to `docs/archive/azure.md`.

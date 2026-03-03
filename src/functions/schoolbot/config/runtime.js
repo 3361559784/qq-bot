@@ -42,6 +42,42 @@ function parseTransportMode(value) {
   return 'mcp_stdio';
 }
 
+function parseProviderMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'github_models' || mode === 'openai_compatible' || mode === 'auto') return mode;
+  return 'auto';
+}
+
+function parseCsvList(value) {
+  if (!value) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of String(value).split(',')) {
+    const v = item.trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
+function hasGithubModelsToken(env) {
+  return !!String(env.GITHUB_MODELS_TOKEN || env.GITHUB_TOKEN || env.GH_TOKEN || '').trim();
+}
+
+function resolveProviderMode(env, configured) {
+  if (configured !== 'auto') return configured;
+  return hasGithubModelsToken(env) ? 'github_models' : 'openai_compatible';
+}
+
+function parsePlannerModels(env) {
+  const csv = parseCsvList(env.ARIS_CU_PLANNER_MODELS);
+  if (csv.length > 0) return csv;
+  const single = String(env.ARIS_CU_PLANNER_MODEL || '').trim();
+  if (single) return [single];
+  return ['openai/gpt-5-nano', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini'];
+}
+
 function resolveRelayEnabled(env) {
   const nodeEnv = String(env.NODE_ENV || 'development').trim().toLowerCase();
   const enabled = parseBool(env.ARIS_CU_RELAY_ENABLE_DEV, true);
@@ -58,6 +94,9 @@ function parseRefusalPolicyVersion(value) {
 function getRuntimeConfig(env = process.env) {
   const runtimeProfile = parseRuntimeProfile(env.ARIS_RUNTIME_PROFILE);
   const defaultCuEnabled = runtimeProfile === 'host';
+  const plannerModels = parsePlannerModels(env);
+  const providerModeConfigured = parseProviderMode(env.ARIS_CU_PROVIDER_MODE);
+  const providerMode = resolveProviderMode(env, providerModeConfigured);
   return {
     response: {
       exposeDebugMeta: parseBool(env.ARIS_DEBUG_RESPONSE, false)
@@ -93,6 +132,8 @@ function getRuntimeConfig(env = process.env) {
     computerUse: {
       enabled: parseBool(env.ARIS_CU_ENABLED, defaultCuEnabled),
       transport: parseTransportMode(env.ARIS_CU_TRANSPORT),
+      providerModeConfigured,
+      providerMode,
       triggerMode: parseTriggerMode(env.ARIS_CU_TRIGGER_MODE),
       confirmMode: parseConfirmMode(env.ARIS_CU_CONFIRM_MODE),
       confirmEverySteps: clampInt(env.ARIS_CU_CONFIRM_EVERY_STEPS, 1, 50, 5),
@@ -102,11 +143,12 @@ function getRuntimeConfig(env = process.env) {
       leaseTtlSec: clampInt(env.ARIS_CU_LEASE_TTL_SEC, 5, 300, 45),
       remoteEndpoint: String(env.ARIS_CU_REMOTE_ENDPOINT || '').trim(),
       agentToken: String(env.ARIS_CU_AGENT_TOKEN || '').trim(),
-      plannerModel: String(env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini').trim(),
+      plannerModels,
+      plannerModel: plannerModels[0] || 'openai/gpt-4o-mini',
       mcpServerCmd: String(env.ARIS_CU_MCP_SERVER_CMD || 'python3 main.py').trim(),
       mcpServerCwd: String(env.ARIS_CU_MCP_SERVER_CWD || 'local/mcp-computer-use-server').trim(),
       mcpTimeoutMs: clampInt(env.ARIS_CU_MCP_TIMEOUT_MS, 1000, 180000, 30000),
-      openaiBaseUrl: String(env.ARIS_CU_OPENAI_BASE_URL || '').trim(),
+      openaiBaseUrl: String(env.ARIS_CU_OPENAI_BASE_URL || 'https://models.github.ai/inference').trim(),
       relay: {
         provider: String(env.ARIS_CU_RELAY_PROVIDER || 'chatgpt_plus_poc').trim(),
         enabled: resolveRelayEnabled(env),
