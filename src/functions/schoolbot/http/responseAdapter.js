@@ -101,7 +101,9 @@ function adaptV2ToLegacyHttp({
       computer_use_job_id: computerUseOutput?.job_id || null,
       computer_use_status: computerUseOutput?.status || null,
       computer_use_transport: computerUseOutput?.transport || null,
-      computer_use_provider: computerUseOutput?.provider || null
+      computer_use_provider: computerUseOutput?.provider || null,
+      computer_use_model: computerUseOutput?.planner_model_selected || null,
+      computer_use_provider_mode: computerUseOutput?.provider_mode || null
     },
     auto_escape: false
   };

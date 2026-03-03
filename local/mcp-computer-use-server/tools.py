@@ -1,4 +1,3 @@
-import traceback
 from typing import Any, Callable, Dict, List, Tuple
 
 from executor.desktop_executor import DesktopExecutor
@@ -7,6 +6,13 @@ from providers.plus_relay_poc import ChatGPTPlusRelayPoCProvider
 
 
 ToolHandler = Callable[[Dict[str, Any]], Dict[str, Any]]
+
+
+def _safe_int(value: Any, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return fallback
 
 
 class ToolRuntime:
@@ -23,7 +29,7 @@ class ToolRuntime:
         max_steps: int,
         allow_relay: bool,
     ) -> Dict[str, Any]:
-        errors: List[Dict[str, str]] = []
+        errors: List[Dict[str, Any]] = []
         attempts = 0
 
         try:
@@ -35,6 +41,9 @@ class ToolRuntime:
                 "attempts": attempts,
                 "provider_error_chain": errors,
                 "provider_fallback_used": False,
+                "provider_mode": str(result.get("provider_mode", "unknown")),
+                "planner_model_selected": str(result.get("planner_model_selected", "")),
+                "planner_model_attempts": _safe_int(result.get("planner_model_attempts", attempts), attempts),
             }
         except ProviderError as exc:
             errors.append({
@@ -42,9 +51,21 @@ class ToolRuntime:
                 "code": exc.code,
                 "message": exc.message,
             })
+            for item in exc.details.get("model_error_chain", []):
+                if isinstance(item, dict):
+                    errors.append({
+                        "provider": str(item.get("provider", "openai_byok")),
+                        "model": str(item.get("model", "")),
+                        "code": str(item.get("code", "provider_failed")),
+                        "message": str(item.get("message", "")),
+                    })
 
         if not allow_relay:
-            raise ProviderError("provider_chain_failed", "BYOK failed and relay is disabled")
+            raise ProviderError(
+                "provider_failed",
+                "BYOK failed and relay is disabled",
+                details={"provider_error_chain": errors},
+            )
 
         try:
             attempts += 1
@@ -55,6 +76,9 @@ class ToolRuntime:
                 "attempts": attempts,
                 "provider_error_chain": errors,
                 "provider_fallback_used": True,
+                "provider_mode": "relay_poc",
+                "planner_model_selected": str(relay_result.get("planner_model_selected", "")),
+                "planner_model_attempts": _safe_int(relay_result.get("planner_model_attempts", 0), 0),
             }
         except ProviderError as exc:
             errors.append({
@@ -62,7 +86,11 @@ class ToolRuntime:
                 "code": exc.code,
                 "message": exc.message,
             })
-            raise ProviderError("provider_chain_failed", f"provider chain failed: {errors}")
+            raise ProviderError(
+                "provider_failed",
+                "provider chain failed",
+                details={"provider_error_chain": errors},
+            )
 
     def run_task(self, args: Dict[str, Any]) -> Dict[str, Any]:
         objective = str(args.get("objective", "")).strip()
@@ -75,9 +103,12 @@ class ToolRuntime:
                 "steps_executed": 0,
                 "last_screenshot_ref": "",
                 "provider": "unknown",
+                "provider_mode": "unknown",
                 "provider_attempts": 0,
                 "provider_fallback_used": False,
                 "provider_error_chain": [],
+                "planner_model_selected": "",
+                "planner_model_attempts": 0,
             }
 
         max_steps = max(1, min(200, int(args.get("max_steps", 30))))
@@ -91,9 +122,12 @@ class ToolRuntime:
         steps: List[Dict[str, Any]] = []
         steps_executed = 0
         provider = "unknown"
+        provider_mode = "unknown"
         provider_attempts = 0
         provider_fallback_used = False
-        provider_error_chain: List[Dict[str, str]] = []
+        provider_error_chain: List[Dict[str, Any]] = []
+        planner_model_selected = ""
+        planner_model_attempts = 0
         last_screenshot_ref = ""
 
         for step_index in range(max_steps):
@@ -109,6 +143,10 @@ class ToolRuntime:
                     allow_relay,
                 )
             except ProviderError as exc:
+                chain = provider_error_chain
+                extra = exc.details.get("provider_error_chain", [])
+                if isinstance(extra, list) and extra:
+                    chain = [*chain, *extra]
                 return {
                     "success": False,
                     "status": "failed",
@@ -117,16 +155,22 @@ class ToolRuntime:
                     "steps_executed": steps_executed,
                     "last_screenshot_ref": last_screenshot_ref,
                     "provider": provider,
+                    "provider_mode": provider_mode,
                     "provider_attempts": provider_attempts,
                     "provider_fallback_used": provider_fallback_used,
-                    "provider_error_chain": provider_error_chain,
+                    "provider_error_chain": chain,
+                    "planner_model_selected": planner_model_selected,
+                    "planner_model_attempts": planner_model_attempts,
                     "steps": steps,
                 }
 
             provider = planned["provider"]
-            provider_attempts += int(planned["attempts"])
+            provider_mode = str(planned.get("provider_mode", provider_mode))
+            provider_attempts += _safe_int(planned["attempts"], 0)
             provider_fallback_used = provider_fallback_used or bool(planned.get("provider_fallback_used"))
             provider_error_chain.extend(planned.get("provider_error_chain", []))
+            planner_model_selected = str(planned.get("planner_model_selected", planner_model_selected))
+            planner_model_attempts = _safe_int(planned.get("planner_model_attempts", planner_model_attempts), planner_model_attempts)
 
             plan = planned["plan"]
             action = str(plan.get("action", "finish")).strip().lower() or "finish"
@@ -142,9 +186,12 @@ class ToolRuntime:
                     "steps_executed": steps_executed,
                     "last_screenshot_ref": last_screenshot_ref,
                     "provider": provider,
+                    "provider_mode": provider_mode,
                     "provider_attempts": provider_attempts,
                     "provider_fallback_used": provider_fallback_used,
                     "provider_error_chain": provider_error_chain,
+                    "planner_model_selected": planner_model_selected,
+                    "planner_model_attempts": planner_model_attempts,
                     "steps": steps,
                     "experimental": provider == "chatgpt_plus_relay_poc",
                 }
@@ -189,9 +236,12 @@ class ToolRuntime:
                     "steps_executed": steps_executed,
                     "last_screenshot_ref": last_screenshot_ref,
                     "provider": provider,
+                    "provider_mode": provider_mode,
                     "provider_attempts": provider_attempts,
                     "provider_fallback_used": provider_fallback_used,
                     "provider_error_chain": provider_error_chain,
+                    "planner_model_selected": planner_model_selected,
+                    "planner_model_attempts": planner_model_attempts,
                     "steps": steps,
                 }
 
@@ -210,9 +260,12 @@ class ToolRuntime:
                     "confirm_round": max(1, int(steps_executed / confirm_every_steps)),
                     "last_screenshot_ref": last_screenshot_ref,
                     "provider": provider,
+                    "provider_mode": provider_mode,
                     "provider_attempts": provider_attempts,
                     "provider_fallback_used": provider_fallback_used,
                     "provider_error_chain": provider_error_chain,
+                    "planner_model_selected": planner_model_selected,
+                    "planner_model_attempts": planner_model_attempts,
                     "steps": steps,
                     "experimental": provider == "chatgpt_plus_relay_poc",
                 }
@@ -225,9 +278,12 @@ class ToolRuntime:
             "steps_executed": steps_executed,
             "last_screenshot_ref": last_screenshot_ref,
             "provider": provider,
+            "provider_mode": provider_mode,
             "provider_attempts": provider_attempts,
             "provider_fallback_used": provider_fallback_used,
             "provider_error_chain": provider_error_chain,
+            "planner_model_selected": planner_model_selected,
+            "planner_model_attempts": planner_model_attempts,
             "steps": steps,
         }
 

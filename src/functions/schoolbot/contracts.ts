@@ -26,6 +26,8 @@ export interface SchoolBotMeta {
   computer_use_status?: string | null;
   computer_use_transport?: 'mcp_stdio' | 'http_agent' | 'hybrid' | string | null;
   computer_use_provider?: 'openai_byok' | 'chatgpt_plus_relay_poc' | 'unknown' | string | null;
+  computer_use_model?: string | null;
+  computer_use_provider_mode?: 'github_models' | 'openai_compatible' | 'auto' | string | null;
 }
 
 export interface SchoolBotResponse {

@@ -67,12 +67,39 @@ function handleCall(id, params) {
         summary: 'relay fallback executed',
         steps_executed: 2,
         provider: 'chatgpt_plus_relay_poc',
+        provider_mode: 'relay_poc',
         provider_attempts: 2,
         provider_fallback_used: true,
         provider_error_chain: [
-          { provider: 'openai_byok', code: 'byok_rate_limited', message: '429' }
+          { provider: 'openai_byok', model: 'openai/gpt-5-nano', code: 'model_not_found', message: '404 model' },
+          { provider: 'openai_byok', model: 'openai/gpt-4.1-mini', code: 'rate_limited', message: '429' }
         ],
+        planner_model_selected: '',
+        planner_model_attempts: 2,
         last_screenshot_ref: 'inline://mock2'
+      },
+    });
+  }
+
+  if (objective.includes('model_fallback')) {
+    return success(id, {
+      isError: false,
+      content: [{ type: 'text', text: 'ok' }],
+      structuredContent: {
+        success: true,
+        status: 'completed',
+        summary: 'model fallback executed',
+        steps_executed: 1,
+        provider: 'openai_byok',
+        provider_mode: 'github_models',
+        provider_attempts: 1,
+        provider_fallback_used: false,
+        provider_error_chain: [
+          { provider: 'openai_byok', model: 'openai/gpt-5-nano', code: 'model_not_found', message: '404 model' }
+        ],
+        planner_model_selected: 'openai/gpt-4.1-mini',
+        planner_model_attempts: 2,
+        last_screenshot_ref: 'inline://mock-model-fallback'
       },
     });
   }
@@ -88,9 +115,12 @@ function handleCall(id, params) {
       steps_executed: waiting ? 5 : 1,
       confirm_round: waiting ? 1 : 0,
       provider: 'openai_byok',
+      provider_mode: 'github_models',
       provider_attempts: 1,
       provider_fallback_used: false,
       provider_error_chain: [],
+      planner_model_selected: 'openai/gpt-5-nano',
+      planner_model_attempts: 1,
       last_screenshot_ref: 'inline://mock1'
     },
   });

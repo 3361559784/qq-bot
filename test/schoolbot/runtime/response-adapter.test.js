@@ -63,7 +63,10 @@ test('response adapter: computer-use maps trust and job metadata', () => {
           status: 'waiting_confirmation',
           steps_executed: 3,
           transport: 'mcp_stdio',
-          provider: 'openai_byok'
+          provider: 'openai_byok',
+          provider_mode: 'github_models',
+          planner_model_selected: 'openai/gpt-5-nano',
+          planner_model_attempts: 1
         }
       }],
       meta: { request_id: 'rid_cu' },
@@ -83,4 +86,6 @@ test('response adapter: computer-use maps trust and job metadata', () => {
   assert.equal(payload.meta.computer_use_status, 'waiting_confirmation');
   assert.equal(payload.meta.computer_use_transport, 'mcp_stdio');
   assert.equal(payload.meta.computer_use_provider, 'openai_byok');
+  assert.equal(payload.meta.computer_use_model, 'openai/gpt-5-nano');
+  assert.equal(payload.meta.computer_use_provider_mode, 'github_models');
 });

@@ -24,7 +24,8 @@ If `DATABASE_URL` is not set, storage falls back to in-memory mode.
 
 ## LLM / Model
 
-- `GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_MODELS_TOKEN`
+- `GITHUB_MODELS_TOKEN` (recommended)
+- `GITHUB_TOKEN` / `GH_TOKEN` (compat)
 - `OPENAI_API_KEY`
 
 ## Computer Use
@@ -32,6 +33,7 @@ If `DATABASE_URL` is not set, storage falls back to in-memory mode.
 - `ARIS_RUNTIME_PROFILE` (`host|server`)
 - `ARIS_CU_ENABLED`
 - `ARIS_CU_TRANSPORT` (`mcp_stdio|http_agent|hybrid`)
+- `ARIS_CU_PROVIDER_MODE` (`github_models|openai_compatible|auto`, default `auto`)
 - `ARIS_CU_TRIGGER_MODE` (`explicit|auto|both`)
 - `ARIS_CU_CONFIRM_MODE` (`periodic|always|never`)
 - `ARIS_CU_CONFIRM_EVERY_STEPS`
@@ -43,7 +45,9 @@ If `DATABASE_URL` is not set, storage falls back to in-memory mode.
 - `ARIS_CU_MCP_SERVER_CMD`
 - `ARIS_CU_MCP_SERVER_CWD`
 - `ARIS_CU_MCP_TIMEOUT_MS`
-- `ARIS_CU_OPENAI_BASE_URL`
+- `ARIS_CU_OPENAI_BASE_URL` (default: `https://models.github.ai/inference`)
+- `ARIS_CU_PLANNER_MODELS` (default: `openai/gpt-5-nano,openai/gpt-4.1-mini,openai/gpt-4o-mini`)
+- `ARIS_CU_PLANNER_MODEL` (legacy single-model fallback; used only when `ARIS_CU_PLANNER_MODELS` is empty)
 
 Relay PoC:
 

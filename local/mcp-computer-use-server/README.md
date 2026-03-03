@@ -22,9 +22,13 @@ python main.py
 
 ## Important Env
 
-- `OPENAI_API_KEY`
-- `ARIS_CU_PLANNER_MODEL` (default `gpt-4o-mini`)
-- `ARIS_CU_OPENAI_BASE_URL` (optional)
+- `GITHUB_MODELS_TOKEN` (recommended)
+- `GITHUB_TOKEN` / `GH_TOKEN` (compat)
+- `OPENAI_API_KEY` (optional; used in `openai_compatible` mode)
+- `ARIS_CU_PROVIDER_MODE` (`github_models|openai_compatible|auto`, default `auto`)
+- `ARIS_CU_PLANNER_MODELS` (default `openai/gpt-5-nano,openai/gpt-4.1-mini,openai/gpt-4o-mini`)
+- `ARIS_CU_PLANNER_MODEL` (legacy single-model fallback)
+- `ARIS_CU_OPENAI_BASE_URL` (default `https://models.github.ai/inference`)
 - `ARIS_CU_RELAY_ENABLE_DEV=true|false` (default `true`)
 - `ARIS_CU_RELAY_FORCE_PROD=true|false` (default `false`)
 - `ARIS_CU_RELAY_POC_CMD` (optional external relay command)
@@ -42,8 +46,9 @@ Add to Claude Desktop MCP config (adjust paths):
       "command": "python3",
       "args": ["/ABS/PATH/local/mcp-computer-use-server/main.py"],
       "env": {
-        "OPENAI_API_KEY": "<YOUR_KEY>",
-        "ARIS_CU_PLANNER_MODEL": "gpt-4o-mini"
+        "GITHUB_MODELS_TOKEN": "<YOUR_GITHUB_MODELS_TOKEN>",
+        "ARIS_CU_PROVIDER_MODE": "auto",
+        "ARIS_CU_PLANNER_MODELS": "openai/gpt-5-nano,openai/gpt-4.1-mini,openai/gpt-4o-mini"
       }
     }
   }

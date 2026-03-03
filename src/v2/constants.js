@@ -9,7 +9,27 @@ function normalizeMode(value, fallback, allow) {
   return fallback;
 }
 
+function parseCsvList(value) {
+  if (!value) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of String(value).split(',')) {
+    const v = item.trim();
+    if (!v || seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
 const runtimeProfile = normalizeMode(process.env.ARIS_RUNTIME_PROFILE, 'host', ['host', 'server']);
+const plannerModels = (() => {
+  const csv = parseCsvList(process.env.ARIS_CU_PLANNER_MODELS);
+  if (csv.length > 0) return csv;
+  const single = String(process.env.ARIS_CU_PLANNER_MODEL || '').trim();
+  if (single) return [single];
+  return ['openai/gpt-5-nano', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini'];
+})();
 
 const V2_DEFAULTS = Object.freeze({
   apiVersion: 'v2',
@@ -29,6 +49,7 @@ const V2_DEFAULTS = Object.freeze({
     runtimeProfile,
     enabled: parseBool(process.env.ARIS_CU_ENABLED, runtimeProfile === 'host'),
     transport: normalizeMode(process.env.ARIS_CU_TRANSPORT, 'mcp_stdio', ['mcp_stdio', 'http_agent', 'hybrid']),
+    providerMode: normalizeMode(process.env.ARIS_CU_PROVIDER_MODE, 'auto', ['github_models', 'openai_compatible', 'auto']),
     triggerMode: normalizeMode(process.env.ARIS_CU_TRIGGER_MODE, 'both', ['explicit', 'auto', 'both']),
     confirmMode: normalizeMode(process.env.ARIS_CU_CONFIRM_MODE, 'periodic', ['periodic', 'always', 'never']),
     confirmEverySteps: Number(process.env.ARIS_CU_CONFIRM_EVERY_STEPS || 5),
@@ -36,7 +57,9 @@ const V2_DEFAULTS = Object.freeze({
     maxSteps: Number(process.env.ARIS_CU_MAX_STEPS || 30),
     syncWaitMs: Number(process.env.ARIS_CU_SYNC_WAIT_MS || 18000),
     leaseTtlSec: Number(process.env.ARIS_CU_LEASE_TTL_SEC || 45),
-    plannerModel: String(process.env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini'),
+    plannerModels,
+    plannerModel: plannerModels[0] || 'openai/gpt-4o-mini',
+    openaiBaseUrl: String(process.env.ARIS_CU_OPENAI_BASE_URL || 'https://models.github.ai/inference'),
     mcpServerCmd: String(process.env.ARIS_CU_MCP_SERVER_CMD || 'python3 main.py'),
     mcpServerCwd: String(process.env.ARIS_CU_MCP_SERVER_CWD || 'local/mcp-computer-use-server'),
     mcpTimeoutMs: Number(process.env.ARIS_CU_MCP_TIMEOUT_MS || 30000)

@@ -52,8 +52,11 @@
  * @property {string} [last_screenshot_ref]
  * @property {'mcp_stdio'|'http_agent'|'hybrid'} [transport]
  * @property {'openai_byok'|'chatgpt_plus_relay_poc'|'unknown'|string} [provider]
+ * @property {'github_models'|'openai_compatible'|'auto'|'unknown'|string} [provider_mode]
  * @property {number} [provider_attempts]
  * @property {Array<{provider:string, code:string, message:string}>} [provider_error_chain]
+ * @property {string} [planner_model_selected]
+ * @property {number} [planner_model_attempts]
  */
 
 /**
@@ -70,9 +73,12 @@
 /**
  * @typedef {Object} ComputerUseProviderResult
  * @property {'openai_byok'|'chatgpt_plus_relay_poc'|'unknown'|string} provider
+ * @property {'github_models'|'openai_compatible'|'auto'|'unknown'|string} [provider_mode]
  * @property {number} provider_attempts
  * @property {boolean} provider_fallback_used
  * @property {Array<{provider:string, code:string, message:string}>} provider_error_chain
+ * @property {string} [planner_model_selected]
+ * @property {number} [planner_model_attempts]
  * @property {boolean} [experimental]
  */
 
@@ -80,8 +86,11 @@
  * @typedef {Object} McpToolCallMeta
  * @property {'mcp_stdio'|'http_agent'|'hybrid'} transport
  * @property {'openai_byok'|'chatgpt_plus_relay_poc'|'unknown'|string} provider
+ * @property {'github_models'|'openai_compatible'|'auto'|'unknown'|string} [provider_mode]
  * @property {number} provider_attempts
  * @property {boolean} provider_fallback_used
+ * @property {string} [planner_model_selected]
+ * @property {number} [planner_model_attempts]
  */
 
 /**

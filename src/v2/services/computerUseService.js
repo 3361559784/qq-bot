@@ -37,6 +37,51 @@ function normalizeTransport(value, fallback = 'mcp_stdio') {
   return normalizeMode(value, fallback, ['mcp_stdio', 'http_agent', 'hybrid']);
 }
 
+function parseCsvList(value) {
+  if (!value) return [];
+  const raw = String(value)
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    if (seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+}
+
+function hasGithubModelsToken(env = process.env) {
+  return !!String(
+    env.GITHUB_MODELS_TOKEN
+    || env.GITHUB_TOKEN
+    || env.GH_TOKEN
+    || ''
+  ).trim();
+}
+
+function normalizeProviderMode(value, fallback = 'auto') {
+  return normalizeMode(value, fallback, ['github_models', 'openai_compatible', 'auto']);
+}
+
+function resolveProviderMode(env = process.env, configured = 'auto') {
+  const mode = normalizeProviderMode(configured, 'auto');
+  if (mode !== 'auto') return mode;
+  return hasGithubModelsToken(env) ? 'github_models' : 'openai_compatible';
+}
+
+function parsePlannerModels(env = process.env) {
+  const csv = parseCsvList(env.ARIS_CU_PLANNER_MODELS);
+  if (csv.length > 0) return csv;
+
+  const single = String(env.ARIS_CU_PLANNER_MODEL || '').trim();
+  if (single) return [single];
+
+  return ['openai/gpt-5-nano', 'openai/gpt-4.1-mini', 'openai/gpt-4o-mini'];
+}
+
 function resolveRelayEnabled(env = process.env) {
   const nodeEnv = String(env.NODE_ENV || 'development').trim().toLowerCase();
   const devEnable = parseBool(env.ARIS_CU_RELAY_ENABLE_DEV, true);
@@ -47,6 +92,9 @@ function resolveRelayEnabled(env = process.env) {
 
 function getComputerUseRuntimeConfig(env = process.env) {
   const profile = normalizeMode(env.ARIS_RUNTIME_PROFILE, 'host', ['host', 'server']);
+  const plannerModels = parsePlannerModels(env);
+  const providerModeConfigured = normalizeProviderMode(env.ARIS_CU_PROVIDER_MODE, 'auto');
+  const providerMode = resolveProviderMode(env, providerModeConfigured);
   return {
     profile,
     enabled: parseBool(env.ARIS_CU_ENABLED, profile === 'host'),
@@ -58,13 +106,16 @@ function getComputerUseRuntimeConfig(env = process.env) {
     syncWaitMs: clampInt(env.ARIS_CU_SYNC_WAIT_MS, 1000, 180000, 18000),
     leaseTtlSec: clampInt(env.ARIS_CU_LEASE_TTL_SEC, 5, 300, 45),
     remoteEndpoint: String(env.ARIS_CU_REMOTE_ENDPOINT || '').trim(),
-    plannerModel: String(env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini').trim(),
+    plannerModels,
+    plannerModel: plannerModels[0] || 'openai/gpt-4o-mini',
+    providerModeConfigured,
+    providerMode,
     agentToken: String(env.ARIS_CU_AGENT_TOKEN || '').trim(),
     transport: normalizeTransport(env.ARIS_CU_TRANSPORT, 'mcp_stdio'),
     mcpServerCmd: String(env.ARIS_CU_MCP_SERVER_CMD || 'python3 main.py').trim(),
     mcpServerCwd: String(env.ARIS_CU_MCP_SERVER_CWD || 'local/mcp-computer-use-server').trim(),
     mcpTimeoutMs: clampInt(env.ARIS_CU_MCP_TIMEOUT_MS, 1000, 180000, 30000),
-    openaiBaseUrl: String(env.ARIS_CU_OPENAI_BASE_URL || '').trim(),
+    openaiBaseUrl: String(env.ARIS_CU_OPENAI_BASE_URL || 'https://models.github.ai/inference').trim(),
     relay: {
       provider: String(env.ARIS_CU_RELAY_PROVIDER || 'chatgpt_plus_poc').trim(),
       enabled: resolveRelayEnabled(env),
@@ -118,9 +169,12 @@ function buildToolOutput(job = {}) {
     confirm_round: Number(job.confirm_round || 0),
     transport: String(job.transport || 'unknown'),
     provider: String(job.provider || 'unknown'),
+    provider_mode: String(job.provider_mode || 'unknown'),
     provider_attempts: Number(job.provider_attempts || 0),
     provider_fallback_used: Number(job.provider_attempts || 0) > 1,
-    provider_error_chain: Array.isArray(job.provider_error_chain) ? job.provider_error_chain : []
+    provider_error_chain: Array.isArray(job.provider_error_chain) ? job.provider_error_chain : [],
+    planner_model_selected: String(job.planner_model_selected || ''),
+    planner_model_attempts: Number(job.planner_model_attempts || 0)
   };
 }
 
@@ -158,12 +212,15 @@ async function createComputerUseJobFromInput(input = {}, context = null) {
     step_max_retry: input.step_max_retry || cfg.stepMaxRetry,
     max_steps: input.max_steps || cfg.maxSteps,
     transport,
+    provider_mode: String(input.provider_mode || cfg.providerMode || 'unknown'),
     provider: String(input.provider || 'unknown'),
     provider_attempts: Number(input.provider_attempts || 0),
     provider_error_chain: Array.isArray(input.provider_error_chain) ? input.provider_error_chain : [],
     metadata: {
       ...(input.metadata || {}),
       planner_model: cfg.plannerModel,
+      planner_models: cfg.plannerModels,
+      provider_mode: cfg.providerMode,
       runtime_profile: cfg.profile,
       transport
     }
@@ -225,9 +282,12 @@ function normalizeMcpResult(raw = {}) {
     confirm_round: clampInt(raw.confirm_round, 0, 9999, 0),
     last_screenshot_ref: String(raw.last_screenshot_ref || ''),
     provider: String(raw.provider || 'unknown'),
+    provider_mode: String(raw.provider_mode || 'unknown'),
     provider_attempts: clampInt(raw.provider_attempts, 0, 1000, 0),
     provider_fallback_used: !!raw.provider_fallback_used,
     provider_error_chain: Array.isArray(raw.provider_error_chain) ? raw.provider_error_chain : [],
+    planner_model_selected: String(raw.planner_model_selected || ''),
+    planner_model_attempts: clampInt(raw.planner_model_attempts, 0, 1000, 0),
     steps: Array.isArray(raw.steps) ? raw.steps : [],
     experimental: !!raw.experimental,
     output: raw.output ?? null
@@ -240,6 +300,7 @@ async function runViaMcp(input = {}, context = null, cfg = null) {
     ...input,
     transport: 'mcp_stdio',
     provider: 'openai_byok',
+    provider_mode: runtime.providerMode,
     skip_wait: true
   }, context);
 
@@ -256,6 +317,8 @@ async function runViaMcp(input = {}, context = null, cfg = null) {
   const job = created.job;
   const mcpEnv = {
     ARIS_CU_PLANNER_MODEL: runtime.plannerModel,
+    ARIS_CU_PLANNER_MODELS: runtime.plannerModels.join(','),
+    ARIS_CU_PROVIDER_MODE: runtime.providerMode,
     ARIS_CU_OPENAI_BASE_URL: runtime.openaiBaseUrl,
     ARIS_CU_RELAY_ENABLE_DEV: String(runtime.relay.enabled),
     ARIS_CU_RELAY_MAX_RETRY: String(runtime.relay.maxRetry),
@@ -297,6 +360,7 @@ async function runViaMcp(input = {}, context = null, cfg = null) {
       confirm_round: 0,
       last_screenshot_ref: '',
       provider: 'unknown',
+      provider_mode: runtime.providerMode,
       provider_attempts: 1,
       provider_fallback_used: false,
       provider_error_chain: [{
@@ -324,8 +388,11 @@ async function runViaMcp(input = {}, context = null, cfg = null) {
     last_screenshot_ref: parsed.last_screenshot_ref,
     transport: 'mcp_stdio',
     provider: parsed.provider,
+    provider_mode: parsed.provider_mode || runtime.providerMode,
     provider_attempts: parsed.provider_attempts,
     provider_error_chain: parsed.provider_error_chain,
+    planner_model_selected: parsed.planner_model_selected,
+    planner_model_attempts: parsed.planner_model_attempts,
     steps: parsed.steps
   }, context);
 
@@ -336,7 +403,10 @@ async function runViaMcp(input = {}, context = null, cfg = null) {
     status: finalStatus,
     transport: 'mcp_stdio',
     provider: parsed.provider,
+    provider_mode: parsed.provider_mode || runtime.providerMode,
     provider_attempts: parsed.provider_attempts,
+    planner_model_selected: parsed.planner_model_selected || '',
+    planner_model_attempts: parsed.planner_model_attempts || 0,
     experimental: parsed.experimental,
     error: parsed.success ? null : parsed.error
   }, context);
@@ -352,7 +422,10 @@ async function runViaMcp(input = {}, context = null, cfg = null) {
     transport: 'mcp_stdio',
     provider: parsed.provider,
     provider_attempts: parsed.provider_attempts,
-    provider_error_chain: parsed.provider_error_chain
+    provider_error_chain: parsed.provider_error_chain,
+    provider_mode: parsed.provider_mode || runtime.providerMode,
+    planner_model_selected: parsed.planner_model_selected || '',
+    planner_model_attempts: parsed.planner_model_attempts || 0
   };
 
   return {
@@ -583,5 +656,7 @@ module.exports = {
   cancelComputerUseJobById,
   getComputerUseJob,
   normalizeTransport,
-  resolveRelayEnabled
+  resolveRelayEnabled,
+  resolveProviderMode,
+  parsePlannerModels
 };
