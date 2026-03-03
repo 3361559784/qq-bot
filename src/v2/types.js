@@ -25,6 +25,9 @@
  * @property {string} category
  * @property {string} reason_code
  * @property {number} confidence
+ * @property {string} [source]
+ * @property {boolean} [retryable]
+ * @property {number} [clarify_round]
  */
 
 /**

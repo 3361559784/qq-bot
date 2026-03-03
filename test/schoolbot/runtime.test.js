@@ -10,6 +10,13 @@ test('runtime config defaults and gptsovits env mapping', () => {
     ARIS_REQUIRE_INGRESS_AUTH: 'true',
     ARIS_INGRESS_SHARED_KEY: 'k1',
     ARIS_INGRESS_SIGNATURE_SECRET: 's1',
+    ARIS_REFUSAL_POLICY_VERSION: 'relaxed_v1',
+    ARIS_REFUSAL_POLICY_PERCENT: '30',
+    ARIS_REFUSAL_MODEL_ENABLED: 'true',
+    ARIS_REFUSAL_MODEL_HARD_MIN_CONF: '0.85',
+    ARIS_REFUSAL_CLARIFY_MAX_ROUNDS: '1',
+    ARIS_REFUSAL_DELEGATED_MODE: 'degrade',
+    ARIS_REFUSAL_HARD_BLOCK_SCOPE: 'minimal',
     ARIS_GPTSOVITS_API_URL: 'http://127.0.0.1:9874',
     ARIS_GPTSOVITS_REF_AUDIO_PATH: '/tmp/ref.wav',
     ARIS_GPTSOVITS_REF_PROMPT_TEXT: 'hello',
@@ -22,6 +29,13 @@ test('runtime config defaults and gptsovits env mapping', () => {
   assert.equal(cfg.auth.requireIngressAuth, true);
   assert.equal(cfg.auth.sharedKey, 'k1');
   assert.equal(cfg.auth.signatureSecret, 's1');
+  assert.equal(cfg.refusalPolicy.version, 'relaxed_v1');
+  assert.equal(cfg.refusalPolicy.percent, 30);
+  assert.equal(cfg.refusalPolicy.modelEnabled, true);
+  assert.equal(cfg.refusalPolicy.modelHardMinConf, 0.85);
+  assert.equal(cfg.refusalPolicy.clarifyMaxRounds, 1);
+  assert.equal(cfg.refusalPolicy.delegatedMode, 'degrade');
+  assert.equal(cfg.refusalPolicy.hardBlockScope, 'minimal');
   assert.equal(cfg.gptsovits.apiUrl, 'http://127.0.0.1:9874');
   assert.equal(cfg.gptsovits.refAudioPath, '/tmp/ref.wav');
   assert.equal(cfg.gptsovits.refPromptText, 'hello');

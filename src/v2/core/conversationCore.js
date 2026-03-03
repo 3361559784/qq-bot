@@ -23,11 +23,25 @@ function extractToolMessage(toolCalls) {
   return '';
 }
 
+function getClarifyRoundFromTurns(turns = []) {
+  const list = Array.isArray(turns) ? turns : [];
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const t = list[i];
+    if (t.role !== 'assistant') continue;
+    const meta = t.metadata || {};
+    const bySafety = Number(meta?.safety?.clarify_round);
+    if (Number.isFinite(bySafety)) return Math.max(0, bySafety);
+    const byRefusal = Number(meta?.refusal?.clarify_round);
+    if (Number.isFinite(byRefusal)) return Math.max(0, byRefusal);
+    const direct = Number(meta?.clarify_round);
+    if (Number.isFinite(direct)) return Math.max(0, direct);
+  }
+  return 0;
+}
+
 async function handleConversation(messageReq, context = null) {
   const startedAt = Date.now();
   const lang = pickLanguage(messageReq.content);
-
-  const safety = detectSafetyDecision(messageReq.content);
   const responseId = generateId('msg');
 
   await appendTurn(
@@ -39,6 +53,14 @@ async function handleConversation(messageReq, context = null) {
     context
   );
 
+  const builtContext = await buildConversationContext(messageReq, context);
+  const clarifyRound = getClarifyRoundFromTurns(builtContext.history?.turns || []);
+  const safety = detectSafetyDecision(messageReq.content, {
+    lang,
+    channel: messageReq.channel,
+    clarifyRound
+  });
+
   if (safety.action === SAFETY_ACTION.REFUSE) {
     const content = buildRefusalMessage(safety, lang);
     await appendTurn(
@@ -46,7 +68,11 @@ async function handleConversation(messageReq, context = null) {
       messageReq.context_id,
       'assistant',
       content,
-      { request_id: messageReq.request_id, safety },
+      {
+        request_id: messageReq.request_id,
+        safety,
+        refusal: { clarify_round: Number(safety.clarify_round || 0) }
+      },
       context
     );
 
@@ -73,6 +99,9 @@ async function handleConversation(messageReq, context = null) {
       channel: messageReq.channel,
       safety_action: safety.action,
       reason_code: safety.reason_code,
+      source: safety.source,
+      confidence: safety.confidence,
+      clarify_round: Number(safety.clarify_round || 0),
       latency_ms: res.latency_ms
     }, context);
 
@@ -86,7 +115,11 @@ async function handleConversation(messageReq, context = null) {
       messageReq.context_id,
       'assistant',
       content,
-      { request_id: messageReq.request_id, safety },
+      {
+        request_id: messageReq.request_id,
+        safety,
+        refusal: { clarify_round: Number(safety.clarify_round || 0) }
+      },
       context
     );
 
@@ -113,13 +146,14 @@ async function handleConversation(messageReq, context = null) {
       channel: messageReq.channel,
       safety_action: safety.action,
       reason_code: safety.reason_code,
+      source: safety.source,
+      confidence: safety.confidence,
+      clarify_round: Number(safety.clarify_round || 0),
       latency_ms: res.latency_ms
     }, context);
 
     return res;
   }
-
-  const builtContext = await buildConversationContext(messageReq, context);
 
   const toolExec = await planAndExecute(messageReq.content, messageReq.metadata || {}, context);
   const toolCalls = toolExec.calls || [];
@@ -150,6 +184,7 @@ async function handleConversation(messageReq, context = null) {
     {
       request_id: messageReq.request_id,
       safety,
+      refusal: { clarify_round: Number(safety.clarify_round || 0) },
       tool_calls: toolCalls.map((x) => ({ tool: x.tool, status: x.status, error: x.error || null })),
       model
     },
@@ -178,11 +213,14 @@ async function handleConversation(messageReq, context = null) {
     request_id: messageReq.request_id,
     user_id: messageReq.user_id,
     channel: messageReq.channel,
-    safety_action: safety.action,
-    reason_code: safety.reason_code,
-    tools_used: toolCalls.map((x) => x.tool),
-    latency_ms: response.latency_ms
-  }, context);
+      safety_action: safety.action,
+      reason_code: safety.reason_code,
+      source: safety.source,
+      confidence: safety.confidence,
+      clarify_round: Number(safety.clarify_round || 0),
+      tools_used: toolCalls.map((x) => x.tool),
+      latency_ms: response.latency_ms
+    }, context);
 
   return response;
 }

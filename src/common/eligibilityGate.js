@@ -14,6 +14,11 @@
  * 3. 可配置阈值：policy profile 决定严格度
  * 4. 可审计：每次拒绝都有 ruleId、matched、score
  */
+const {
+    evaluateRefusalPolicy,
+    buildPolicyResponse,
+    getRefusalPolicyConfig
+} = require('./refusalPolicy');
 
 // ==========================================
 // 🎯 信号定义 (Signals)
@@ -189,7 +194,8 @@ const EligibilityType = Object.freeze({
 const EligibilityAction = Object.freeze({
     PROCEED: 'proceed',     // 放行
     REFUSE: 'refuse',       // 拒绝
-    DEGRADE: 'degrade'      // 降级（改写成分析框架）
+    DEGRADE: 'degrade',     // 降级（改写成分析框架）
+    CLARIFY: 'clarify'      // 先澄清
 });
 
 // ==========================================
@@ -578,22 +584,29 @@ function runEligibilityGate({ msg, lang = 'zh', policyProfile = null, context = 
 
     // 执行检测
     const checkResult = checkEligibility(msg, { lang, thresholds, context });
+    const policyDecision = evaluateRefusalPolicy({
+        content: msg,
+        lang,
+        eligibilityCheck: checkResult,
+        config: getRefusalPolicyConfig(process.env)
+    });
 
-    if (checkResult.action === EligibilityAction.PROCEED) {
-        return { action: 'proceed', checkResult };
+    if (policyDecision.action === 'pass') {
+        return { action: 'proceed', checkResult, policyDecision };
     }
 
-    // 构建响应
-    const response = buildRefusalResponse(checkResult, { lang, refusalStyle });
+    // 构建响应（统一 refusal policy 合同）
+    const response = buildPolicyResponse(policyDecision, { lang, refusalStyle });
 
     if (context?.log) {
-        context.log(`[EligibilityGate] BLOCKED: ruleId=${checkResult.ruleId} score=${checkResult.score.toFixed(2)} action=${checkResult.action}`);
+        context.log(`[EligibilityGate] BLOCKED: reason=${policyDecision.reason_code} action=${policyDecision.action} score=${checkResult.score.toFixed(2)}`);
     }
 
     return {
-        action: checkResult.action,
+        action: policyDecision.action,
         response,
-        checkResult
+        checkResult,
+        policyDecision
     };
 }
 
@@ -618,14 +631,20 @@ function checkEligibilityBypass({ msg, lang = 'zh', context = null }) {
         thresholds: { refuse: 0.50, degrade: 0.30 },
         context: null // 不打日志，避免噪音
     });
+    const policyDecision = evaluateRefusalPolicy({
+        content: msg,
+        lang,
+        eligibilityCheck: checkResult,
+        config: getRefusalPolicyConfig(process.env)
+    });
 
-    const bypassed = checkResult.action !== EligibilityAction.PROCEED;
+    const bypassed = policyDecision.action !== 'pass';
 
     if (bypassed && context?.log) {
-        context.log(`[EligibilityGate] BYPASS_DETECTED: ruleId=${checkResult.ruleId} score=${checkResult.score.toFixed(2)} (Gate 0 missed, Gate 0.5 caught)`);
+        context.log(`[EligibilityGate] BYPASS_DETECTED: reason=${policyDecision.reason_code} score=${checkResult.score.toFixed(2)} (Gate 0 missed, Gate 0.5 caught)`);
     }
 
-    return { bypassed, checkResult };
+    return { bypassed, checkResult, policyDecision };
 }
 
 // ==========================================

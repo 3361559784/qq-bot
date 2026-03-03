@@ -18,6 +18,11 @@ function parseEngineMode(value) {
   return 'legacy';
 }
 
+function parseRefusalPolicyVersion(value) {
+  const ver = String(value || '').trim().toLowerCase();
+  return ver || 'relaxed_v1';
+}
+
 function getRuntimeConfig(env = process.env) {
   return {
     response: {
@@ -32,6 +37,15 @@ function getRuntimeConfig(env = process.env) {
       sharedKey: String(env.ARIS_INGRESS_SHARED_KEY || '').trim(),
       signatureSecret: String(env.ARIS_INGRESS_SIGNATURE_SECRET || '').trim(),
       signatureMaxSkewSec: clampInt(env.ARIS_INGRESS_SIGNATURE_SKEW_SEC, 30, 3600, 300)
+    },
+    refusalPolicy: {
+      version: parseRefusalPolicyVersion(env.ARIS_REFUSAL_POLICY_VERSION),
+      percent: clampInt(env.ARIS_REFUSAL_POLICY_PERCENT, 0, 100, 0),
+      modelEnabled: parseBool(env.ARIS_REFUSAL_MODEL_ENABLED, true),
+      modelHardMinConf: clampInt(Number(env.ARIS_REFUSAL_MODEL_HARD_MIN_CONF || 0.85) * 100, 0, 100, 85) / 100,
+      clarifyMaxRounds: clampInt(env.ARIS_REFUSAL_CLARIFY_MAX_ROUNDS, 0, 5, 1),
+      delegatedMode: String(env.ARIS_REFUSAL_DELEGATED_MODE || 'degrade').trim().toLowerCase(),
+      hardBlockScope: String(env.ARIS_REFUSAL_HARD_BLOCK_SCOPE || 'minimal').trim().toLowerCase()
     },
     gptsovits: {
       apiUrl: String(env.ARIS_GPTSOVITS_API_URL || '').trim(),

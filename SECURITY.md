@@ -17,6 +17,7 @@ Do not disclose public proof-of-concept until a fix is prepared.
 - Production should enable ingress protection for `/api/schoolbot`:
   - `ARIS_REQUIRE_INGRESS_AUTH=true`
   - Configure `ARIS_INGRESS_SHARED_KEY` and/or `ARIS_INGRESS_SIGNATURE_SECRET`
+- Refusal policy rollout should use percentage gating (`ARIS_REFUSAL_POLICY_PERCENT`) to reduce false-positive blocking risk.
 
 ## Supported Scope
 

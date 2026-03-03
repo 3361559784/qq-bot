@@ -60,7 +60,7 @@ async function getContext(userId, contextId, context = null) {
   const docs = await listDocs('conversations', partitionKey, { limit: 50 }, context);
   const turns = docs
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
-    .map((x) => ({ role: x.role, content: x.content, created_at: x.created_at }));
+    .map((x) => ({ role: x.role, content: x.content, created_at: x.created_at, metadata: x.metadata || {} }));
 
   const short = turns.slice(-V2_DEFAULTS.memory.shortHistoryTurns);
   const summary = turns.length >= V2_DEFAULTS.memory.summaryTriggerTurns

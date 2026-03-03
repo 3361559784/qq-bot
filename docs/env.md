@@ -26,6 +26,16 @@
   - Shared key: `x-aris-key` (or `Authorization: Bearer <key>`)
   - Signature: `x-aris-timestamp` + `x-aris-signature` (`sha256=<hex>`)
 
+## Refusal Policy (Experience-First)
+
+- `ARIS_REFUSAL_POLICY_VERSION` (default: `relaxed_v1`)
+- `ARIS_REFUSAL_POLICY_PERCENT` (`0..100`, default: `0`)
+- `ARIS_REFUSAL_MODEL_ENABLED` (`true|false`, default: `true`)
+- `ARIS_REFUSAL_MODEL_HARD_MIN_CONF` (default: `0.85`)
+- `ARIS_REFUSAL_CLARIFY_MAX_ROUNDS` (default: `1`)
+- `ARIS_REFUSAL_DELEGATED_MODE` (`degrade|clarify`, default: `degrade`)
+- `ARIS_REFUSAL_HARD_BLOCK_SCOPE` (`minimal|extended`, default: `minimal`)
+
 ## Search / Weather
 
 - `SERPAPI_KEY`

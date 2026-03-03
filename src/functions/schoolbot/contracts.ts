@@ -12,6 +12,10 @@ export interface SchoolBotMeta {
   requestId: string;
   tool: string | null;
   intent: string | null;
+  safety_action?: 'pass' | 'clarify' | 'degrade' | 'refuse';
+  reason_code?: string;
+  retryable?: boolean;
+  clarify_round?: number;
   channel: Channel;
   latencyMs: number;
   policyVersion?: string;
@@ -53,4 +57,27 @@ export interface IngressAuthResult {
   reason?: string;
   mode?: 'disabled' | 'shared_key' | 'signature';
   message?: string;
+}
+
+export interface SafetyDecisionMeta {
+  action: 'pass' | 'clarify' | 'degrade' | 'refuse';
+  reason_code: string;
+  category: string;
+  confidence: number;
+  source: string;
+  retryable: boolean;
+  clarify_round: number;
+  hard_block: boolean;
+}
+
+export interface RefusalPolicyResult extends SafetyDecisionMeta {
+  clarify_required: boolean;
+}
+
+export interface ClarifyState {
+  requestId: string;
+  userId: string;
+  clarify_round: number;
+  last_reason_code: string;
+  updated_at: string;
 }

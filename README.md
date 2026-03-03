@@ -28,6 +28,7 @@ Core modules after refactor:
 - Legacy engine fallback: `src/functions/schoolbot/runtime/legacyEngine.js`
 - v2 engine bridge: `src/functions/schoolbot/runtime/v2Engine.js`
 - Engine selector (gray/shadow): `src/functions/schoolbot/runtime/engineSelector.js`
+- Unified refusal policy: `src/common/refusalPolicy.js`
 - Policy gates: `src/functions/schoolbot/policy/gates.js`
 - Request parsing: `src/functions/schoolbot/http/requestParser.js`
 - Non-chat event routing: `src/functions/schoolbot/http/eventRouter.js`
@@ -100,6 +101,7 @@ Primary routes:
 - `_debug` response metadata is disabled by default (`ARIS_DEBUG_RESPONSE=false`).
 - Engine defaults: `ARIS_SCHOOLBOT_ENGINE=legacy`, `ARIS_SCHOOLBOT_V2_PERCENT=0`.
 - Optional ingress auth is supported by `ARIS_REQUIRE_INGRESS_AUTH`.
+- Refusal policy defaults to relaxed mode with minimal hard-block categories.
 
 - 严禁把密钥提交到 git。
 - 所有凭据必须使用环境变量。
@@ -107,6 +109,7 @@ Primary routes:
 - 响应中的 `_debug` 默认关闭（`ARIS_DEBUG_RESPONSE=false`）。
 - 运行默认是 legacy 引擎（`ARIS_SCHOOLBOT_ENGINE=legacy`，`ARIS_SCHOOLBOT_V2_PERCENT=0`）。
 - 支持可配置入口鉴权（`ARIS_REQUIRE_INGRESS_AUTH`）。
+- 拒绝策略默认是放宽版（最小硬拒绝集合）。
 
 Please read `SECURITY.md` for vulnerability reporting.
 

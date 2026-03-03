@@ -37,6 +37,7 @@ const SAFETY_ACTION = Object.freeze({
 const SAFETY_CATEGORY = Object.freeze({
   NONE: 'none',
   DELEGATED_ACTION: 'delegated_action',
+  UNAUTHORIZED_ACTION: 'unauthorized_action',
   HIGH_RISK: 'high_risk',
   HARMFUL: 'harmful',
   PROMPT_INJECTION: 'prompt_injection',

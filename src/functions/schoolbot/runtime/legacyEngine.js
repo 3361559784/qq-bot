@@ -15,6 +15,7 @@ const { runDecisionPipeline } = require('../../../orchestrator/decisionPipeline'
 const { detectSafetyRisk, getRefusalMessage, shouldRefuse, shouldSwitchPro, SafetyCategory, SafetyAction, SafetyResult } = require('../../../common/safety');
 const { createLogger, EventType } = require('../../../common/logger');
 const { runEligibilityGate, checkEligibilityBypass, EligibilityAction } = require('../../../common/eligibilityGate');
+const { evaluateRefusalPolicy, buildPolicyResponse, getRefusalPolicyConfig, normalizeCategory, RefusalAction } = require('../../../common/refusalPolicy');
 const { detectGreetingFastPath, buildGreetingFastPathReply, sanitizeHistoryForInference } = require('../../../common/chatGuards');
 const { createPokeModule } = require('../features/poke');
 const { getRuntimeConfig } = require('../config/runtime');
@@ -563,7 +564,7 @@ const DECISION_MAKING_PATTERNS = {
 /**
  * Gate 0（Pre-Intent）- 统一资格判定
  * - 调用 eligibilityGate 模块进行信号打分
- * - 返回：{ action: 'proceed'|'refuse'|'degrade', response?: {...}, checkResult?: {...} }
+ * - 返回：{ action: 'proceed'|'refuse'|'degrade'|'clarify', response?: {...}, checkResult?: {...} }
  */
 function runPreIntentGate0({ msg, lang = 'zh', policyProfile = null, context, history = [] }) {
     // 调用统一的 EligibilityGate 模块
@@ -585,6 +586,15 @@ function runPreIntentGate0({ msg, lang = 'zh', policyProfile = null, context, hi
             action: 'refuse', 
             response: gateResult.response, 
             checkResult: gateResult.checkResult 
+        };
+    }
+
+    if (gateResult.action === EligibilityAction.CLARIFY || gateResult.action === 'clarify') {
+        context?.log?.(`[Gate0] EligibilityGate → clarify (score: ${gateResult.checkResult?.score})`);
+        return {
+            action: 'clarify',
+            response: gateResult.response,
+            checkResult: gateResult.checkResult
         };
     }
     
@@ -752,10 +762,9 @@ function runDecisionEngine({ msg, intentResult, semanticResolution, hasSchedule,
 
     // 🆕 Gate 0.5: Eligibility Bypass Check（旁路统计点 - 不做拦截，只做日志）
     // 由于 Gate 0 已在 Pre-Intent 阶段完成资格检查，这里只用于统计/调试
-    const textLower = text.toLowerCase();
-    const bypassResult = checkEligibilityBypass({ text, textLower, intentResult, context });
-    if (bypassResult.triggered) {
-        context?.log?.(`[Gate0.5 Bypass] type=${bypassResult.eligibilityType}, score=${bypassResult.score}, matched=${JSON.stringify(bypassResult.matchedSignals)}`);
+    const bypassResult = checkEligibilityBypass({ msg: text, lang, context });
+    if (bypassResult.bypassed) {
+        context?.log?.(`[Gate0.5 Bypass] reason=${bypassResult.policyDecision?.reason_code || 'unknown'} score=${bypassResult.checkResult?.score} matched=${JSON.stringify(bypassResult.checkResult?.matched || [])}`);
         // 注意：不做 return，继续处理（因为 Gate 0 已经处理过了）
         // 这个统计可用于监控哪些请求在 Gate 0 后被放行但仍有代决策信号
     }
@@ -5607,6 +5616,14 @@ ${scheduleInfo}
             context?.log?.(`[Gate0] refused early: ${preGate0?.response?.meta?.reason || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
             return preGate0.response;
         }
+        if (preGate0?.action === 'clarify') {
+            context?.log?.(`[Gate0] clarify early: ${preGate0?.response?.meta?.reason || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
+            return {
+                status: 200,
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify(preGate0.response)
+            };
+        }
         // degrade 模式：继续处理但降级
         if (preGate0?.action === 'degrade') {
             context?.log?.(`[Gate0] degraded: ${preGate0?.checkResult?.ruleId || 'unknown'} (score: ${preGate0?.checkResult?.score})`);
@@ -5728,24 +5745,36 @@ ${scheduleInfo}
         }
 
         // ==========================================
-        // 🚨 Gate 0.5 前置：风险/代决策检测（最高优先级）
+        // 🚨 Gate 0.5 前置：统一拒绝策略（体验优先）
         // ==========================================
-        // 检测：代决策、越权、高风险建议请求 → 直接拒绝，不进入任何后续流程
-        if (hasDelegatedDecisionRequest(msg)) {
-            context.log(`[Gate0.5 前置] delegated decision request detected - hard refusal`);
-
+        // 仅最小集合硬拒绝（harmful/prompt injection/unauthorized action）；
+        // delegated decision 默认 degrade，模糊风险优先 clarify。
+        const prePolicyDecision = evaluateRefusalPolicy({
+            content: msg,
+            lang: responseLang,
+            clarifyRound: 0,
+            config: RUNTIME_CONFIG.refusalPolicy
+        });
+        if (prePolicyDecision.action !== RefusalAction.PASS) {
+            const prePolicyResponse = buildPolicyResponse(prePolicyDecision, {
+                lang: responseLang,
+                refusalStyle: activePolicy?.refusalStyle || 'soft'
+            });
+            context.log(`[Gate0.5 前置] action=${prePolicyDecision.action} reason=${prePolicyDecision.reason_code} source=${prePolicyDecision.source}`);
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({
-                    reply: buildDelegatedDecisionRefusal(responseLang),
-                    persona: 'professional',
+                    reply: prePolicyResponse?.reply || buildDelegatedDecisionRefusal(responseLang),
+                    persona: prePolicyResponse?.persona || 'professional',
                     meta: {
                         requestId,
                         latencyMs: Date.now() - requestStartTs,
                         stage: 'risk_detection_pre_policy',
-                        reason: 'delegated_decision_request_blocked',
-                        riskType: 'delegated_decision_making'
+                        safety_action: prePolicyDecision.action,
+                        reason_code: prePolicyDecision.reason_code,
+                        retryable: !!prePolicyDecision.retryable,
+                        clarify_round: Number(prePolicyDecision.clarify_round || 0)
                     }
                 })
             };
@@ -5807,76 +5836,47 @@ ${scheduleInfo}
         }
 
         // ==========================================
-        // 🛡️ Pillar 1 (统一决策): LLM 判定 + 确定性兜底 → blocked
+        // 🛡️ Pillar 1 (统一决策): 规则 + 模型融合拒绝策略
         // ==========================================
-        // 🆕 QQ端已在前面跳过安全检查，这里只处理 Web 端
-        // 优先采信第一层 LLM 的 safety_protocol="blocked"；若 LLM 漏判但确定性检查命中，则兜底触发。
-        const llmSafetyTriggered = intentResult?.safetyProtocol === 'triggered' || intentResult?.safetyProtocol === 'blocked';
-        
-        // 🆕 QQ端跳过所有安全检查
         const isCurrentFromQQ = body?.post_type === 'message';
         const isCurrentFromWeb = !body?.post_type && body?.message;
-        
-        // 🔒 安全拦截门控：
-        // - 规则兜底（确定性命中且是 REFUSE）一律拦截
-        // - L1 模型判定仅在置信度足够高时才直接拦截，避免低置信度“瞎拦截”
+        const llmSafetyTriggered = intentResult?.safetyProtocol === 'triggered' || intentResult?.safetyProtocol === 'blocked';
         const llmSafetyConfidence = Number(intentResult?.confidence || 0);
-        const llmSafetyHardBlocked = llmSafetyTriggered && llmSafetyConfidence >= 0.75;
-        const finalSafetyBlocked = (llmSafetyHardBlocked || deterministicSafetyTriggered);
-        const finalSafetyCategory = intentResult?.safetyCategory || deterministicSafetyCategory || 'other';
-        const safetySource = llmSafetyHardBlocked ? 'llm_layer1' : (deterministicSafetyTriggered ? 'deterministic_fallback' : (llmSafetyTriggered ? 'llm_layer1_low_conf' : null));
 
-        // 🆕 Web 端安全链路日志
+        const modelSignal = (llmSafetyTriggered || deterministicSafetyTriggered) ? {
+            triggered: true,
+            confidence: Math.max(llmSafetyConfidence, deterministicSafetyTriggered ? 1 : 0),
+            category: normalizeCategory(intentResult?.safetyCategory || deterministicSafetyCategory || ''),
+            reason_code: String(intentResult?.safetyCategory || deterministicSafetyCategory || '').toUpperCase() || 'SAFETY_MODEL_SIGNAL',
+            source: deterministicSafetyTriggered ? 'deterministic_fallback' : 'llm_layer1'
+        } : null;
+
+        const unifiedSafetyDecision = evaluateRefusalPolicy({
+            content: msg,
+            lang: responseLang,
+            clarifyRound: 0,
+            modelSignal,
+            config: {
+                ...getRefusalPolicyConfig(process.env),
+                ...RUNTIME_CONFIG.refusalPolicy
+            }
+        });
+
         if (isCurrentFromWeb) {
-            context.log(`[安全链路] 来源=${isCurrentFromQQ ? 'QQ' : 'Web'} | LLM判定: ${llmSafetyTriggered ? '触发' : '通过'}(conf=${llmSafetyConfidence}) | 规则兜底: ${deterministicSafetyTriggered ? '触发' : '通过'} | 最终: ${finalSafetyBlocked ? '拦截' : '放行'}`);
+            context.log(`[安全链路] LLM=${llmSafetyTriggered ? 'triggered' : 'pass'} conf=${llmSafetyConfidence.toFixed(2)} deterministic=${deterministicSafetyTriggered ? 'triggered' : 'pass'} final=${unifiedSafetyDecision.action} reason=${unifiedSafetyDecision.reason_code}`);
         }
 
-        // 🟡 软安全态：L1 认为可能触发，但置信度不足；不直接拦截，先澄清意图并给合规路径
-        // 目标：减少“自相矛盾/过度严格”的体验，同时不放松底线。
-        if (!finalSafetyBlocked && llmSafetyTriggered) {
-            const softSafetyPersona = 'professional';
-            const softReply =
-                `我不确定你的请求是否在触发安全边界（当前判定置信度较低）。\n` +
-                `为了避免误解：你是想\n` +
-                `1) 讨论/学习相关概念（我可以讲原理、给合规示例），还是\n` +
-                `2) 获取可能违规/有风险的具体做法（这类我不能协助）？\n\n` +
-                `你把你的目的和场景说明一句，我再继续。`;
-
-            return {
-                status: 200,
-                headers: { 'Content-Type': 'application/json; charset=utf-8' },
-                body: JSON.stringify({
-                    reply: softReply,
-                    persona: softSafetyPersona,
-                    safety: {
-                        blocked: false,
-                        triggered: true,
-                        source: 'llm_layer1_low_conf',
-                        confidence: llmSafetyConfidence
-                    },
-                    meta: {
-                        requestId,
-                        latencyMs: Date.now() - requestStartTs,
-                        channel: isCurrentFromQQ ? 'qq' : 'web'
-                    }
-                })
-            };
-        }
-
-        if (finalSafetyBlocked) {
-            logger.logSafetyBlocked(finalSafetyCategory, safetySource);
-            
-            // 🆕 根据安全类别决定使用哪个人格
-            const safetyPersona = (finalSafetyCategory === 'prompt_injection') ? 'alice' : 'professional';
-            
-            if (safetyPersona !== 'alice') {
-                logger.logPersonaSwitched('alice', 'professional', `safety_${finalSafetyCategory}`);
+        if (unifiedSafetyDecision.action !== RefusalAction.PASS) {
+            const safetyResponse = buildPolicyResponse(unifiedSafetyDecision, {
+                lang: responseLang,
+                refusalStyle: activePolicy?.refusalStyle || 'soft'
+            });
+            const blocked = unifiedSafetyDecision.action === RefusalAction.REFUSE;
+            if (blocked) {
+                logger.logSafetyBlocked(unifiedSafetyDecision.category, unifiedSafetyDecision.source);
             }
 
-            const refusalMessage = getRefusalMessage(finalSafetyCategory, safetyPersona);
-
-            logger.logRequestEnd('blocked', refusalMessage.length);
-
+            logger.logRequestEnd(`safety_${unifiedSafetyDecision.action}`, (safetyResponse?.reply || '').length);
             logger.logAuditSummary({
                 request_id: requestId,
                 client: clientInfo.client,
@@ -5886,25 +5886,30 @@ ${scheduleInfo}
                 policy_source: policySelection?.source,
                 tools_used: deriveToolsFromIntent(intentResult),
                 cost: { latency_ms: Date.now() - requestStartTs },
-                outcome: 'safety_blocked'
+                outcome: `safety_${unifiedSafetyDecision.action}`
             });
 
             return {
                 status: 200,
                 headers: { 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({
-                    reply: refusalMessage,
-                    persona: safetyPersona,
-                    // 🆕 Web 端返回安全元数据（用于前端显示）
+                    reply: safetyResponse?.reply || getRefusalMessage('other', 'professional'),
+                    persona: safetyResponse?.persona || 'professional',
                     safety: {
-                        blocked: true,
-                        category: finalSafetyCategory,
-                        source: safetySource
+                        blocked,
+                        action: unifiedSafetyDecision.action,
+                        category: unifiedSafetyDecision.category,
+                        source: unifiedSafetyDecision.source,
+                        confidence: unifiedSafetyDecision.confidence
                     },
                     meta: {
                         requestId,
                         latencyMs: Date.now() - requestStartTs,
-                        channel: 'web'
+                        channel: isCurrentFromQQ ? 'qq' : 'web',
+                        safety_action: unifiedSafetyDecision.action,
+                        reason_code: unifiedSafetyDecision.reason_code,
+                        retryable: !!unifiedSafetyDecision.retryable,
+                        clarify_round: Number(unifiedSafetyDecision.clarify_round || 0)
                     }
                 })
             };
@@ -7991,6 +7996,10 @@ ${fullWeekScheduleTable}
                     requestId,
                     tool: intentResult?.tool || null,
                     intent: intentResult?.intent || null,
+                    safety_action: 'pass',
+                    reason_code: 'SAFETY_PASS',
+                    retryable: false,
+                    clarify_round: 0,
                     safety_protocol: intentResult?.safetyProtocol || 'none',
                     safety_category: intentResult?.safetyCategory || '',
                     sourceLabel: sourceLabel,
