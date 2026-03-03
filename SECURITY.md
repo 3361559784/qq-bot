@@ -18,6 +18,12 @@ Do not disclose public proof-of-concept until a fix is prepared.
   - `ARIS_REQUIRE_INGRESS_AUTH=true`
   - Configure `ARIS_INGRESS_SHARED_KEY` and/or `ARIS_INGRESS_SIGNATURE_SECRET`
 - Refusal policy rollout should use percentage gating (`ARIS_REFUSAL_POLICY_PERCENT`) to reduce false-positive blocking risk.
+- Computer-use agent endpoints (`/api/v2/computer-use/agent/*`) require `ARIS_CU_AGENT_TOKEN`.
+- For host mode desktop automation:
+  - Keep `ARIS_CU_CONFIRM_MODE=periodic` (default) unless you explicitly accept full-auto risk.
+  - Rotate `ARIS_CU_AGENT_TOKEN` regularly.
+  - Treat screenshots as sensitive data and avoid logging raw pixels into public audit streams.
+- In `server` profile, keep `ARIS_CU_ENABLED=false` unless a trusted remote executor path is configured.
 
 ## Supported Scope
 

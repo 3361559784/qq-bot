@@ -23,6 +23,19 @@
     "ARIS_REFUSAL_CLARIFY_MAX_ROUNDS": "1",
     "ARIS_REFUSAL_DELEGATED_MODE": "degrade",
     "ARIS_REFUSAL_HARD_BLOCK_SCOPE": "minimal",
+    "ARIS_RUNTIME_PROFILE": "host",
+    "ARIS_CU_ENABLED": "true",
+    "ARIS_CU_TRIGGER_MODE": "both",
+    "ARIS_CU_CONFIRM_MODE": "periodic",
+    "ARIS_CU_CONFIRM_EVERY_STEPS": "5",
+    "ARIS_CU_STEP_MAX_RETRY": "2",
+    "ARIS_CU_MAX_STEPS": "30",
+    "ARIS_CU_SYNC_WAIT_MS": "18000",
+    "ARIS_CU_LEASE_TTL_SEC": "45",
+    "ARIS_CU_REMOTE_ENDPOINT": "",
+    "ARIS_CU_AGENT_TOKEN": "",
+    "ARIS_CU_PLANNER_MODEL": "gpt-4o-mini",
+    "OPENAI_API_KEY": "",
 
     "SENIVERSE_API_KEY": "",
     "SERPAPI_KEY": "",
@@ -37,7 +50,8 @@
     "ARIS_GPTSOVITS_SOVITS_WEIGHTS": "SoVITS_weights_v2/Aris_e16_s272.pth",
     "ARIS_GPTSOVITS_REF_AUDIO_PATH": "",
     "ARIS_GPTSOVITS_REF_PROMPT_TEXT": "",
-    "ARIS_GPTSOVITS_REF_PROMPT_LANG": "ja"
+    "ARIS_GPTSOVITS_REF_PROMPT_LANG": "ja",
+    "V2_COMPUTER_USE_JOBS_CONTAINER": "ComputerUseJobsV2"
   },
   "Host": {
     "CORS": "*"

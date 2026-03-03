@@ -6,8 +6,54 @@ const { manualWrite, searchMemory } = require('../v2/services/memoryService');
 const { listInstalledSkills, installSkill, uninstallSkill } = require('../v2/services/skillRuntime');
 const { createTask, listTasks, patchTask, removeTask, startScheduler } = require('../v2/services/taskScheduler');
 const { logAudit } = require('../v2/services/auditService');
+const {
+  createComputerUseJobFromInput,
+  requireAgentToken,
+  pollComputerUseJobForAgent,
+  reportComputerUseJobFromAgent,
+  confirmComputerUseJobById,
+  cancelComputerUseJobById,
+  getComputerUseJob
+} = require('../v2/services/computerUseService');
 
 startScheduler();
+
+function getRequestId(request, body = {}) {
+  return String(
+    body.request_id
+    || body.requestId
+    || request?.headers?.get?.('x-request-id')
+    || `req_${Date.now()}`
+  );
+}
+
+function sanitizeComputerUseJob(job = {}, options = {}) {
+  if (!job || typeof job !== 'object') return null;
+  const includeLease = !!options.includeLease;
+  return {
+    id: job.id,
+    request_id: job.request_id,
+    user_id: job.user_id,
+    context_id: job.context_id,
+    objective: job.objective,
+    trigger: job.trigger,
+    status: job.status,
+    confirm_mode: job.confirm_mode,
+    confirm_every_steps: Number(job.confirm_every_steps || 0),
+    step_max_retry: Number(job.step_max_retry || 0),
+    max_steps: Number(job.max_steps || 0),
+    steps_executed: Number(job.steps_executed || 0),
+    confirm_round: Number(job.confirm_round || 0),
+    steps: Array.isArray(job.steps) ? job.steps : [],
+    summary: job.summary || '',
+    output: job.output ?? null,
+    error: job.error || null,
+    last_screenshot_ref: job.last_screenshot_ref || '',
+    created_at: job.created_at,
+    updated_at: job.updated_at,
+    lease: includeLease ? job.lease || null : undefined
+  };
+}
 
 app.http('v2Messages', {
   route: 'v2/messages',
@@ -231,3 +277,180 @@ app.http('v2TasksDelete', {
     return jsonResponse({ success: true });
   }
 });
+
+async function v2ComputerUseJobsCreateHandler(request, context) {
+  const body = await parseJsonBody(request);
+  const objective = String(body.objective || '').trim();
+  if (!objective) return jsonResponse({ error: 'objective is required' }, 400);
+
+  const created = await createComputerUseJobFromInput({
+    request_id: getRequestId(request, body),
+    user_id: String(body.user_id || body.userId || 'web_unknown'),
+    context_id: String(body.context_id || body.contextId || `web_${body.user_id || body.userId || 'unknown'}`),
+    objective,
+    trigger: String(body.trigger || 'api'),
+    confirm_mode: body.confirm_mode,
+    confirm_every_steps: body.confirm_every_steps,
+    step_max_retry: body.step_max_retry,
+    max_steps: body.max_steps,
+    metadata: body.metadata || {}
+  }, context);
+
+  if (!created.ok) {
+    return jsonResponse({
+      success: false,
+      degraded: true,
+      error: created.reason || created.type || 'computer_use_unavailable',
+      message: created.message || 'computer-use unavailable'
+    }, 200);
+  }
+
+  const job = sanitizeComputerUseJob(created.job);
+  return jsonResponse({ success: true, job }, 201);
+}
+
+async function v2ComputerUseJobGetHandler(request, context) {
+  const id = String(request.params?.id || '').trim();
+  if (!id) return jsonResponse({ error: 'id is required' }, 400);
+
+  const job = await getComputerUseJob(id, context);
+  if (!job) return jsonResponse({ error: 'job not found' }, 404);
+  return jsonResponse({ success: true, job: sanitizeComputerUseJob(job) }, 200);
+}
+
+async function v2ComputerUseJobConfirmHandler(request, context) {
+  const id = String(request.params?.id || '').trim();
+  if (!id) return jsonResponse({ error: 'id is required' }, 400);
+
+  const job = await confirmComputerUseJobById(id, context);
+  if (!job) return jsonResponse({ error: 'job not found' }, 404);
+  return jsonResponse({ success: true, job: sanitizeComputerUseJob(job) }, 200);
+}
+
+async function v2ComputerUseJobCancelHandler(request, context) {
+  const id = String(request.params?.id || '').trim();
+  if (!id) return jsonResponse({ error: 'id is required' }, 400);
+  const body = await parseJsonBody(request);
+
+  const job = await cancelComputerUseJobById(id, body.reason || 'cancelled_by_user', context);
+  if (!job) return jsonResponse({ error: 'job not found' }, 404);
+  return jsonResponse({ success: true, job: sanitizeComputerUseJob(job) }, 200);
+}
+
+async function v2ComputerUseAgentPollHandler(request, context) {
+  const auth = requireAgentToken(request);
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 401);
+
+  const body = await parseJsonBody(request);
+  const out = await pollComputerUseJobForAgent({
+    agent_id: String(body.agent_id || body.agentId || 'agent')
+  }, context);
+
+  return jsonResponse({
+    success: true,
+    degraded: out.degraded || null,
+    job: out.job ? sanitizeComputerUseJob(out.job, { includeLease: true }) : null
+  }, 200);
+}
+
+async function v2ComputerUseAgentReportHandler(request, context) {
+  const auth = requireAgentToken(request);
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 401);
+
+  const body = await parseJsonBody(request);
+  const out = await reportComputerUseJobFromAgent({
+    job_id: body.job_id || body.jobId,
+    agent_id: body.agent_id || body.agentId,
+    lease_token: body.lease_token || body.leaseToken,
+    report_type: body.report_type || body.reportType || 'step',
+    step: body.step,
+    result: body.result,
+    error: body.error
+  }, context);
+
+  if (!out.ok) return jsonResponse({ success: false, error: out.error }, 400);
+  return jsonResponse({ success: true, job: sanitizeComputerUseJob(out.job, { includeLease: true }) }, 200);
+}
+
+async function v2ComputerUseAgentHeartbeatHandler(request, context) {
+  const auth = requireAgentToken(request);
+  if (!auth.ok) return jsonResponse({ error: auth.error }, auth.status || 401);
+
+  const body = await parseJsonBody(request);
+  const jobId = String(body.job_id || body.jobId || '').trim();
+  if (!jobId) {
+    await logAudit('computer_use.agent.heartbeat', {
+      agent_id: String(body.agent_id || body.agentId || 'agent'),
+      request_id: getRequestId(request, body)
+    }, context);
+    return jsonResponse({ success: true, heartbeat: 'ok' }, 200);
+  }
+
+  const out = await reportComputerUseJobFromAgent({
+    job_id: jobId,
+    agent_id: body.agent_id || body.agentId,
+    lease_token: body.lease_token || body.leaseToken,
+    report_type: 'heartbeat'
+  }, context);
+  if (!out.ok) return jsonResponse({ success: false, error: out.error }, 400);
+  return jsonResponse({ success: true, job: sanitizeComputerUseJob(out.job, { includeLease: true }) }, 200);
+}
+
+app.http('v2ComputerUseJobsCreate', {
+  route: 'v2/computer-use/jobs',
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseJobsCreateHandler
+});
+
+app.http('v2ComputerUseJobGet', {
+  route: 'v2/computer-use/jobs/{id}',
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseJobGetHandler
+});
+
+app.http('v2ComputerUseJobConfirm', {
+  route: 'v2/computer-use/jobs/{id}/confirm',
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseJobConfirmHandler
+});
+
+app.http('v2ComputerUseJobCancel', {
+  route: 'v2/computer-use/jobs/{id}/cancel',
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseJobCancelHandler
+});
+
+app.http('v2ComputerUseAgentPoll', {
+  route: 'v2/computer-use/agent/poll',
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseAgentPollHandler
+});
+
+app.http('v2ComputerUseAgentReport', {
+  route: 'v2/computer-use/agent/report',
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseAgentReportHandler
+});
+
+app.http('v2ComputerUseAgentHeartbeat', {
+  route: 'v2/computer-use/agent/heartbeat',
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: v2ComputerUseAgentHeartbeatHandler
+});
+
+module.exports = {
+  v2ComputerUseJobsCreateHandler,
+  v2ComputerUseJobGetHandler,
+  v2ComputerUseJobConfirmHandler,
+  v2ComputerUseJobCancelHandler,
+  v2ComputerUseAgentPollHandler,
+  v2ComputerUseAgentReportHandler,
+  v2ComputerUseAgentHeartbeatHandler
+};

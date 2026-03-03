@@ -44,6 +44,9 @@ function mapTrustMeta(toolName) {
   if (toolName.startsWith('search.')) {
     return { sourceLabel: 'Search Engine', trustLevel: 'live_search' };
   }
+  if (toolName === 'computer.use') {
+    return { sourceLabel: 'Local Computer Agent', trustLevel: 'local_automation' };
+  }
 
   return { sourceLabel: null, trustLevel: null };
 }
@@ -57,8 +60,13 @@ function adaptV2ToLegacyHttp({
   latencyMs
 }) {
   const response = v2Response || {};
+  const toolCalls = Array.isArray(response.tool_calls) ? response.tool_calls : [];
   const toolName = resolveToolName(response.tool_calls);
   const trustMeta = mapTrustMeta(toolName);
+  const computerUseCall = toolCalls.find((x) => x && x.tool === 'computer.use');
+  const computerUseOutput = computerUseCall?.output && typeof computerUseCall.output === 'object'
+    ? computerUseCall.output
+    : null;
 
   const payload = {
     reply: String(response.content || ''),
@@ -80,7 +88,9 @@ function adaptV2ToLegacyHttp({
       client: String(client || response.meta?.channel || 'unknown'),
       latencyMs: Number(latencyMs || response.latency_ms || 0),
       channel: String(client || response.meta?.channel || 'unknown'),
-      engine: String(engineMeta?.primary || 'v2')
+      engine: String(engineMeta?.primary || 'v2'),
+      computer_use_job_id: computerUseOutput?.job_id || null,
+      computer_use_status: computerUseOutput?.status || null
     },
     auto_escape: false
   };

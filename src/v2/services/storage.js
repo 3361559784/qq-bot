@@ -8,6 +8,7 @@ const inMemory = {
   memory: new Map(),
   skills: new Map(),
   tasks: new Map(),
+  computerUseJobs: new Map(),
   audit: []
 };
 
@@ -39,6 +40,7 @@ async function initCosmos(context = null) {
         memory: await create(V2_DEFAULTS.db.containers.memory),
         skills: await create(V2_DEFAULTS.db.containers.skills),
         tasks: await create(V2_DEFAULTS.db.containers.tasks),
+        computerUseJobs: await create(V2_DEFAULTS.db.containers.computerUseJobs),
         audit: await create(V2_DEFAULTS.db.containers.audit)
       },
       memory: inMemory
@@ -73,6 +75,10 @@ async function upsertDoc(storeName, partitionKey, doc, context = null) {
     state.memory.tasks.set(doc.id, fullDoc);
     return fullDoc;
   }
+  if (storeName === 'computerUseJobs') {
+    state.memory.computerUseJobs.set(doc.id, fullDoc);
+    return fullDoc;
+  }
   if (storeName === 'audit') {
     state.memory.audit.push(fullDoc);
     return fullDoc;
@@ -101,6 +107,7 @@ async function readDoc(storeName, id, partitionKey, context = null) {
 
   if (storeName === 'skills') return state.memory.skills.get(id) || null;
   if (storeName === 'tasks') return state.memory.tasks.get(id) || null;
+  if (storeName === 'computerUseJobs') return state.memory.computerUseJobs.get(id) || null;
 
   const key = `${storeName}:${partitionKey}`;
   const list = mapStore(state.memory[storeName], key);
@@ -122,6 +129,7 @@ async function listDocs(storeName, partitionKey, options = {}, context = null) {
 
   if (storeName === 'skills') return Array.from(state.memory.skills.values()).slice(0, limit);
   if (storeName === 'tasks') return Array.from(state.memory.tasks.values()).slice(0, limit);
+  if (storeName === 'computerUseJobs') return Array.from(state.memory.computerUseJobs.values()).slice(0, limit);
   if (storeName === 'audit') return state.memory.audit.slice(-limit);
 
   const key = `${storeName}:${partitionKey}`;
@@ -143,6 +151,7 @@ async function deleteDoc(storeName, id, partitionKey, context = null) {
 
   if (storeName === 'skills') return state.memory.skills.delete(id);
   if (storeName === 'tasks') return state.memory.tasks.delete(id);
+  if (storeName === 'computerUseJobs') return state.memory.computerUseJobs.delete(id);
 
   const key = `${storeName}:${partitionKey}`;
   const list = mapStore(state.memory[storeName], key);

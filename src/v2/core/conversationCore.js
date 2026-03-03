@@ -155,7 +155,12 @@ async function handleConversation(messageReq, context = null) {
     return res;
   }
 
-  const toolExec = await planAndExecute(messageReq.content, messageReq.metadata || {}, context);
+  const toolExec = await planAndExecute(messageReq.content, {
+    ...(messageReq.metadata || {}),
+    request_id: messageReq.request_id,
+    user_id: messageReq.user_id,
+    context_id: messageReq.context_id
+  }, context);
   const toolCalls = toolExec.calls || [];
   let content = extractToolMessage(toolCalls);
   let usage = createUsageZero();
