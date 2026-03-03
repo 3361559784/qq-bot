@@ -61,7 +61,9 @@ test('response adapter: computer-use maps trust and job metadata', () => {
         output: {
           job_id: 'cujob_123',
           status: 'waiting_confirmation',
-          steps_executed: 3
+          steps_executed: 3,
+          transport: 'mcp_stdio',
+          provider: 'openai_byok'
         }
       }],
       meta: { request_id: 'rid_cu' },
@@ -75,8 +77,10 @@ test('response adapter: computer-use maps trust and job metadata', () => {
   });
 
   const payload = parseHttpJsonBody(resp);
-  assert.equal(payload.meta.sourceLabel, 'Local Computer Agent');
-  assert.equal(payload.meta.trustLevel, 'local_automation');
+  assert.equal(payload.meta.sourceLabel, 'Local MCP Computer Use');
+  assert.equal(payload.meta.trustLevel, 'local_automation_mcp');
   assert.equal(payload.meta.computer_use_job_id, 'cujob_123');
   assert.equal(payload.meta.computer_use_status, 'waiting_confirmation');
+  assert.equal(payload.meta.computer_use_transport, 'mcp_stdio');
+  assert.equal(payload.meta.computer_use_provider, 'openai_byok');
 });

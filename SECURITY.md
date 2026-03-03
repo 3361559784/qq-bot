@@ -19,6 +19,11 @@ Do not disclose public proof-of-concept until a fix is prepared.
   - Configure `ARIS_INGRESS_SHARED_KEY` and/or `ARIS_INGRESS_SIGNATURE_SECRET`
 - Refusal policy rollout should use percentage gating (`ARIS_REFUSAL_POLICY_PERCENT`) to reduce false-positive blocking risk.
 - Computer-use agent endpoints (`/api/v2/computer-use/agent/*`) require `ARIS_CU_AGENT_TOKEN`.
+- MCP stdio mode (`ARIS_CU_TRANSPORT=mcp_stdio`) should use local trusted host only; keep stdout protocol-clean and send logs to stderr.
+- ChatGPT Plus relay provider is experimental:
+  - Keep `ARIS_CU_RELAY_ENABLE_DEV=true` only in dev/test.
+  - In production, relay is blocked unless `ARIS_CU_RELAY_FORCE_PROD=true`.
+  - Treat relay browser profile dirs as sensitive local credentials.
 - For host mode desktop automation:
   - Keep `ARIS_CU_CONFIRM_MODE=periodic` (default) unless you explicitly accept full-auto risk.
   - Rotate `ARIS_CU_AGENT_TOKEN` regularly.

@@ -20,6 +20,7 @@
 ## Computer Use (Host-first)
 
 - `ARIS_CU_ENABLED`: `true|false` (default: `true` on `host`, `false` on `server`)
+- `ARIS_CU_TRANSPORT`: `mcp_stdio|http_agent|hybrid` (default: `mcp_stdio`)
 - `ARIS_CU_TRIGGER_MODE`: `explicit|auto|both` (default: `both`)
 - `ARIS_CU_CONFIRM_MODE`: `periodic|always|never` (default: `periodic`)
 - `ARIS_CU_CONFIRM_EVERY_STEPS`: confirm interval (default: `5`)
@@ -30,7 +31,22 @@
 - `ARIS_CU_AGENT_TOKEN`: required token for `/api/v2/computer-use/agent/*`
 - `ARIS_CU_REMOTE_ENDPOINT`: optional remote executor endpoint (for `server` profile)
 - `ARIS_CU_PLANNER_MODEL`: planner model id (default: `gpt-4o-mini`)
+- `ARIS_CU_MCP_SERVER_CMD`: stdio MCP server start command (default: `python3 main.py`)
+- `ARIS_CU_MCP_SERVER_CWD`: MCP server working directory (default: `local/mcp-computer-use-server`)
+- `ARIS_CU_MCP_TIMEOUT_MS`: MCP request timeout (default: `30000`)
 - `OPENAI_API_KEY`: OpenAI API key for visual planner
+- `ARIS_CU_OPENAI_BASE_URL`: optional BYOK-compatible endpoint
+- `OPENAI_ORGANIZATION`, `OPENAI_PROJECT`: optional OpenAI org/project headers
+
+### Plus Relay PoC (experimental fallback)
+
+- `ARIS_CU_RELAY_PROVIDER`: relay provider id (default: `chatgpt_plus_poc`)
+- `ARIS_CU_RELAY_ENABLE_DEV`: enable relay in dev/test (default: `true`)
+- `ARIS_CU_RELAY_MAX_RETRY`: relay retry count (default: `2`)
+- `ARIS_CU_RELAY_TIMEOUT_MS`: relay timeout ms (default: `45000`)
+- `ARIS_CU_RELAY_BROWSER_PROFILE_DIR`: local browser profile directory for manual-login automation
+- `ARIS_CU_RELAY_HEADLESS`: `true|false` (default: `false`)
+- `ARIS_CU_RELAY_FORCE_PROD`: `true|false` (default: `false`, production guard override)
 
 ## Ingress Auth (Optional, recommended in production)
 

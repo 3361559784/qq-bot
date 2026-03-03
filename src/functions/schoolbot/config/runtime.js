@@ -36,6 +36,20 @@ function parseConfirmMode(value) {
   return 'periodic';
 }
 
+function parseTransportMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (mode === 'mcp_stdio' || mode === 'http_agent' || mode === 'hybrid') return mode;
+  return 'mcp_stdio';
+}
+
+function resolveRelayEnabled(env) {
+  const nodeEnv = String(env.NODE_ENV || 'development').trim().toLowerCase();
+  const enabled = parseBool(env.ARIS_CU_RELAY_ENABLE_DEV, true);
+  const forceProd = parseBool(env.ARIS_CU_RELAY_FORCE_PROD, false);
+  if (nodeEnv === 'production' && !forceProd) return false;
+  return enabled;
+}
+
 function parseRefusalPolicyVersion(value) {
   const ver = String(value || '').trim().toLowerCase();
   return ver || 'relaxed_v1';
@@ -78,6 +92,7 @@ function getRuntimeConfig(env = process.env) {
     },
     computerUse: {
       enabled: parseBool(env.ARIS_CU_ENABLED, defaultCuEnabled),
+      transport: parseTransportMode(env.ARIS_CU_TRANSPORT),
       triggerMode: parseTriggerMode(env.ARIS_CU_TRIGGER_MODE),
       confirmMode: parseConfirmMode(env.ARIS_CU_CONFIRM_MODE),
       confirmEverySteps: clampInt(env.ARIS_CU_CONFIRM_EVERY_STEPS, 1, 50, 5),
@@ -87,7 +102,20 @@ function getRuntimeConfig(env = process.env) {
       leaseTtlSec: clampInt(env.ARIS_CU_LEASE_TTL_SEC, 5, 300, 45),
       remoteEndpoint: String(env.ARIS_CU_REMOTE_ENDPOINT || '').trim(),
       agentToken: String(env.ARIS_CU_AGENT_TOKEN || '').trim(),
-      plannerModel: String(env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini').trim()
+      plannerModel: String(env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini').trim(),
+      mcpServerCmd: String(env.ARIS_CU_MCP_SERVER_CMD || 'python3 main.py').trim(),
+      mcpServerCwd: String(env.ARIS_CU_MCP_SERVER_CWD || 'local/mcp-computer-use-server').trim(),
+      mcpTimeoutMs: clampInt(env.ARIS_CU_MCP_TIMEOUT_MS, 1000, 180000, 30000),
+      openaiBaseUrl: String(env.ARIS_CU_OPENAI_BASE_URL || '').trim(),
+      relay: {
+        provider: String(env.ARIS_CU_RELAY_PROVIDER || 'chatgpt_plus_poc').trim(),
+        enabled: resolveRelayEnabled(env),
+        maxRetry: clampInt(env.ARIS_CU_RELAY_MAX_RETRY, 0, 10, 2),
+        timeoutMs: clampInt(env.ARIS_CU_RELAY_TIMEOUT_MS, 1000, 180000, 45000),
+        browserProfileDir: String(env.ARIS_CU_RELAY_BROWSER_PROFILE_DIR || '').trim(),
+        headless: parseBool(env.ARIS_CU_RELAY_HEADLESS, false),
+        forceProd: parseBool(env.ARIS_CU_RELAY_FORCE_PROD, false)
+      }
     }
   };
 }

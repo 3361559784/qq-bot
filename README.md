@@ -21,6 +21,7 @@ Backend service for a campus assistant built on Azure Functions.
 - Services: `services/`
 - v2 APIs: `src/functions/v2Api.js` + `src/v2/`
 - Local computer-use agent (macOS): `local/computer-use-agent/`
+- Local MCP stdio server (macOS): `local/mcp-computer-use-server/`
 
 Core modules after refactor:
 
@@ -40,6 +41,7 @@ Core modules after refactor:
 - Public bridge API: `src/functions/schoolbot/publicApi.js`
 - Type contracts: `src/functions/schoolbot/contracts.ts`
 - Computer-use queue/service: `src/v2/services/computerUseQueue.js` + `src/v2/services/computerUseService.js`
+- Computer-use MCP client bridge: `src/v2/services/computerUseMcpClient.js`
 - Computer-use intent matcher: `src/v2/services/computerUseIntent.js`
 
 ## Quick Start / 本地启动
@@ -103,6 +105,12 @@ Primary routes:
 - `POST /api/v2/computer-use/agent/report`
 - `POST /api/v2/computer-use/agent/heartbeat`
 
+Computer-use transport mode:
+
+- `mcp_stdio` (P0 default): BYOK + MCP stdio
+- `http_agent`: legacy HTTP polling agent
+- `hybrid`: try MCP first, fallback HTTP agent
+
 ## Security / 安全
 
 - Never commit secrets to git.
@@ -115,6 +123,8 @@ Primary routes:
 - Computer-use supports `host|server` runtime profile:
   - `host`: local agent polling is enabled by default.
   - `server`: disabled by default unless remote endpoint is configured.
+- P0 default transport is `mcp_stdio` with OpenAI BYOK.
+- Experimental fallback provider `chatgpt_plus_relay_poc` is dev/test only by default and blocked in production unless explicitly forced.
 - Agent routes require `ARIS_CU_AGENT_TOKEN`.
 - Default confirmation policy for computer-use is `periodic` with 5-step cadence.
 
