@@ -19,6 +19,8 @@ local.settings.json
 # ignore build outputs and cache for campus-ai-web
 /campus-ai-web/.next/
 /campus-ai-web/node_modules/
+/frontend/.next/
+/frontend/out/
 
 # campus-ai-web standalone deploy artifacts (should never be committed)
 /campus-ai-web/deploy.zip

@@ -3,6 +3,7 @@ const {
   JOB_STATUS,
   createComputerUseJob,
   getComputerUseJob,
+  listComputerUseJobs,
   leaseNextComputerUseJob,
   reportComputerUseProgress,
   confirmComputerUseJob,
@@ -176,6 +177,36 @@ function buildToolOutput(job = {}) {
     planner_model_selected: String(job.planner_model_selected || ''),
     planner_model_attempts: Number(job.planner_model_attempts || 0)
   };
+}
+
+function normalizeJobStatus(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  return Object.values(JOB_STATUS).includes(raw) ? raw : '';
+}
+
+function sortJobsByUpdatedDesc(a, b) {
+  const x = Date.parse(String(a?.updated_at || a?.created_at || ''));
+  const y = Date.parse(String(b?.updated_at || b?.created_at || ''));
+  if (Number.isFinite(x) && Number.isFinite(y) && x !== y) return y - x;
+  return String(b?.id || '').localeCompare(String(a?.id || ''));
+}
+
+async function listComputerUseJobsForView(query = {}, context = null) {
+  const limit = clampInt(query.limit, 1, 200, 50);
+  const rawStatus = normalizeJobStatus(query.status);
+  const rawUserId = String(query.user_id || query.userId || '').trim();
+  const sourceLimit = clampInt(Math.max(limit * 5, 200), 1, 1000, 200);
+
+  const jobs = await listComputerUseJobs(sourceLimit, context);
+  const filtered = (Array.isArray(jobs) ? jobs : []).filter((job) => {
+    if (rawStatus && String(job?.status || '').toLowerCase() !== rawStatus) return false;
+    if (rawUserId && String(job?.user_id || '') !== rawUserId) return false;
+    return true;
+  });
+
+  filtered.sort(sortJobsByUpdatedDesc);
+  return filtered.slice(0, limit);
 }
 
 async function createComputerUseJobFromInput(input = {}, context = null) {
@@ -647,6 +678,7 @@ module.exports = {
   getComputerUseRuntimeConfig,
   getComputerUseAvailability,
   buildToolOutput,
+  listComputerUseJobsForView,
   createComputerUseJobFromInput,
   runComputerUseSkill,
   requireAgentToken,

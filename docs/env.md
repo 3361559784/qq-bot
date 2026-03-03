@@ -16,6 +16,13 @@ If `DATABASE_URL` is not set, storage falls back to in-memory mode.
 - `ARIS_AUTH_SIGNATURE_SECRET` (required in production)
 - `ARIS_AUTH_MAX_SKEW_SEC` (default: `300`)
 
+## Frontend Proxy (Next.js)
+
+- `ARIS_API_INTERNAL_BASE_URL` (default: `http://api:3000`)
+- `ARIS_PROXY_TIMEOUT_MS` (default: `30000`)
+- `ARIS_AUTH_KEY` (required on frontend server for proxy signing)
+- `ARIS_AUTH_SIGNATURE_SECRET` (required on frontend server for proxy signing)
+
 ## Worker
 
 - `ARIS_WORKER_ENABLED` (default: `true`)

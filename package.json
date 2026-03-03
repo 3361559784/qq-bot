@@ -5,11 +5,15 @@
   "scripts": {
     "start": "node src/standalone/server.js",
     "start:api": "node src/standalone/server.js",
+    "start:frontend": "npm --prefix frontend run start",
     "start:worker": "node src/worker/index.js",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test:frontend": "npm --prefix frontend run test",
     "migrate": "node scripts/migrate/run-sql.js",
     "migrate:cosmos": "node scripts/migrate/cosmos-to-postgres.js",
     "verify:runtime": "node -e \"require('./src/standalone/app').createApp({logger:false}); console.log('standalone runtime entry loaded')\"",
     "dev:compose": "docker compose up --build",
+    "dev:full": "docker compose up --build",
     "test:schoolbot": "node --test test/standalone test/schoolbot/runtime/auth-guard.test.js test/schoolbot/runtime/response-adapter.test.js test/schoolbot/runtime/computer-use-*.test.js"
   },
   "dependencies": {
