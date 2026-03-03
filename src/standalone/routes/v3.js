@@ -18,6 +18,7 @@ const {
   deleteTaskHandler
 } = require('../../api/v3/taskHandlers');
 const {
+  listJobsHandler,
   createJobHandler,
   getJobHandler,
   confirmJobHandler,
@@ -43,6 +44,7 @@ async function v3Routes(fastify) {
   fastify.patch('/tasks/:id', patchTaskHandler);
   fastify.delete('/tasks/:id', deleteTaskHandler);
 
+  fastify.get('/computer-use/jobs', listJobsHandler);
   fastify.post('/computer-use/jobs', createJobHandler);
   fastify.get('/computer-use/jobs/:id', getJobHandler);
   fastify.post('/computer-use/jobs/:id/confirm', confirmJobHandler);

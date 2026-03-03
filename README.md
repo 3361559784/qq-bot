@@ -1,13 +1,14 @@
-# SchoolBot Backend (Standalone)
+# SchoolBot Standalone (API + Frontend)
 
-Fastify + PostgreSQL self-hosted backend for SchoolBot.
+Fastify + PostgreSQL backend with a Next.js web console for SchoolBot.
 
-基于 Fastify + PostgreSQL 的 SchoolBot 独立后端（已脱离 Azure 运行时与存储依赖）。
+基于 Fastify + PostgreSQL 的 SchoolBot 独立后端，附带 Next.js 前端控制台。
 
 ## Architecture
 
 - API runtime: `src/standalone/server.js`
 - API routes: `src/standalone/routes/v3.js`
+- Frontend runtime: `frontend/` (Next.js App Router, proxy-signing mode)
 - Core conversation/skills: `src/v2/**`
 - Storage adapter: `src/v2/services/storage.js` -> PostgreSQL / memory fallback
 - PostgreSQL client: `src/storage/pg/client.js`
@@ -30,6 +31,7 @@ Base path: `/api/v3`
 - `PATCH /tasks/:id`
 - `DELETE /tasks/:id`
 - `POST /computer-use/jobs`
+- `GET /computer-use/jobs`
 - `GET /computer-use/jobs/:id`
 - `POST /computer-use/jobs/:id/confirm`
 - `POST /computer-use/jobs/:id/cancel`
@@ -70,7 +72,7 @@ npm ci
 cp .env.example .env
 ```
 
-3. Start PostgreSQL and services
+3. Start PostgreSQL and backend
 
 ```bash
 docker compose up -d postgres
@@ -79,16 +81,25 @@ npm run start:api
 npm run start:worker
 ```
 
-Or one command:
+4. Start frontend
 
 ```bash
-npm run dev:compose
+npm --prefix frontend ci
+cp frontend/.env.example frontend/.env.local
+npm run dev:frontend
+```
+
+Or one command (api + worker + postgres + frontend):
+
+```bash
+npm run dev:full
 ```
 
 ## Tests
 
 ```bash
 npm run test:schoolbot
+npm run test:frontend
 ```
 
 ## Migration
@@ -109,7 +120,7 @@ If `@azure/cosmos` is missing, install it temporarily for migration only.
 
 ## Notes
 
-- This repo is backend-only for now; no built-in frontend shell in P0.
+- Frontend calls same-origin `/api/*` routes in Next, and Next server signs upstream calls to `/api/v3/*`.
 - `computer-use` defaults to GitHub Models-compatible planner chain:
   - `ARIS_CU_PROVIDER_MODE=auto`
   - `ARIS_CU_PLANNER_MODELS=openai/gpt-5-nano,openai/gpt-4.1-mini,openai/gpt-4o-mini`
@@ -117,3 +128,4 @@ If `@azure/cosmos` is missing, install it temporarily for migration only.
 - Recommended key is `GITHUB_MODELS_TOKEN` (also supports `GITHUB_TOKEN` / `GH_TOKEN`).
 - `computer-use` is host-first. In container mode, prefer `ARIS_CU_TRANSPORT=http_agent` and run local agent on host.
 - Legacy Azure docs moved to `docs/archive/azure.md`.
+- Legacy frontend artifacts moved to `docs/archive/frontend-legacy.md`.

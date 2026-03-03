@@ -1,4 +1,5 @@
 const {
+  listComputerUseJobsForView,
   createComputerUseJobFromInput,
   requireAgentToken,
   pollComputerUseJobForAgent,
@@ -42,6 +43,43 @@ function sanitizeComputerUseJob(job = {}, options = {}) {
     updated_at: job.updated_at,
     lease: includeLease ? job.lease || null : undefined
   };
+}
+
+async function listJobsHandler(request, reply) {
+  const query = request.query || {};
+  const hasLimit = Object.prototype.hasOwnProperty.call(query, 'limit');
+  const limit = Number(query.limit ?? 50);
+  if (hasLimit && !Number.isFinite(limit)) {
+    reply.code(400).send({ error: 'invalid_limit' });
+    return;
+  }
+
+  const status = String(query.status || '').trim().toLowerCase();
+  if (status && ![
+    'queued',
+    'leased',
+    'running',
+    'waiting_confirmation',
+    'completed',
+    'failed',
+    'cancelled'
+  ].includes(status)) {
+    reply.code(400).send({ error: 'invalid_status' });
+    return;
+  }
+
+  const userId = String(query.user_id || '').trim();
+  const items = await listComputerUseJobsForView({
+    limit,
+    status,
+    user_id: userId
+  }, request.ctx);
+
+  reply.send({
+    success: true,
+    count: items.length,
+    items: items.map((x) => sanitizeComputerUseJob(x))
+  });
 }
 
 function validateAgentAuth(request, reply) {
@@ -196,6 +234,7 @@ async function agentHeartbeatHandler(request, reply) {
 }
 
 module.exports = {
+  listJobsHandler,
   createJobHandler,
   getJobHandler,
   confirmJobHandler,
