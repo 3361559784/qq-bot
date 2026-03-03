@@ -121,6 +121,72 @@ paths:
       responses:
         '200':
           description: Deleted
+  /v2/computer-use/jobs:
+    post:
+      summary: Create a computer-use job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComputerUseCreateRequest'
+      responses:
+        '201':
+          description: Job created
+  /v2/computer-use/jobs/{id}:
+    get:
+      summary: Get computer-use job by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job detail
+  /v2/computer-use/jobs/{id}/confirm:
+    post:
+      summary: Confirm and continue a waiting computer-use job
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Confirmed
+  /v2/computer-use/jobs/{id}/cancel:
+    post:
+      summary: Cancel a computer-use job
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cancelled
+  /v2/computer-use/agent/poll:
+    post:
+      summary: Agent polls one runnable computer-use job
+      responses:
+        '200':
+          description: Poll result
+  /v2/computer-use/agent/report:
+    post:
+      summary: Agent reports step/final status
+      responses:
+        '200':
+          description: Report accepted
+  /v2/computer-use/agent/heartbeat:
+    post:
+      summary: Agent heartbeat
+      responses:
+        '200':
+          description: Heartbeat accepted
 components:
   schemas:
     MessageRequest:
@@ -215,3 +281,79 @@ components:
               type: integer
         latency_ms:
           type: integer
+    ComputerUseCreateRequest:
+      type: object
+      required: [objective]
+      properties:
+        request_id:
+          type: string
+        user_id:
+          type: string
+        context_id:
+          type: string
+        objective:
+          type: string
+        trigger:
+          type: string
+        confirm_mode:
+          type: string
+          enum: [periodic, always, never]
+        confirm_every_steps:
+          type: integer
+        step_max_retry:
+          type: integer
+        max_steps:
+          type: integer
+        metadata:
+          type: object
+    ComputerUseStep:
+      type: object
+      properties:
+        index:
+          type: integer
+        action:
+          type: string
+        status:
+          type: string
+          enum: [success, failed, skipped]
+        duration_ms:
+          type: integer
+        retry_count:
+          type: integer
+        error:
+          type: [string, 'null']
+        screenshot_ref:
+          type: string
+    ComputerUseJob:
+      type: object
+      properties:
+        id:
+          type: string
+        request_id:
+          type: string
+        user_id:
+          type: string
+        context_id:
+          type: string
+        objective:
+          type: string
+        status:
+          type: string
+          enum: [queued, leased, running, waiting_confirmation, completed, failed, cancelled]
+        confirm_mode:
+          type: string
+          enum: [periodic, always, never]
+        confirm_every_steps:
+          type: integer
+        step_max_retry:
+          type: integer
+        max_steps:
+          type: integer
+        steps_executed:
+          type: integer
+        confirm_round:
+          type: integer
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComputerUseStep'

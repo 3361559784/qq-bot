@@ -20,6 +20,50 @@
  */
 
 /**
+ * @typedef {Object} ComputerUseStep
+ * @property {number} index
+ * @property {string} action
+ * @property {'success'|'failed'|'skipped'} status
+ * @property {number} duration_ms
+ * @property {number} [retry_count]
+ * @property {string|null} [error]
+ * @property {string} [screenshot_ref]
+ * @property {Object|string|null} [output]
+ */
+
+/**
+ * @typedef {Object} ComputerUseJob
+ * @property {string} id
+ * @property {string} request_id
+ * @property {string} user_id
+ * @property {string} context_id
+ * @property {string} objective
+ * @property {'queued'|'leased'|'running'|'waiting_confirmation'|'completed'|'failed'|'cancelled'} status
+ * @property {string} confirm_mode
+ * @property {number} confirm_every_steps
+ * @property {number} step_max_retry
+ * @property {number} max_steps
+ * @property {number} steps_executed
+ * @property {number} confirm_round
+ * @property {Array<ComputerUseStep>} steps
+ * @property {string} [summary]
+ * @property {Object|string|null} [output]
+ * @property {string|null} [error]
+ * @property {string} [last_screenshot_ref]
+ */
+
+/**
+ * @typedef {Object} ComputerUseAgentPollRequest
+ * @property {string} agent_id
+ */
+
+/**
+ * @typedef {Object} ComputerUseAgentPollResponse
+ * @property {boolean} success
+ * @property {ComputerUseJob|null} job
+ */
+
+/**
  * @typedef {Object} SafetyDecision
  * @property {'pass'|'degrade'|'refuse'} action
  * @property {string} category

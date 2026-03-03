@@ -1,3 +1,16 @@
+function parseBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return String(value).toLowerCase() === 'true';
+}
+
+function normalizeMode(value, fallback, allow) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (allow.includes(raw)) return raw;
+  return fallback;
+}
+
+const runtimeProfile = normalizeMode(process.env.ARIS_RUNTIME_PROFILE, 'host', ['host', 'server']);
+
 const V2_DEFAULTS = Object.freeze({
   apiVersion: 'v2',
   memory: {
@@ -12,6 +25,18 @@ const V2_DEFAULTS = Object.freeze({
     pollMs: Number(process.env.V2_TASK_POLL_MS || 30000),
     maxRetry: Number(process.env.V2_TASK_MAX_RETRY || 3)
   },
+  computerUse: {
+    runtimeProfile,
+    enabled: parseBool(process.env.ARIS_CU_ENABLED, runtimeProfile === 'host'),
+    triggerMode: normalizeMode(process.env.ARIS_CU_TRIGGER_MODE, 'both', ['explicit', 'auto', 'both']),
+    confirmMode: normalizeMode(process.env.ARIS_CU_CONFIRM_MODE, 'periodic', ['periodic', 'always', 'never']),
+    confirmEverySteps: Number(process.env.ARIS_CU_CONFIRM_EVERY_STEPS || 5),
+    stepMaxRetry: Number(process.env.ARIS_CU_STEP_MAX_RETRY || 2),
+    maxSteps: Number(process.env.ARIS_CU_MAX_STEPS || 30),
+    syncWaitMs: Number(process.env.ARIS_CU_SYNC_WAIT_MS || 18000),
+    leaseTtlSec: Number(process.env.ARIS_CU_LEASE_TTL_SEC || 45),
+    plannerModel: String(process.env.ARIS_CU_PLANNER_MODEL || 'gpt-4o-mini')
+  },
   limits: {
     maxContentChars: Number(process.env.V2_MAX_CONTENT_CHARS || 6000),
     maxAttachments: Number(process.env.V2_MAX_ATTACHMENTS || 8)
@@ -23,7 +48,8 @@ const V2_DEFAULTS = Object.freeze({
       memory: process.env.V2_MEMORY_CONTAINER || 'MemoryV2',
       skills: process.env.V2_SKILLS_CONTAINER || 'SkillsV2',
       tasks: process.env.V2_TASKS_CONTAINER || 'TasksV2',
-      audit: process.env.V2_AUDIT_CONTAINER || 'AuditV2'
+      audit: process.env.V2_AUDIT_CONTAINER || 'AuditV2',
+      computerUseJobs: process.env.V2_COMPUTER_USE_JOBS_CONTAINER || 'ComputerUseJobsV2'
     }
   }
 });

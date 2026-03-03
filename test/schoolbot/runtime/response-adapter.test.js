@@ -48,3 +48,35 @@ test('response adapter: debug payload only when enabled', () => {
   assert.equal(typeof payload.meta._debug, 'object');
   assert.equal(payload.meta._debug.engineMode, 'v2');
 });
+
+test('response adapter: computer-use maps trust and job metadata', () => {
+  const resp = adaptV2ToLegacyHttp({
+    v2Response: {
+      content: '已执行 3 步，等待确认',
+      persona: 'professional',
+      safety: { action: 'pass', reason_code: '' },
+      tool_calls: [{
+        tool: 'computer.use',
+        status: 'success',
+        output: {
+          job_id: 'cujob_123',
+          status: 'waiting_confirmation',
+          steps_executed: 3
+        }
+      }],
+      meta: { request_id: 'rid_cu' },
+      latency_ms: 50
+    },
+    requestId: 'rid_cu',
+    client: 'web',
+    runtimeConfig: { response: { exposeDebugMeta: false } },
+    engineMeta: { primary: 'v2', mode: 'v2', percent: 100, bucket: 20 },
+    latencyMs: 50
+  });
+
+  const payload = parseHttpJsonBody(resp);
+  assert.equal(payload.meta.sourceLabel, 'Local Computer Agent');
+  assert.equal(payload.meta.trustLevel, 'local_automation');
+  assert.equal(payload.meta.computer_use_job_id, 'cujob_123');
+  assert.equal(payload.meta.computer_use_status, 'waiting_confirmation');
+});

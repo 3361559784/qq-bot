@@ -2,6 +2,8 @@ const { hybridSearch } = require('../../../services/hybridSearch');
 const { ocrScheduleWorkflow } = require('../../../services/ocrSchedule');
 const { listDocs, upsertDoc, deleteDoc } = require('./storage');
 const { generateId, nowIso, safeLower } = require('../utils');
+const { buildComputerUseSkillInput } = require('./computerUseIntent');
+const { runComputerUseSkill, getComputerUseRuntimeConfig } = require('./computerUseService');
 
 const circuitState = new Map();
 
@@ -214,6 +216,10 @@ async function ocrSkill(input = {}) {
   };
 }
 
+async function computerUseSkill(input = {}, context = null) {
+  return runComputerUseSkill(input, context);
+}
+
 const BUILTIN_SKILLS = [
   {
     name: 'weather.get_weather',
@@ -250,6 +256,15 @@ const BUILTIN_SKILLS = [
     permissions: ['network', 'llm'],
     builtin: true,
     handler: ocrSkill
+  },
+  {
+    name: 'computer.use',
+    displayName: 'Computer Use',
+    description: '调用本地视觉点击执行器',
+    triggers: ['@cu', '/cu', 'computer-use', '电脑操作', '使用电脑'],
+    permissions: ['local_automation'],
+    builtin: true,
+    handler: computerUseSkill
   }
 ];
 
@@ -261,6 +276,27 @@ function matchSkillByContent(content, availableSkills) {
     }
   }
   return null;
+}
+
+function buildComputerUsePlan(content, metadata = {}, availableSkills = []) {
+  const cuSkill = availableSkills.find((x) => x.name === 'computer.use');
+  if (!cuSkill) return null;
+
+  const cfg = getComputerUseRuntimeConfig();
+  const built = buildComputerUseSkillInput(content, metadata, {
+    triggerMode: cfg.triggerMode
+  });
+  if (!built.triggered || !built.input) return null;
+
+  return {
+    name: cuSkill.name,
+    input: {
+      ...built.input,
+      request_id: metadata.request_id,
+      user_id: metadata.user_id,
+      context_id: metadata.context_id
+    }
+  };
 }
 
 async function listInstalledSkills(context = null) {
@@ -369,17 +405,49 @@ async function planAndExecute(content, metadata = {}, context = null) {
 
   const plans = [];
   if (explicit) {
-    plans.push({ name: explicit, input: metadata.skill_input || {} });
+    if (explicit === 'computer.use') {
+      const fromSkillInput = metadata.skill_input && typeof metadata.skill_input === 'object'
+        ? metadata.skill_input
+        : {};
+      const inferred = buildComputerUseSkillInput(content, fromSkillInput, { triggerMode: 'both' });
+      const objective = String(fromSkillInput.objective || inferred.input?.objective || content || '').trim();
+      plans.push({
+        name: explicit,
+        input: {
+          ...fromSkillInput,
+          objective,
+          trigger: fromSkillInput.trigger || inferred.input?.trigger || 'explicit',
+          request_id: metadata.request_id,
+          user_id: metadata.user_id,
+          context_id: metadata.context_id
+        }
+      });
+    } else {
+      plans.push({ name: explicit, input: metadata.skill_input || {} });
+    }
   } else {
-    const matched = matchSkillByContent(content, skills);
-    if (matched) {
+    const computerUsePlan = buildComputerUsePlan(content, metadata, skills);
+    if (computerUsePlan) {
+      plans.push(computerUsePlan);
+    } else {
+      const matched = matchSkillByContent(content, skills);
+      if (!matched) {
+        return {
+          planned: plans,
+          calls: []
+        };
+      }
+
       plans.push({
         name: matched.name,
         input: {
           query: content,
           location: metadata.location,
           schedule: metadata.schedule,
-          image_url: metadata.image_url
+          image_url: metadata.image_url,
+          request_id: metadata.request_id,
+          user_id: metadata.user_id,
+          context_id: metadata.context_id
         }
       });
     }

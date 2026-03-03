@@ -20,6 +20,7 @@ Backend service for a campus assistant built on Azure Functions.
 - Main handler implementation: `src/functions/schoolbot/http/handler.js`
 - Services: `services/`
 - v2 APIs: `src/functions/v2Api.js` + `src/v2/`
+- Local computer-use agent (macOS): `local/computer-use-agent/`
 
 Core modules after refactor:
 
@@ -38,6 +39,8 @@ Core modules after refactor:
 - Media helpers: `src/functions/schoolbot/features/media.js`
 - Public bridge API: `src/functions/schoolbot/publicApi.js`
 - Type contracts: `src/functions/schoolbot/contracts.ts`
+- Computer-use queue/service: `src/v2/services/computerUseQueue.js` + `src/v2/services/computerUseService.js`
+- Computer-use intent matcher: `src/v2/services/computerUseIntent.js`
 
 ## Quick Start / 本地启动
 
@@ -92,6 +95,13 @@ Primary routes:
 - `POST /api/v2/tasks`
 - `PATCH /api/v2/tasks/{id}`
 - `DELETE /api/v2/tasks/{id}`
+- `POST /api/v2/computer-use/jobs`
+- `GET /api/v2/computer-use/jobs/{id}`
+- `POST /api/v2/computer-use/jobs/{id}/confirm`
+- `POST /api/v2/computer-use/jobs/{id}/cancel`
+- `POST /api/v2/computer-use/agent/poll`
+- `POST /api/v2/computer-use/agent/report`
+- `POST /api/v2/computer-use/agent/heartbeat`
 
 ## Security / 安全
 
@@ -102,6 +112,11 @@ Primary routes:
 - Engine defaults: `ARIS_SCHOOLBOT_ENGINE=legacy`, `ARIS_SCHOOLBOT_V2_PERCENT=0`.
 - Optional ingress auth is supported by `ARIS_REQUIRE_INGRESS_AUTH`.
 - Refusal policy defaults to relaxed mode with minimal hard-block categories.
+- Computer-use supports `host|server` runtime profile:
+  - `host`: local agent polling is enabled by default.
+  - `server`: disabled by default unless remote endpoint is configured.
+- Agent routes require `ARIS_CU_AGENT_TOKEN`.
+- Default confirmation policy for computer-use is `periodic` with 5-step cadence.
 
 - 严禁把密钥提交到 git。
 - 所有凭据必须使用环境变量。

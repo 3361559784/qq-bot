@@ -181,7 +181,7 @@ const NEGATIVE_SIGNALS = [
 ];
 
 // ==========================================
-// 🎯 Eligibility 类型枚举
+// Eligibility 类型枚举
 // ==========================================
 
 const EligibilityType = Object.freeze({
@@ -199,7 +199,7 @@ const EligibilityAction = Object.freeze({
 });
 
 // ==========================================
-// 🎯 默认阈值配置（可被 policy profile 覆盖）
+// 默认阈值配置（可被 policy profile 覆盖）
 // ==========================================
 
 const DEFAULT_THRESHOLDS = {
@@ -208,7 +208,7 @@ const DEFAULT_THRESHOLDS = {
 };
 
 // ==========================================
-// 🎯 核心检测函数
+// 核心检测函数
 // ==========================================
 
 /**

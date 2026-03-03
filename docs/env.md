@@ -15,6 +15,22 @@
 
 - `ARIS_SCHOOLBOT_ENGINE`: `legacy|v2|shadow` (default: `legacy`)
 - `ARIS_SCHOOLBOT_V2_PERCENT`: `0..100` (default: `0`)
+- `ARIS_RUNTIME_PROFILE`: `host|server` (default: `host`)
+
+## Computer Use (Host-first)
+
+- `ARIS_CU_ENABLED`: `true|false` (default: `true` on `host`, `false` on `server`)
+- `ARIS_CU_TRIGGER_MODE`: `explicit|auto|both` (default: `both`)
+- `ARIS_CU_CONFIRM_MODE`: `periodic|always|never` (default: `periodic`)
+- `ARIS_CU_CONFIRM_EVERY_STEPS`: confirm interval (default: `5`)
+- `ARIS_CU_STEP_MAX_RETRY`: max retries per step (default: `2`)
+- `ARIS_CU_MAX_STEPS`: max steps per job (default: `30`)
+- `ARIS_CU_SYNC_WAIT_MS`: sync wait for skill response (default: `18000`)
+- `ARIS_CU_LEASE_TTL_SEC`: job lease TTL for agent (default: `45`)
+- `ARIS_CU_AGENT_TOKEN`: required token for `/api/v2/computer-use/agent/*`
+- `ARIS_CU_REMOTE_ENDPOINT`: optional remote executor endpoint (for `server` profile)
+- `ARIS_CU_PLANNER_MODEL`: planner model id (default: `gpt-4o-mini`)
+- `OPENAI_API_KEY`: OpenAI API key for visual planner
 
 ## Ingress Auth (Optional, recommended in production)
 
@@ -70,3 +86,4 @@
 - `V2_SKILLS_CONTAINER`
 - `V2_TASKS_CONTAINER`
 - `V2_AUDIT_CONTAINER`
+- `V2_COMPUTER_USE_JOBS_CONTAINER`

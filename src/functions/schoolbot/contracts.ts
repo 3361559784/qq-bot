@@ -22,6 +22,8 @@ export interface SchoolBotMeta {
   policySource?: string;
   sourceLabel?: string | null;
   trustLevel?: string | null;
+  computer_use_job_id?: string | null;
+  computer_use_status?: string | null;
 }
 
 export interface SchoolBotResponse {
