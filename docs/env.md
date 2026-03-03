@@ -1,83 +1,68 @@
-# Environment Variables
+# Environment Variables (Standalone)
 
-## Required
+## Core Runtime
 
-- `GITHUB_TOKEN`: LLM and vision model access token.
-- `COSMOS_DB_STRING`: Cosmos DB connection string.
+- `ARIS_HTTP_PORT` (default: `3000`)
+- `ARIS_HTTP_HOST` (default: `0.0.0.0`)
+- `DATABASE_URL` (required for PostgreSQL mode)
+- `PG_SSL` (`true|false`, optional)
 
-## Recommended
+If `DATABASE_URL` is not set, storage falls back to in-memory mode.
 
-- `ARIS_MOCK_CHAT`: `true|false`, local fallback mode.
-- `ARIS_PIPELINE_ENABLED`: enable/disable new pipeline.
-- `ARIS_DEBUG_RESPONSE`: include `meta._debug` when `true`.
+## API Auth (default enabled)
 
-## SchoolBot Engine Routing
+- `ARIS_AUTH_DISABLED` (`true|false`, default: `false`)
+- `ARIS_AUTH_KEY` (required in production)
+- `ARIS_AUTH_SIGNATURE_SECRET` (required in production)
+- `ARIS_AUTH_MAX_SKEW_SEC` (default: `300`)
 
-- `ARIS_SCHOOLBOT_ENGINE`: `legacy|v2|shadow` (default: `legacy`)
-- `ARIS_SCHOOLBOT_V2_PERCENT`: `0..100` (default: `0`)
-- `ARIS_RUNTIME_PROFILE`: `host|server` (default: `host`)
+## Worker
 
-## Computer Use (Host-first)
+- `ARIS_WORKER_ENABLED` (default: `true`)
+- `ARIS_WORKER_POLL_MS` (default: `30000`)
+- `ARIS_REMINDER_CRON` (default: `0 7 * * *`)
 
-- `ARIS_CU_ENABLED`: `true|false` (default: `true` on `host`, `false` on `server`)
-- `ARIS_CU_TRANSPORT`: `mcp_stdio|http_agent|hybrid` (default: `mcp_stdio`)
-- `ARIS_CU_TRIGGER_MODE`: `explicit|auto|both` (default: `both`)
-- `ARIS_CU_CONFIRM_MODE`: `periodic|always|never` (default: `periodic`)
-- `ARIS_CU_CONFIRM_EVERY_STEPS`: confirm interval (default: `5`)
-- `ARIS_CU_STEP_MAX_RETRY`: max retries per step (default: `2`)
-- `ARIS_CU_MAX_STEPS`: max steps per job (default: `30`)
-- `ARIS_CU_SYNC_WAIT_MS`: sync wait for skill response (default: `18000`)
-- `ARIS_CU_LEASE_TTL_SEC`: job lease TTL for agent (default: `45`)
-- `ARIS_CU_AGENT_TOKEN`: required token for `/api/v2/computer-use/agent/*`
-- `ARIS_CU_REMOTE_ENDPOINT`: optional remote executor endpoint (for `server` profile)
-- `ARIS_CU_PLANNER_MODEL`: planner model id (default: `gpt-4o-mini`)
-- `ARIS_CU_MCP_SERVER_CMD`: stdio MCP server start command (default: `python3 main.py`)
-- `ARIS_CU_MCP_SERVER_CWD`: MCP server working directory (default: `local/mcp-computer-use-server`)
-- `ARIS_CU_MCP_TIMEOUT_MS`: MCP request timeout (default: `30000`)
-- `OPENAI_API_KEY`: OpenAI API key for visual planner
-- `ARIS_CU_OPENAI_BASE_URL`: optional BYOK-compatible endpoint
-- `OPENAI_ORGANIZATION`, `OPENAI_PROJECT`: optional OpenAI org/project headers
+## LLM / Model
 
-### Plus Relay PoC (experimental fallback)
+- `GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_MODELS_TOKEN`
+- `OPENAI_API_KEY`
 
-- `ARIS_CU_RELAY_PROVIDER`: relay provider id (default: `chatgpt_plus_poc`)
-- `ARIS_CU_RELAY_ENABLE_DEV`: enable relay in dev/test (default: `true`)
-- `ARIS_CU_RELAY_MAX_RETRY`: relay retry count (default: `2`)
-- `ARIS_CU_RELAY_TIMEOUT_MS`: relay timeout ms (default: `45000`)
-- `ARIS_CU_RELAY_BROWSER_PROFILE_DIR`: local browser profile directory for manual-login automation
-- `ARIS_CU_RELAY_HEADLESS`: `true|false` (default: `false`)
-- `ARIS_CU_RELAY_FORCE_PROD`: `true|false` (default: `false`, production guard override)
+## Computer Use
 
-## Ingress Auth (Optional, recommended in production)
+- `ARIS_RUNTIME_PROFILE` (`host|server`)
+- `ARIS_CU_ENABLED`
+- `ARIS_CU_TRANSPORT` (`mcp_stdio|http_agent|hybrid`)
+- `ARIS_CU_TRIGGER_MODE` (`explicit|auto|both`)
+- `ARIS_CU_CONFIRM_MODE` (`periodic|always|never`)
+- `ARIS_CU_CONFIRM_EVERY_STEPS`
+- `ARIS_CU_STEP_MAX_RETRY`
+- `ARIS_CU_MAX_STEPS`
+- `ARIS_CU_SYNC_WAIT_MS`
+- `ARIS_CU_LEASE_TTL_SEC`
+- `ARIS_CU_AGENT_TOKEN`
+- `ARIS_CU_MCP_SERVER_CMD`
+- `ARIS_CU_MCP_SERVER_CWD`
+- `ARIS_CU_MCP_TIMEOUT_MS`
+- `ARIS_CU_OPENAI_BASE_URL`
 
-- `ARIS_REQUIRE_INGRESS_AUTH`: `true|false` (default: `false`)
-- `ARIS_INGRESS_SHARED_KEY`: shared secret header key
-- `ARIS_INGRESS_SIGNATURE_SECRET`: HMAC-SHA256 signature secret
-- `ARIS_INGRESS_SIGNATURE_SKEW_SEC`: max timestamp skew in seconds (default: `300`)
-- Header contract:
-  - Shared key: `x-aris-key` (or `Authorization: Bearer <key>`)
-  - Signature: `x-aris-timestamp` + `x-aris-signature` (`sha256=<hex>`)
+Relay PoC:
 
-## Refusal Policy (Experience-First)
+- `ARIS_CU_RELAY_PROVIDER`
+- `ARIS_CU_RELAY_ENABLE_DEV`
+- `ARIS_CU_RELAY_MAX_RETRY`
+- `ARIS_CU_RELAY_TIMEOUT_MS`
+- `ARIS_CU_RELAY_BROWSER_PROFILE_DIR`
+- `ARIS_CU_RELAY_HEADLESS`
+- `ARIS_CU_RELAY_FORCE_PROD`
 
-- `ARIS_REFUSAL_POLICY_VERSION` (default: `relaxed_v1`)
-- `ARIS_REFUSAL_POLICY_PERCENT` (`0..100`, default: `0`)
-- `ARIS_REFUSAL_MODEL_ENABLED` (`true|false`, default: `true`)
-- `ARIS_REFUSAL_MODEL_HARD_MIN_CONF` (default: `0.85`)
-- `ARIS_REFUSAL_CLARIFY_MAX_ROUNDS` (default: `1`)
-- `ARIS_REFUSAL_DELEGATED_MODE` (`degrade|clarify`, default: `degrade`)
-- `ARIS_REFUSAL_HARD_BLOCK_SCOPE` (`minimal|extended`, default: `minimal`)
-
-## Search / Weather
-
-- `SERPAPI_KEY`
-- `SENIVERSE_API_KEY`
-
-## QQ / Bot Integration
+## Integrations
 
 - `NAPCAT_API_URL`
 - `NAPCAT_TOKEN`
 - `BOT_QQ_ID`
+- `SENIVERSE_API_KEY`
+- `SERPAPI_KEY`
+- `SCRAPER_ENDPOINT`
 
 ## GPT-SoVITS
 
@@ -87,19 +72,3 @@
 - `ARIS_GPTSOVITS_REF_AUDIO_PATH`
 - `ARIS_GPTSOVITS_REF_PROMPT_TEXT`
 - `ARIS_GPTSOVITS_REF_PROMPT_LANG`
-
-## Feature Flags (Examples)
-
-- `ARIS_DISABLE_POKE`
-- `ARIS_INTENT_ROUTER`
-- `ARIS_DEV_BACKDOOR`
-
-## v2 Storage Tuning
-
-- `V2_DB_NAME`
-- `V2_CONVERSATIONS_CONTAINER`
-- `V2_MEMORY_CONTAINER`
-- `V2_SKILLS_CONTAINER`
-- `V2_TASKS_CONTAINER`
-- `V2_AUDIT_CONTAINER`
-- `V2_COMPUTER_USE_JOBS_CONTAINER`

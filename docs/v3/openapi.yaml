@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: SchoolBot API v3
+  version: 3.0.0
+servers:
+  - url: /api/v3
+paths:
+  /chat:
+    post:
+      summary: Chat completion
+  /chat/stream:
+    post:
+      summary: Chat SSE stream
+  /skills:
+    get:
+      summary: List skills
+  /skills/install:
+    post:
+      summary: Install custom skill metadata
+  /skills/{name}:
+    delete:
+      summary: Delete skill
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+  /memory:
+    post:
+      summary: Write memory
+  /memory/search:
+    get:
+      summary: Search memory
+  /tasks:
+    get:
+      summary: List tasks
+    post:
+      summary: Create task
+  /tasks/{id}:
+    patch:
+      summary: Update task
+    delete:
+      summary: Delete task
+  /computer-use/jobs:
+    post:
+      summary: Create computer-use job
+  /computer-use/jobs/{id}:
+    get:
+      summary: Get computer-use job
+  /computer-use/jobs/{id}/confirm:
+    post:
+      summary: Confirm computer-use job
+  /computer-use/jobs/{id}/cancel:
+    post:
+      summary: Cancel computer-use job
+  /computer-use/agent/poll:
+    post:
+      summary: Agent poll
+  /computer-use/agent/report:
+    post:
+      summary: Agent report
+  /computer-use/agent/heartbeat:
+    post:
+      summary: Agent heartbeat

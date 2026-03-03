@@ -1,5 +1,5 @@
-const { CosmosClient } = require('@azure/cosmos');
-const { V2_DEFAULTS } = require('../constants');
+const { isPgEnabled } = require('../../storage/pg/client');
+const baseRepo = require('../../storage/pg/repositories/baseRepository');
 
 let cached = null;
 
@@ -12,71 +12,52 @@ const inMemory = {
   audit: []
 };
 
-async function initCosmos(context = null) {
-  if (cached) return cached;
-
-  const conn = process.env.COSMOS_DB_STRING;
-  if (!conn) {
-    cached = { enabled: false, containers: null, memory: inMemory };
-    return cached;
-  }
-
-  try {
-    const client = new CosmosClient(conn);
-    const { database } = await client.databases.createIfNotExists({ id: V2_DEFAULTS.db.database });
-
-    const create = async (id) => {
-      const { container } = await database.containers.createIfNotExists({
-        id,
-        partitionKey: { paths: ['/partitionKey'] }
-      });
-      return container;
-    };
-
-    cached = {
-      enabled: true,
-      containers: {
-        conversations: await create(V2_DEFAULTS.db.containers.conversations),
-        memory: await create(V2_DEFAULTS.db.containers.memory),
-        skills: await create(V2_DEFAULTS.db.containers.skills),
-        tasks: await create(V2_DEFAULTS.db.containers.tasks),
-        computerUseJobs: await create(V2_DEFAULTS.db.containers.computerUseJobs),
-        audit: await create(V2_DEFAULTS.db.containers.audit)
-      },
-      memory: inMemory
-    };
-    return cached;
-  } catch (err) {
-    context?.log?.(`[v2/storage] cosmos init failed: ${err.message}`);
-    cached = { enabled: false, containers: null, memory: inMemory };
-    return cached;
-  }
-}
-
 function mapStore(memoryStore, key) {
   if (!memoryStore.has(key)) memoryStore.set(key, []);
   return memoryStore.get(key);
 }
 
+async function initCosmos(context = null) {
+  // Compatibility alias: v2 services still call initCosmos.
+  if (cached) return cached;
+
+  const pg = isPgEnabled(process.env);
+  cached = {
+    enabled: pg,
+    mode: pg ? 'postgres' : 'memory',
+    containers: null,
+    memory: inMemory
+  };
+
+  context?.log?.(`[v2/storage] initialized mode=${cached.mode}`);
+  return cached;
+}
+
+function normalizeDoc(doc, partitionKey) {
+  return {
+    ...(doc || {}),
+    partitionKey
+  };
+}
+
 async function upsertDoc(storeName, partitionKey, doc, context = null) {
   const state = await initCosmos(context);
-  const fullDoc = { ...doc, partitionKey };
+  const fullDoc = normalizeDoc(doc, partitionKey);
 
   if (state.enabled) {
-    await state.containers[storeName].items.upsert(fullDoc);
-    return fullDoc;
+    return baseRepo.upsert(storeName, partitionKey, fullDoc);
   }
 
   if (storeName === 'skills') {
-    state.memory.skills.set(doc.id, fullDoc);
+    state.memory.skills.set(fullDoc.id, fullDoc);
     return fullDoc;
   }
   if (storeName === 'tasks') {
-    state.memory.tasks.set(doc.id, fullDoc);
+    state.memory.tasks.set(fullDoc.id, fullDoc);
     return fullDoc;
   }
   if (storeName === 'computerUseJobs') {
-    state.memory.computerUseJobs.set(doc.id, fullDoc);
+    state.memory.computerUseJobs.set(fullDoc.id, fullDoc);
     return fullDoc;
   }
   if (storeName === 'audit') {
@@ -86,7 +67,7 @@ async function upsertDoc(storeName, partitionKey, doc, context = null) {
 
   const key = `${storeName}:${partitionKey}`;
   const list = mapStore(state.memory[storeName], key);
-  const idx = list.findIndex((x) => x.id === doc.id);
+  const idx = list.findIndex((x) => x.id === fullDoc.id);
   if (idx >= 0) list[idx] = fullDoc;
   else list.push(fullDoc);
   return fullDoc;
@@ -95,14 +76,7 @@ async function upsertDoc(storeName, partitionKey, doc, context = null) {
 async function readDoc(storeName, id, partitionKey, context = null) {
   const state = await initCosmos(context);
   if (state.enabled) {
-    try {
-      const { resource } = await state.containers[storeName].item(id, partitionKey).read();
-      return resource || null;
-    } catch (err) {
-      const code = err.code || err.statusCode;
-      if (code === 404) return null;
-      throw err;
-    }
+    return baseRepo.getById(storeName, partitionKey, id);
   }
 
   if (storeName === 'skills') return state.memory.skills.get(id) || null;
@@ -116,15 +90,16 @@ async function readDoc(storeName, id, partitionKey, context = null) {
 
 async function listDocs(storeName, partitionKey, options = {}, context = null) {
   const state = await initCosmos(context);
-  const { limit = 100, where = '' } = options;
+  const limit = Number(options.limit || 100);
 
   if (state.enabled) {
-    const query = {
-      query: `SELECT TOP ${Number(limit)} * FROM c WHERE c.partitionKey = @pk ${where ? `AND ${where}` : ''}`,
-      parameters: [{ name: '@pk', value: partitionKey }]
-    };
-    const { resources } = await state.containers[storeName].items.query(query).fetchAll();
-    return resources || [];
+    if (storeName === 'audit' && partitionKey === 'global') {
+      return baseRepo.listStore(storeName, limit, 0);
+    }
+    if (options.where) {
+      context?.log?.(`[v2/storage] options.where is ignored in postgres mode: ${options.where}`);
+    }
+    return baseRepo.listByPartition(storeName, partitionKey, limit);
   }
 
   if (storeName === 'skills') return Array.from(state.memory.skills.values()).slice(0, limit);
@@ -139,14 +114,7 @@ async function listDocs(storeName, partitionKey, options = {}, context = null) {
 async function deleteDoc(storeName, id, partitionKey, context = null) {
   const state = await initCosmos(context);
   if (state.enabled) {
-    try {
-      await state.containers[storeName].item(id, partitionKey).delete();
-      return true;
-    } catch (err) {
-      const code = err.code || err.statusCode;
-      if (code === 404) return false;
-      throw err;
-    }
+    return baseRepo.remove(storeName, partitionKey, id);
   }
 
   if (storeName === 'skills') return state.memory.skills.delete(id);

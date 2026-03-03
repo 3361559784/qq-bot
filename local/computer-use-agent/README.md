@@ -4,7 +4,7 @@ Local desktop automation agent for SchoolBot `computer.use`.
 
 ## Env
 
-- `BACKEND_BASE_URL` (default: `http://127.0.0.1:7071/api`)
+- `BACKEND_BASE_URL` (default: `http://127.0.0.1:3000/api`)
 - `ARIS_CU_AGENT_TOKEN` (must match backend)
 - `ARIS_CU_AGENT_ID` (default: `mac-agent-1`)
 - `OPENAI_API_KEY`

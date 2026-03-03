@@ -1,22 +1,28 @@
 {
   "name": "school-bot-functions",
   "version": "1.0.0",
-  "description": "Azure Functions for school bot",
+  "description": "Standalone SchoolBot backend (Fastify + PostgreSQL)",
   "scripts": {
-    "start": "func start",
-    "verify:runtime": "node -e \"require('./src/index.js'); console.log('backend runtime entry loaded')\"",
-    "test:schoolbot": "node --test test/schoolbot"
+    "start": "node src/standalone/server.js",
+    "start:api": "node src/standalone/server.js",
+    "start:worker": "node src/worker/index.js",
+    "migrate": "node scripts/migrate/run-sql.js",
+    "migrate:cosmos": "node scripts/migrate/cosmos-to-postgres.js",
+    "verify:runtime": "node -e \"require('./src/standalone/app').createApp({logger:false}); console.log('standalone runtime entry loaded')\"",
+    "dev:compose": "docker compose up --build",
+    "test:schoolbot": "node --test test/standalone"
   },
   "dependencies": {
-    "@azure/cosmos": "^4.8.0",
-    "@azure/functions": "^4.0.0",
     "axios": "^1.13.2",
+    "dotenv": "^17.2.2",
+    "fastify": "^5.6.1",
     "node-ical": "^0.15.1",
     "openai": "^6.9.1",
     "pdf-parse": "^2.4.5",
+    "pg": "^8.16.3",
     "xlsx": "^0.18.5"
   },
-  "main": "src/index.js",
+  "main": "src/standalone/server.js",
   "devDependencies": {
     "playwright": "^1.36.0"
   }

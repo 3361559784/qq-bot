@@ -1,40 +1,27 @@
 # Security Policy
 
-## Reporting a Vulnerability
+## Reporting
 
-Please report security issues privately:
+Report vulnerabilities privately to maintainers with reproduction steps and impact.
 
-- Open a private security advisory if available.
-- Or contact maintainers directly with reproduction steps and impact.
+## Production Baseline
 
-Do not disclose public proof-of-concept until a fix is prepared.
+- Keep `ARIS_AUTH_DISABLED=false`.
+- Set strong values for:
+  - `ARIS_AUTH_KEY`
+  - `ARIS_AUTH_SIGNATURE_SECRET`
+- Enforce secret management via environment/secret manager, never commit secrets.
 
-## Secret Handling
+## Computer-use Controls
 
-- Do not commit any tokens, keys, credentials, or connection strings.
-- Use `local.settings.json` for local-only secrets.
-- Use cloud secret management for production.
-- Production should enable ingress protection for `/api/schoolbot`:
-  - `ARIS_REQUIRE_INGRESS_AUTH=true`
-  - Configure `ARIS_INGRESS_SHARED_KEY` and/or `ARIS_INGRESS_SIGNATURE_SECRET`
-- Refusal policy rollout should use percentage gating (`ARIS_REFUSAL_POLICY_PERCENT`) to reduce false-positive blocking risk.
-- Computer-use agent endpoints (`/api/v2/computer-use/agent/*`) require `ARIS_CU_AGENT_TOKEN`.
-- MCP stdio mode (`ARIS_CU_TRANSPORT=mcp_stdio`) should use local trusted host only; keep stdout protocol-clean and send logs to stderr.
-- ChatGPT Plus relay provider is experimental:
-  - Keep `ARIS_CU_RELAY_ENABLE_DEV=true` only in dev/test.
-  - In production, relay is blocked unless `ARIS_CU_RELAY_FORCE_PROD=true`.
-  - Treat relay browser profile dirs as sensitive local credentials.
-- For host mode desktop automation:
-  - Keep `ARIS_CU_CONFIRM_MODE=periodic` (default) unless you explicitly accept full-auto risk.
-  - Rotate `ARIS_CU_AGENT_TOKEN` regularly.
-  - Treat screenshots as sensitive data and avoid logging raw pixels into public audit streams.
-- In `server` profile, keep `ARIS_CU_ENABLED=false` unless a trusted remote executor path is configured.
+- `ARIS_CU_AGENT_TOKEN` is required for `/api/v3/computer-use/agent/*`.
+- Keep `ARIS_CU_CONFIRM_MODE=periodic` unless full-auto risk is explicitly accepted.
+- Keep relay PoC disabled in production unless consciously forced:
+  - `ARIS_CU_RELAY_ENABLE_DEV=false`
+  - `ARIS_CU_RELAY_FORCE_PROD=false`
 
-## Supported Scope
+## Data Security
 
-Security reports are prioritized for:
-
-- `src/functions/**`
-- `src/v2/**`
-- `services/**`
-- deployment scripts in repository root and `scripts/`
+- PostgreSQL should run with least-privilege credentials.
+- Restrict network exposure for DB and agent endpoints.
+- Treat screenshots and audit payloads as sensitive data.

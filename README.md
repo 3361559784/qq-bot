@@ -1,162 +1,113 @@
-# Campus Copilot Backend / 校园 Copilot 后端
+# SchoolBot Backend (Standalone)
 
-Backend service for a campus assistant built on Azure Functions.
+Fastify + PostgreSQL self-hosted backend for SchoolBot.
 
-基于 Azure Functions 的校园助手后端服务。
+基于 Fastify + PostgreSQL 的 SchoolBot 独立后端（已脱离 Azure 运行时与存储依赖）。
 
-## Project Scope / 项目范围
+## Architecture
 
-- This repository currently focuses on **backend only**.
-- Frontend is intentionally out of scope in this repo state.
+- API runtime: `src/standalone/server.js`
+- API routes: `src/standalone/routes/v3.js`
+- Core conversation/skills: `src/v2/**`
+- Storage adapter: `src/v2/services/storage.js` -> PostgreSQL / memory fallback
+- PostgreSQL client: `src/storage/pg/client.js`
+- Worker scheduler: `src/worker/index.js`
+- Computer-use MCP server: `local/mcp-computer-use-server/`
 
-- 当前仓库仅维护**后端**。
-- 前端当前不在本仓库维护范围内。
+## API
 
-## Architecture / 架构
+Base path: `/api/v3`
 
-- Runtime: Node.js + Azure Functions v4
-- Entry: `src/index.js`
-- Main bot endpoint: `src/functions/schoolBot.js`
-- Main handler implementation: `src/functions/schoolbot/http/handler.js`
-- Services: `services/`
-- v2 APIs: `src/functions/v2Api.js` + `src/v2/`
-- Local computer-use agent (macOS): `local/computer-use-agent/`
-- Local MCP stdio server (macOS): `local/mcp-computer-use-server/`
+- `POST /chat`
+- `POST /chat/stream`
+- `GET /skills`
+- `POST /skills/install`
+- `DELETE /skills/:name`
+- `POST /memory`
+- `GET /memory/search`
+- `GET /tasks`
+- `POST /tasks`
+- `PATCH /tasks/:id`
+- `DELETE /tasks/:id`
+- `POST /computer-use/jobs`
+- `GET /computer-use/jobs/:id`
+- `POST /computer-use/jobs/:id/confirm`
+- `POST /computer-use/jobs/:id/cancel`
+- `POST /computer-use/agent/poll`
+- `POST /computer-use/agent/report`
+- `POST /computer-use/agent/heartbeat`
 
-Core modules after refactor:
+Health:
 
-- Runtime config: `src/functions/schoolbot/config/runtime.js`
-- Thin HTTP orchestrator: `src/functions/schoolbot/http/handler.js`
-- Legacy engine fallback: `src/functions/schoolbot/runtime/legacyEngine.js`
-- v2 engine bridge: `src/functions/schoolbot/runtime/v2Engine.js`
-- Engine selector (gray/shadow): `src/functions/schoolbot/runtime/engineSelector.js`
-- Unified refusal policy: `src/common/refusalPolicy.js`
-- Policy gates: `src/functions/schoolbot/policy/gates.js`
-- Request parsing: `src/functions/schoolbot/http/requestParser.js`
-- Non-chat event routing: `src/functions/schoolbot/http/eventRouter.js`
-- Response adapter: `src/functions/schoolbot/http/responseAdapter.js`
-- Ingress auth guard: `src/functions/schoolbot/http/authGuard.js`
-- Poke subsystem: `src/functions/schoolbot/features/poke.js`
-- Media helpers: `src/functions/schoolbot/features/media.js`
-- Public bridge API: `src/functions/schoolbot/publicApi.js`
-- Type contracts: `src/functions/schoolbot/contracts.ts`
-- Computer-use queue/service: `src/v2/services/computerUseQueue.js` + `src/v2/services/computerUseService.js`
-- Computer-use MCP client bridge: `src/v2/services/computerUseMcpClient.js`
-- Computer-use intent matcher: `src/v2/services/computerUseIntent.js`
+- `GET /healthz`
+- `GET /readyz`
 
-## Quick Start / 本地启动
+## Auth (default enabled)
 
-### Prerequisites / 前置依赖
+Headers:
 
-- Node.js 20+
-- Azure Functions Core Tools 4.x
+- `x-aris-key`
+- `x-aris-timestamp` (unix seconds)
+- `x-aris-signature` (`sha256=<hex>`)
 
-### Install / 安装
+Canonical string:
+
+```text
+{timestamp}\n{METHOD}\n{ROUTE_PATH}
+```
+
+## Quick Start
+
+1. Install dependencies
 
 ```bash
 npm ci
 ```
 
-### Configure / 配置
-
-1. Copy `local.settings.example.json` to `local.settings.json`.
-2. Fill required env values.
-
-1. 复制 `local.settings.example.json` 为 `local.settings.json`。
-2. 填写必需环境变量。
-
-See full env reference: `docs/env.md`.
-
-### Smoke Check / 冒烟检查
+2. Copy env
 
 ```bash
-npm run verify:runtime
+cp .env.example .env
 ```
 
-### Run / 启动
+3. Start PostgreSQL and services
 
 ```bash
-npm run start
+docker compose up -d postgres
+npm run migrate
+npm run start:api
+npm run start:worker
 ```
 
-## API Routes / 接口路由
-
-Primary routes:
-
-- `POST /api/schoolbot`
-- `POST /api/ocrCourse`
-- `POST /api/scrapeChaoxing`
-- `POST /api/v2/messages`
-- `POST /api/v2/messages/stream`
-- `GET /api/v2/skills`
-- `POST /api/v2/skills/install`
-- `DELETE /api/v2/skills/{name}`
-- `POST /api/v2/memory`
-- `GET /api/v2/memory/search`
-- `GET /api/v2/tasks`
-- `POST /api/v2/tasks`
-- `PATCH /api/v2/tasks/{id}`
-- `DELETE /api/v2/tasks/{id}`
-- `POST /api/v2/computer-use/jobs`
-- `GET /api/v2/computer-use/jobs/{id}`
-- `POST /api/v2/computer-use/jobs/{id}/confirm`
-- `POST /api/v2/computer-use/jobs/{id}/cancel`
-- `POST /api/v2/computer-use/agent/poll`
-- `POST /api/v2/computer-use/agent/report`
-- `POST /api/v2/computer-use/agent/heartbeat`
-
-Computer-use transport mode:
-
-- `mcp_stdio` (P0 default): BYOK + MCP stdio
-- `http_agent`: legacy HTTP polling agent
-- `hybrid`: try MCP first, fallback HTTP agent
-
-## Security / 安全
-
-- Never commit secrets to git.
-- Use env vars for all credentials.
-- Hardcoded deployment-sensitive GPT-SoVITS values are removed.
-- `_debug` response metadata is disabled by default (`ARIS_DEBUG_RESPONSE=false`).
-- Engine defaults: `ARIS_SCHOOLBOT_ENGINE=legacy`, `ARIS_SCHOOLBOT_V2_PERCENT=0`.
-- Optional ingress auth is supported by `ARIS_REQUIRE_INGRESS_AUTH`.
-- Refusal policy defaults to relaxed mode with minimal hard-block categories.
-- Computer-use supports `host|server` runtime profile:
-  - `host`: local agent polling is enabled by default.
-  - `server`: disabled by default unless remote endpoint is configured.
-- P0 default transport is `mcp_stdio` with OpenAI BYOK.
-- Experimental fallback provider `chatgpt_plus_relay_poc` is dev/test only by default and blocked in production unless explicitly forced.
-- Agent routes require `ARIS_CU_AGENT_TOKEN`.
-- Default confirmation policy for computer-use is `periodic` with 5-step cadence.
-
-- 严禁把密钥提交到 git。
-- 所有凭据必须使用环境变量。
-- GPT-SoVITS 的敏感硬编码默认值已移除。
-- 响应中的 `_debug` 默认关闭（`ARIS_DEBUG_RESPONSE=false`）。
-- 运行默认是 legacy 引擎（`ARIS_SCHOOLBOT_ENGINE=legacy`，`ARIS_SCHOOLBOT_V2_PERCENT=0`）。
-- 支持可配置入口鉴权（`ARIS_REQUIRE_INGRESS_AUTH`）。
-- 拒绝策略默认是放宽版（最小硬拒绝集合）。
-
-Please read `SECURITY.md` for vulnerability reporting.
-
-## Deployment / 部署
-
-### Local Azure CLI deploy / 本地脚本部署
+Or one command:
 
 ```bash
-./deploy-functions.sh
+npm run dev:compose
 ```
 
-### GitHub Actions deploy / GitHub Actions 部署
-
-- Workflow: `.github/workflows/main_school-bot.yml`
-- Trigger: push to `main` with backend file changes.
-
-## Tests / 测试
+## Tests
 
 ```bash
 npm run test:schoolbot
 ```
 
-## License
+## Migration
 
-Apache-2.0. See `LICENSE` and `NOTICE`.
+Schema migration:
+
+```bash
+npm run migrate
+```
+
+Cosmos to PostgreSQL migration tool (optional):
+
+```bash
+npm run migrate:cosmos
+```
+
+If `@azure/cosmos` is missing, install it temporarily for migration only.
+
+## Notes
+
+- `computer-use` is host-first. In container mode, prefer `ARIS_CU_TRANSPORT=http_agent` and run local agent on host.
+- Legacy Azure docs moved to `docs/archive/azure.md`.
