@@ -12,7 +12,12 @@
  * - 容器: 搜索缓存 (partition key: /query)
  */
 
-const { CosmosClient } = require('@azure/cosmos');
+let CosmosClient = null;
+try {
+  ({ CosmosClient } = require('@azure/cosmos'));
+} catch {
+  CosmosClient = null;
+}
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -78,6 +83,13 @@ async function initCosmosClient() {
   if (!endpoint || !key) {
     // Fallback to local file cache when Cosmos DB not configured
     console.warn('[SearchCache] Cosmos DB 未配置，启用本地文件缓存回退', localCacheFilePath);
+    useLocalFileCache = true;
+    loadLocalCacheFromFile();
+    return null;
+  }
+
+  if (!CosmosClient) {
+    console.warn('[SearchCache] @azure/cosmos 未安装，启用本地文件缓存回退', localCacheFilePath);
     useLocalFileCache = true;
     loadLocalCacheFromFile();
     return null;

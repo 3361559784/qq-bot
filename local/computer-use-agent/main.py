@@ -18,7 +18,7 @@ if str(SHARED_MCP_ROOT) not in os.sys.path:
 from executor.desktop_executor import DesktopExecutor  # noqa: E402
 
 
-BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:7071/api").rstrip("/")
+BACKEND_BASE_URL = os.getenv("BACKEND_BASE_URL", "http://127.0.0.1:3000/api").rstrip("/")
 AGENT_TOKEN = os.getenv("ARIS_CU_AGENT_TOKEN", "").strip()
 AGENT_ID = os.getenv("ARIS_CU_AGENT_ID", "mac-agent-1").strip()
 PLANNER_MODEL = os.getenv("ARIS_CU_PLANNER_MODEL", "gpt-4o-mini").strip()
@@ -127,7 +127,7 @@ def process_job(job: Dict[str, Any]) -> None:
 
         if plan.get("done") or plan.get("action") == "finish":
             post_json(
-                "/v2/computer-use/agent/report",
+                "/v3/computer-use/agent/report",
                 {
                     "job_id": job_id,
                     "agent_id": AGENT_ID,
@@ -157,7 +157,7 @@ def process_job(job: Dict[str, Any]) -> None:
                 success = True
                 duration_ms = int(executed.get("duration_ms", 0))
                 post_json(
-                    "/v2/computer-use/agent/report",
+                    "/v3/computer-use/agent/report",
                     {
                         "job_id": job_id,
                         "agent_id": AGENT_ID,
@@ -180,7 +180,7 @@ def process_job(job: Dict[str, Any]) -> None:
                 if retry < step_max_retry:
                     continue
                 post_json(
-                    "/v2/computer-use/agent/report",
+                    "/v3/computer-use/agent/report",
                     {
                         "job_id": job_id,
                         "agent_id": AGENT_ID,
@@ -201,7 +201,7 @@ def process_job(job: Dict[str, Any]) -> None:
 
         if not success:
             post_json(
-                "/v2/computer-use/agent/report",
+                "/v3/computer-use/agent/report",
                 {
                     "job_id": job_id,
                     "agent_id": AGENT_ID,
@@ -218,7 +218,7 @@ def process_job(job: Dict[str, Any]) -> None:
             return
 
         heartbeat = post_json(
-            "/v2/computer-use/agent/heartbeat",
+            "/v3/computer-use/agent/heartbeat",
             {
                 "job_id": job_id,
                 "agent_id": AGENT_ID,
@@ -230,7 +230,7 @@ def process_job(job: Dict[str, Any]) -> None:
             return
 
     post_json(
-        "/v2/computer-use/agent/report",
+        "/v3/computer-use/agent/report",
         {
             "job_id": job_id,
             "agent_id": AGENT_ID,
@@ -248,7 +248,7 @@ def process_job(job: Dict[str, Any]) -> None:
 def polling_worker() -> None:
     while not stop_event.is_set():
         try:
-            result = post_json("/v2/computer-use/agent/poll", {"agent_id": AGENT_ID})
+            result = post_json("/v3/computer-use/agent/poll", {"agent_id": AGENT_ID})
             job = result.get("job")
             if job:
                 process_job(job)

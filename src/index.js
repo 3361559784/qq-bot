@@ -1,7 +1,5 @@
-const { app } = require('@azure/functions');
+const { createApp } = require('./standalone/app');
 
-// 导入所有函数(这会自动注册它们)
-require('./functions/schoolBot');
-require('./functions/dailyClassReminder');
-require('./functions/ocrCourse');
-require('./functions/v2Api');
+module.exports = {
+  createApp
+};

@@ -12,7 +12,12 @@
  * - 隐私保护: 数据不离开 Azure 环境
  */
 
-const { CosmosClient } = require('@azure/cosmos');
+let CosmosClient = null;
+try {
+  ({ CosmosClient } = require('@azure/cosmos'));
+} catch {
+  CosmosClient = null;
+}
 
 // Cosmos DB 连接配置
 const cosmosEndpoint = process.env.COSMOS_ENDPOINT;
@@ -28,6 +33,11 @@ let cosmosContainer = null;
 function initCosmosClient() {
   if (!cosmosEndpoint || !cosmosKey) {
     console.warn('[LocalSearch] Cosmos DB 未配置,本地搜索功能禁用');
+    return null;
+  }
+
+  if (!CosmosClient) {
+    console.warn('[LocalSearch] @azure/cosmos 未安装,本地搜索功能禁用');
     return null;
   }
 
