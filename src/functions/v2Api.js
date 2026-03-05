@@ -1,4 +1,16 @@
-const { app } = require('@azure/functions');
+let app = null;
+try {
+  ({ app } = require('@azure/functions'));
+} catch (err) {
+  const registeredHandlers = [];
+  app = {
+    _handlers: registeredHandlers,
+    http: (_name, config) => {
+      registeredHandlers.push({ name: _name, ...config });
+      return config;
+    }
+  };
+}
 const { parseJsonBody, jsonResponse, encodeSse, sseHeaders, clampNumber } = require('../v2/utils');
 const { normalizeMessageRequest, normalizeMessageResponse } = require('../v2/core/channelAdapter');
 const { handleConversation } = require('../v2/core/conversationCore');

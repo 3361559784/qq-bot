@@ -14,7 +14,7 @@
     "verify:runtime": "node -e \"require('./src/standalone/app').createApp({logger:false}); console.log('standalone runtime entry loaded')\"",
     "dev:compose": "docker compose up --build",
     "dev:full": "docker compose up --build",
-    "test:schoolbot": "node --test test/standalone test/schoolbot/runtime/auth-guard.test.js test/schoolbot/runtime/response-adapter.test.js test/schoolbot/runtime/computer-use-*.test.js"
+    "test:schoolbot": "node --test test/standalone/*.test.js test/schoolbot/runtime/auth-guard.test.js test/schoolbot/runtime/response-adapter.test.js test/schoolbot/runtime/computer-use-*.test.js"
   },
   "dependencies": {
     "axios": "^1.13.2",
