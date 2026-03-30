@@ -74,9 +74,9 @@ jobs:
       - name: 🔐 Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID || '' }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID || '' }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID || '' }}
+          client-id: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID || secrets.AZUREAPPSERVICE_CLIENTID_F37E38D38A084EAFA17D11C97F540CFE || '' }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID || secrets.AZUREAPPSERVICE_TENANTID_28DD52ED07FD479D9853465C8ECD87D9 || '' }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID || secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_6D170E76246B4405A9D2DD3A517103F6 || '' }}
 
       - name: 🚀 Deploy to Azure Functions (Remote Build)
         run: |
