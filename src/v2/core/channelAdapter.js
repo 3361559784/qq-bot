@@ -1,5 +1,6 @@
 const { generateId, trimContent } = require('../utils');
 const { V2_DEFAULTS } = require('../constants');
+const { normalizeMediaValue } = require('./qqMediaResolver');
 
 function parseCqParams(raw = '') {
   return String(raw || '')
@@ -10,7 +11,7 @@ function parseCqParams(raw = '') {
       const i = pair.indexOf('=');
       if (i <= 0) return acc;
       const key = pair.slice(0, i).trim();
-      const val = pair.slice(i + 1).trim();
+      const val = normalizeMediaValue(pair.slice(i + 1));
       if (key) acc[key] = val;
       return acc;
     }, {});
@@ -206,7 +207,7 @@ function normalizeMessageRequest(body = {}, request = null) {
     memory_policy: body.memory_policy || body.metadata?.memory_policy || undefined,
     roleplay_overlay: body.roleplay_overlay || body.metadata?.roleplay_overlay || undefined,
     schedule: Array.isArray(body.schedule) ? body.schedule : undefined,
-    image_url: body.image_url || body.imageUrl || undefined,
+    image_url: normalizeMediaValue(body.image_url || body.imageUrl || '') || undefined,
     mode: body.mode,
     request_id: requestId
   };

@@ -1,5 +1,17 @@
+function decodeHtmlEntities(value = '') {
+  return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#38;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, '\'');
+}
+
+function normalizeMediaValue(value = '') {
+  return decodeHtmlEntities(String(value || '').trim());
+}
+
 function isHttpUrl(value = '') {
-  return /^https?:\/\//i.test(String(value || '').trim());
+  return /^https?:\/\//i.test(normalizeMediaValue(value));
 }
 
 function pickCandidateUrl(attachment = {}) {
@@ -9,7 +21,7 @@ function pickCandidateUrl(attachment = {}) {
     attachment?.raw?.data?.url,
     attachment?.raw?.data?.file,
     attachment?.raw?.data?.path
-  ].map((x) => String(x || '').trim()).filter(Boolean);
+  ].map((x) => normalizeMediaValue(x)).filter(Boolean);
 
   return candidates.find((x) => isHttpUrl(x)) || '';
 }
@@ -21,7 +33,7 @@ function pickFileId(attachment = {}) {
     attachment?.url,
     attachment?.raw?.data?.url,
     attachment?.raw?.data?.path
-  ].map((x) => String(x || '').trim()).filter(Boolean);
+  ].map((x) => normalizeMediaValue(x)).filter(Boolean);
 
   return candidates.find((x) => !isHttpUrl(x)) || '';
 }
@@ -45,7 +57,7 @@ function parseNapcatImageUrl(payload = {}) {
     payload?.data?.file,
     payload?.result?.url,
     payload?.result?.file
-  ].map((x) => String(x || '').trim()).find((x) => isHttpUrl(x));
+  ].map((x) => normalizeMediaValue(x)).find((x) => isHttpUrl(x));
 
   return direct || '';
 }
@@ -100,7 +112,7 @@ async function resolveQqImageUrl(attachment = {}, context = null) {
 }
 
 async function pickFirstResolvedImageUrl(req = {}, context = null) {
-  const metadataUrl = String(req?.metadata?.image_url || '').trim();
+  const metadataUrl = normalizeMediaValue(req?.metadata?.image_url || '');
   if (isHttpUrl(metadataUrl)) return metadataUrl;
 
   const attachments = Array.isArray(req?.attachments) ? req.attachments : [];
@@ -115,6 +127,8 @@ async function pickFirstResolvedImageUrl(req = {}, context = null) {
 }
 
 module.exports = {
+  decodeHtmlEntities,
+  normalizeMediaValue,
   isHttpUrl,
   resolveQqImageUrl,
   pickFirstResolvedImageUrl

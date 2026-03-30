@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  decodeHtmlEntities,
+  normalizeMediaValue,
   isHttpUrl,
   resolveQqImageUrl,
   pickFirstResolvedImageUrl
@@ -11,6 +13,19 @@ test('qqMediaResolver: should detect http urls', async () => {
   assert.equal(isHttpUrl('https://example.com/a.jpg'), true);
   assert.equal(isHttpUrl('http://example.com/a.jpg'), true);
   assert.equal(isHttpUrl('abc123.jpg'), false);
+});
+
+test('qqMediaResolver: should decode html entities in media urls', async () => {
+  const raw = 'https://multimedia.nt.qq.com.cn/download?appid=1406&amp;fileid=abc&amp;rkey=xyz';
+  assert.equal(
+    decodeHtmlEntities(raw),
+    'https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=abc&rkey=xyz'
+  );
+  assert.equal(
+    normalizeMediaValue(raw),
+    'https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=abc&rkey=xyz'
+  );
+  assert.equal(isHttpUrl(raw), true);
 });
 
 test('qqMediaResolver: should return direct url without API lookup', async () => {
