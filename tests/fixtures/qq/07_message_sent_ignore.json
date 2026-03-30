@@ -1,0 +1,21 @@
+{
+  "id": "07_message_sent_ignore",
+  "description": "message_sent 不进入回复主链",
+  "input": {
+    "post_type": "message_sent",
+    "message_type": "group",
+    "group_id": "20007",
+    "user_id": "2849943359",
+    "self_id": "2849943359",
+    "raw_message": "测试自发消息",
+    "message": "测试自发消息"
+  },
+  "expect": {
+    "event_type": "message_sent",
+    "message_type": "group",
+    "should_respond": false,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

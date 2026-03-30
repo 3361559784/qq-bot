@@ -1,0 +1,20 @@
+{
+  "id": "10_schedule_tomorrow",
+  "description": "明天有课吗",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10010",
+    "self_id": "2849943359",
+    "raw_message": "明天有课吗",
+    "message": "明天有课吗"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "schedule",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

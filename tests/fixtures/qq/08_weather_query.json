@@ -1,0 +1,20 @@
+{
+  "id": "08_weather_query",
+  "description": "天气查询",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10008",
+    "self_id": "2849943359",
+    "raw_message": "武汉天气怎么样",
+    "message": "武汉天气怎么样"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "weather",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

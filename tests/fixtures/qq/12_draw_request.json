@@ -1,0 +1,20 @@
+{
+  "id": "12_draw_request",
+  "description": "画图请求",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10012",
+    "self_id": "2849943359",
+    "raw_message": "帮我画一张星空下的校园",
+    "message": "帮我画一张星空下的校园"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "draw",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

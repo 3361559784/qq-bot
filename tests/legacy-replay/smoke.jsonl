@@ -1,0 +1,5 @@
+{"fixture":"01_private_chat.json","expect":{"route":"/api/schoolBot","channel":"qq"}}
+{"fixture":"05_reply_image_at_bot.json","expect":{"route":"/api/schoolBot","channel":"qq"}}
+{"fixture":"08_weather_query.json","expect":{"route":"/api/schoolBot","channel":"qq"}}
+{"fixture":"10_schedule_tomorrow.json","expect":{"route":"/api/schoolBot","channel":"qq"}}
+{"fixture":"15_high_risk_cheat_injection.json","expect":{"route":"/api/schoolBot","channel":"qq"}}

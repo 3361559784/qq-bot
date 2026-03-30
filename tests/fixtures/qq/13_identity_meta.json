@@ -1,0 +1,20 @@
+{
+  "id": "13_identity_meta",
+  "description": "你是谁/底层模型",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10013",
+    "self_id": "2849943359",
+    "raw_message": "你是谁？你底层模型是什么？",
+    "message": "你是谁？你底层模型是什么？"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "identity_meta"
+  }
+}

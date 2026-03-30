@@ -1,0 +1,21 @@
+{
+  "id": "05_reply_image_at_bot",
+  "description": "reply+image+@bot",
+  "input": {
+    "post_type": "message",
+    "message_type": "group",
+    "group_id": "20004",
+    "user_id": "10005",
+    "self_id": "2849943359",
+    "raw_message": "[CQ:reply,id=123][CQ:at,qq=2849943359][CQ:image,file=https://example.com/test.jpg,url=https://example.com/test.jpg] 这个是啥",
+    "message": "[CQ:reply,id=123][CQ:at,qq=2849943359][CQ:image,file=https://example.com/test.jpg,url=https://example.com/test.jpg] 这个是啥"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "group",
+    "should_respond": true,
+    "capability": "vision",
+    "safety_action": "pass",
+    "prompt_profile": "vision"
+  }
+}

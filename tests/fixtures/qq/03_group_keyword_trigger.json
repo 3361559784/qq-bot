@@ -1,0 +1,21 @@
+{
+  "id": "03_group_keyword_trigger",
+  "description": "群聊关键词触发",
+  "input": {
+    "post_type": "message",
+    "message_type": "group",
+    "group_id": "20002",
+    "user_id": "10003",
+    "self_id": "2849943359",
+    "raw_message": "aris 你在吗",
+    "message": "aris 你在吗"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "group",
+    "should_respond": true,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

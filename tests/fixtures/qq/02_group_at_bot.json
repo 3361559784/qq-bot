@@ -1,0 +1,21 @@
+{
+  "id": "02_group_at_bot",
+  "description": "群聊@bot触发",
+  "input": {
+    "post_type": "message",
+    "message_type": "group",
+    "group_id": "20001",
+    "user_id": "10002",
+    "self_id": "2849943359",
+    "raw_message": "[CQ:at,qq=2849943359] 你在吗",
+    "message": "[CQ:at,qq=2849943359] 你在吗"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "group",
+    "should_respond": true,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

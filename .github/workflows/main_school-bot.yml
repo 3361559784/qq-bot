@@ -1,4 +1,4 @@
-# ⚡ 自动部署 Azure Functions 后端 (仅后端，不部署前端)
+# ⚡ 自动部署 Azure Functions 后端（OIDC）
 name: Deploy Backend to Azure Functions
 
 on:
@@ -17,55 +17,73 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_NAME: 'school-bot'
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
+  AZURE_RESOURCE_GROUP: 'qq-bot-rg'
   NODE_VERSION: '20.x'
 
 jobs:
-  deploy-backend:
+  test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     steps:
       - name: 📥 Checkout code
         uses: actions/checkout@v4
 
       - name: 🔧 Setup Node.js ${{ env.NODE_VERSION }}
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: 📦 Install dependencies (backend only)
         run: |
-          # 只安装根目录的依赖（Azure Functions）
           npm ci --production=false
-          # 🚫 不进入 campus-ai-web 目录，避免触发前端构建
+
+      - name: ✅ Run backend tests
+        run: |
+          npm test
 
       - name: ✅ Verify backend entrypoint
         run: |
           npm run verify:runtime
 
-      - name: ✅ Optional frontend build smoke
-        run: |
-          if [ -f campus-ai-web/package.json ]; then
-            cd campus-ai-web
-            npm ci --production=false
-            npm run build
-          else
-            echo "campus-ai-web not found, skip frontend smoke build"
-          fi
+  deploy-backend:
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-school-bot-backend
+      cancel-in-progress: true
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 📦 Install dependencies
+        run: npm ci --production=false
 
       - name: 🔐 Login to Azure
-        uses: azure/login@v1
+        uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID || '' }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID || '' }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID || '' }}
 
       - name: 🚀 Deploy to Azure Functions (Remote Build)
         run: |
-          # 安装 Azure Functions Core Tools CLI
           npm install -g azure-functions-core-tools@4
-          # 使用 func CLI 部署到 Azure Functions（远程构建模式，明确指定 Node.js 运行时）
           func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --build remote --javascript
 
       - name: ✅ Deployment complete
         run: |
           echo "🎉 后端部署成功！"
-          echo "📍 URL: https://<your-function-app>.azurewebsites.net/api/schoolbot"
+          echo "📍 URL: https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/schoolbot"

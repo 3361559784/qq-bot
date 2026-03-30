@@ -1,0 +1,21 @@
+{
+  "id": "04_group_unrelated_silent",
+  "description": "群聊普通无关消息静默",
+  "input": {
+    "post_type": "message",
+    "message_type": "group",
+    "group_id": "20003",
+    "user_id": "10004",
+    "self_id": "2849943359",
+    "raw_message": "今晚吃什么",
+    "message": "今晚吃什么"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "group",
+    "should_respond": false,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

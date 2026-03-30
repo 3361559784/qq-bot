@@ -1,0 +1,112 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "koreacentral"
+    },
+    "functionAppName": {
+      "type": "string"
+    },
+    "existingPlanName": {
+      "type": "string"
+    },
+    "existingStorageAccountName": {
+      "type": "string"
+    },
+    "existingApplicationInsightsName": {
+      "type": "string"
+    },
+    "deploymentStorageContainerName": {
+      "type": "string"
+    },
+    "maximumInstanceCount": {
+      "type": "int",
+      "defaultValue": 20
+    },
+    "instanceMemoryMB": {
+      "type": "int",
+      "allowedValues": [
+        512,
+        2048,
+        4096
+      ],
+      "defaultValue": 2048
+    }
+  },
+  "variables": {
+    "storageBlobDataOwnerRoleDefinitionId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}/{2}', parameters('existingStorageAccountName'), 'default', parameters('deploymentStorageContainerName'))]",
+      "properties": {
+        "publicAccess": "None"
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2024-04-01",
+      "name": "[parameters('functionAppName')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('existingPlanName'))]",
+        "functionAppConfig": {
+          "deployment": {
+            "storage": {
+              "type": "blobContainer",
+              "value": "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', parameters('existingStorageAccountName')), '2024-01-01').primaryEndpoints.blob, parameters('deploymentStorageContainerName'))]",
+              "authentication": {
+                "type": "SystemAssignedIdentity"
+              }
+            }
+          },
+          "scaleAndConcurrency": {
+            "maximumInstanceCount": "[parameters('maximumInstanceCount')]",
+            "instanceMemoryMB": "[parameters('instanceMemoryMB')]"
+          },
+          "runtime": {
+            "name": "node",
+            "version": "22"
+          }
+        },
+        "siteConfig": {
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage__accountName",
+              "value": "[parameters('existingStorageAccountName')]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', parameters('existingApplicationInsightsName')), '2020-02-02').ConnectionString]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', parameters('existingStorageAccountName'), 'default', parameters('deploymentStorageContainerName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('existingStorageAccountName')), variables('storageBlobDataOwnerRoleDefinitionId'), parameters('functionAppName'))]",
+      "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('existingStorageAccountName'))]",
+      "properties": {
+        "roleDefinitionId": "[resourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataOwnerRoleDefinitionId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2024-04-01', 'Full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+      ]
+    }
+  ]
+}

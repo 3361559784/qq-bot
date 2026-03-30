@@ -1,0 +1,22 @@
+{
+  "id": "06_notice_poke",
+  "description": "notice/poke 事件",
+  "input": {
+    "post_type": "notice",
+    "notice_type": "notify",
+    "sub_type": "poke",
+    "user_id": "10006",
+    "target_id": "2849943359",
+    "group_id": "20006",
+    "self_id": "2849943359",
+    "message": ""
+  },
+  "expect": {
+    "event_type": "poke",
+    "message_type": "none",
+    "should_respond": true,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

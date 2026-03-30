@@ -1,0 +1,20 @@
+{
+  "id": "09_search_quantum",
+  "description": "搜索量子力学",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10009",
+    "self_id": "2849943359",
+    "raw_message": "搜索量子力学的核心概念",
+    "message": "搜索量子力学的核心概念"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "search",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

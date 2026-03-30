@@ -4,6 +4,7 @@
   "description": "Azure Functions for school bot",
   "scripts": {
     "start": "func start",
+    "test": "node --test tests/*.test.js",
     "verify:runtime": "node -e \"require('./src/index.js'); console.log('backend runtime entry loaded')\""
   },
   "dependencies": {
@@ -15,8 +16,5 @@
     "pdf-parse": "^2.4.5",
     "xlsx": "^0.18.5"
   },
-  "main": "src/index.js",
-  "devDependencies": {
-    "playwright": "^1.36.0"
-  }
+  "main": "src/index.js"
 }

@@ -1,0 +1,20 @@
+{
+  "id": "01_private_chat",
+  "description": "私聊普通聊天",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10001",
+    "self_id": "2849943359",
+    "raw_message": "今天心情一般，想聊聊",
+    "message": "今天心情一般，想聊聊"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}

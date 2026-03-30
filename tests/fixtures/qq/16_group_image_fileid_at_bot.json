@@ -1,0 +1,21 @@
+{
+  "id": "16_group_image_fileid_at_bot",
+  "description": "群聊仅file_id图片+@bot",
+  "input": {
+    "post_type": "message",
+    "message_type": "group",
+    "group_id": "20016",
+    "user_id": "10016",
+    "self_id": "2849943359",
+    "raw_message": "[CQ:reply,id=88][CQ:at,qq=2849943359][CQ:image,file=14fb8a8b5b87c7f2f6f8c39f.jpg] 这个图什么意思",
+    "message": "[CQ:reply,id=88][CQ:at,qq=2849943359][CQ:image,file=14fb8a8b5b87c7f2f6f8c39f.jpg] 这个图什么意思"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "group",
+    "should_respond": true,
+    "capability": "vision",
+    "safety_action": "pass",
+    "prompt_profile": "vision"
+  }
+}

@@ -185,6 +185,12 @@ async function checkComputerVision(imgUrl, context) {
 
     if (!endpoint || !key) return null;
 
+    const url = String(imgUrl || '').trim();
+    if (!/^https?:\/\//i.test(url)) {
+        context?.log?.(`[ComputerVision] 跳过：无效图片URL（可能是 QQ file_id）: ${url || 'empty'}`);
+        return null;
+    }
+
     try {
         const analysisUrl = `${endpoint.replace(/\/+$/, "")}/computervision/imageanalysis:analyze?api-version=2023-10-01&features=Caption,Tags,Objects,Read&language=zh`;
         
@@ -196,11 +202,17 @@ async function checkComputerVision(imgUrl, context) {
                 "Ocp-Apim-Subscription-Key": key,
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ url: imgUrl })
+            body: JSON.stringify({ url })
         }, 8000);
 
         if (!res.ok) {
-            context.log(`[ComputerVision] 失败: ${res.status}`);
+            let detail = '';
+            try {
+                detail = await res.text();
+            } catch {
+                detail = '';
+            }
+            context.log(`[ComputerVision] 失败: ${res.status} ${detail.slice(0, 200)}`);
             return null;
         }
 

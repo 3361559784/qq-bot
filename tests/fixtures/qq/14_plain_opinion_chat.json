@@ -1,0 +1,20 @@
+{
+  "id": "14_plain_opinion_chat",
+  "description": "普通吐槽/观点讨论",
+  "input": {
+    "post_type": "message",
+    "message_type": "private",
+    "user_id": "10014",
+    "self_id": "2849943359",
+    "raw_message": "我觉得这周太累了，真的离谱",
+    "message": "我觉得这周太累了，真的离谱"
+  },
+  "expect": {
+    "event_type": "message",
+    "message_type": "private",
+    "should_respond": true,
+    "capability": "none",
+    "safety_action": "pass",
+    "prompt_profile": "qq_chat"
+  }
+}
