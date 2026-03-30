@@ -16,7 +16,7 @@ on:
   workflow_dispatch:  # 允许手动触发
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'school-bot'
+  AZURE_FUNCTIONAPP_NAME: 'schoolbota3360329'
   AZURE_RESOURCE_GROUP: 'qq-bot-rg'
   NODE_VERSION: '20.x'
 
@@ -86,4 +86,4 @@ jobs:
       - name: ✅ Deployment complete
         run: |
           echo "🎉 后端部署成功！"
-          echo "📍 URL: https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/schoolbot"
+          echo "📍 URL: https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/schoolBot"
