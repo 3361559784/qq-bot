@@ -1,7 +1,7 @@
 const { detectSafetyDecision, buildRefusalMessage, buildDegradeMessage, maybeWrapDegrade } = require('./safety');
 const { buildConversationContext, buildLLMMessages } = require('./contextManager');
 const { executeSkill } = require('../services/skillRuntime');
-const { appendTurn } = require('../services/memoryService');
+const { writeUserLongTermMemories } = require('../services/memoryService');
 const { chatWithFallback } = require('../services/llmService');
 const { logAudit } = require('../services/auditService');
 const { generateId, nowIso, pickLanguage } = require('../utils');
@@ -24,6 +24,27 @@ const {
 } = require('./styleGuards');
 const { selectSceneSkeleton } = require('./sceneSkeletonRegistry');
 const { computeRelationshipDeltaState } = require('./relationshipStateMachine');
+const { planKnowledgeMode, shouldSkipSearch, formatSearchContext } = require('./knowledgeRouter');
+
+// 新模块：ChatContext + Transcript + Compaction + Tool Pruning
+const {
+  buildSessionKey,
+  createChatContext,
+  appendUserTurn,
+  appendAssistantTurn,
+  appendToolCall,
+  appendToolResult,
+  shouldCompact
+} = require('./sessionManager');
+const { computeCompactionWindow, generateCompactionSummary, compactTranscript } = require('./compactionService');
+const {
+  addToolResult,
+  updateToolResults,
+  pruneExpiredToolResults,
+  pruneDuplicateToolResults,
+  getActiveToolResults
+} = require('./toolResultManager');
+const { loadChatContext, saveChatContext } = require('../services/chatContextStorage');
 
 function createUsageZero() {
   return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
@@ -316,21 +337,63 @@ async function handleConversation(messageReq, context = null) {
   const lang = pickLanguage(messageReq.content);
   const responseId = generateId('msg');
 
+  // === 1. Session 管理 ===
+  const sessionKey = buildSessionKey(messageReq);
+  let chatContext = null;
+  if (sessionKey) {
+    try {
+      chatContext = await loadChatContext(sessionKey, context);
+    } catch (err) {
+      context?.log?.(`[v2/session] load failed: ${err.message}`);
+      chatContext = null;
+    }
+  }
+  
+  if (sessionKey && !chatContext) {
+    chatContext = createChatContext(sessionKey, messageReq);
+  }
+
+  const persistChatContext = async () => {
+    if (!sessionKey || !chatContext) return;
+    try {
+      await saveChatContext(sessionKey, chatContext, context);
+    } catch (err) {
+      context?.log?.(`[v2/session] save failed: ${err.message}`);
+    }
+  };
+
   const parsedOverlay = parseOverlayFromText(messageReq.content);
   const metadataOverlay = messageReq?.metadata?.roleplay_overlay || null;
   const roleplayOverlay = mergeOverlay(metadataOverlay, parsedOverlay);
+  
+  // === 2. Identity/Meta 优先判定 ===
   const identityMeta = resolveIdentityMetaReply(messageReq.content, {
     memoryEnabled: isLongMemoryEnabled(),
     allowPromptDetail: false
   });
+  
+  // === 3. 知识路由 ===
+  const knowledgeMode = planKnowledgeMode(messageReq.content, {});
+  
   const preCapabilityPlan = planCapabilities(messageReq);
 
+  // === 4. 安全检测 ===
   const safetyDecision = detectSafetyDecision(messageReq.content);
+  
+  // === 5. 添加用户 Turn 到 Transcript ===
+  if (chatContext) {
+    appendUserTurn(chatContext, messageReq.content, {
+      request_id: messageReq.request_id,
+      channel: messageReq.channel,
+      roleplay_overlay: roleplayOverlay || null
+    });
+    
+    // 更新工具结果生命周期（每个用户回合递减）
+    updateToolResults(chatContext);
+  }
 
-  const userMemoryWriteIds = await appendTurn(
+  const userMemoryWriteIds = await writeUserLongTermMemories(
     messageReq.user_id,
-    messageReq.context_id,
-    'user',
     messageReq.content,
     buildUserTurnMetadata(messageReq, roleplayOverlay),
     context
@@ -338,21 +401,16 @@ async function handleConversation(messageReq, context = null) {
 
   if (safetyDecision.action === SAFETY_ACTION.REFUSE) {
     const content = buildRefusalMessage(safetyDecision, lang);
-    await appendTurn(
-      messageReq.user_id,
-      messageReq.context_id,
-      'assistant',
-      content,
-      {
+    
+    // 写入 Transcript
+    if (chatContext) {
+      appendAssistantTurn(chatContext, content, {
         request_id: messageReq.request_id,
         safety: safetyDecision,
-        reply_mode: 'safety',
-        overlay_applied: false,
-        memory_write_ids: userMemoryWriteIds
-      },
-      context
-    );
-
+        reply_mode: 'safety'
+      });
+      await persistChatContext();
+    }
     const res = createResponseBase({
       responseId,
       content,
@@ -392,21 +450,16 @@ async function handleConversation(messageReq, context = null) {
 
   if (!lowConfidenceDegrade && effectiveSafety.action === SAFETY_ACTION.DEGRADE && effectiveSafety.strategy === 'clarify_first') {
     const content = buildDegradeMessage(effectiveSafety, lang);
-    await appendTurn(
-      messageReq.user_id,
-      messageReq.context_id,
-      'assistant',
-      content,
-      {
+    
+    // 写入 Transcript
+    if (chatContext) {
+      appendAssistantTurn(chatContext, content, {
         request_id: messageReq.request_id,
         safety: effectiveSafety,
-        reply_mode: 'safety',
-        overlay_applied: false,
-        memory_write_ids: userMemoryWriteIds
-      },
-      context
-    );
-
+        reply_mode: 'safety'
+      });
+      await persistChatContext();
+    }
     const res = createResponseBase({
       responseId,
       content,
@@ -435,13 +488,21 @@ async function handleConversation(messageReq, context = null) {
     return res;
   }
 
-  const builtContext = await buildConversationContext(messageReq, context);
-  const activeOverlay = resolveActiveOverlay(builtContext?.history?.turns || [], roleplayOverlay);
+  const builtContext = await buildConversationContext(messageReq, context, {
+    transcript: Array.isArray(chatContext?.transcript) ? chatContext.transcript : []
+  });
+
+  if (chatContext) {
+    builtContext.compactionSummary = String(builtContext?.history?.summary || '').trim();
+    builtContext.activeToolResults = getActiveToolResults(chatContext);
+  }
+
+  const activeOverlay = resolveActiveOverlay(builtContext?.history?.short || builtContext?.history?.turns || [], roleplayOverlay);
   builtContext.active_overlay = activeOverlay || null;
 
   const capabilityPlan = preCapabilityPlan;
   const responsePolicy = inferResponsePolicy(messageReq);
-  const promptProfile = resolvePromptProfile(messageReq, capabilityPlan);
+  const promptProfile = resolvePromptProfile(messageReq, capabilityPlan, knowledgeMode);
   const emotionState = resolveEmotionState(messageReq, builtContext, {
     capabilityPlan,
     responsePolicy,
@@ -468,9 +529,71 @@ async function handleConversation(messageReq, context = null) {
     replyMode = 'identity_meta';
   }
 
-  const toolCalls = (replyMode === 'identity_meta')
-    ? []
-    : await executeCapabilityPlan(messageReq, capabilityPlan, context);
+  // 知识路由：自动先搜索
+  let searchResult = null;
+  let searchContext = '';
+  if (knowledgeMode.mode === 'search_first' && !shouldSkipSearch(messageReq) && replyMode !== 'identity_meta') {
+    try {
+      const searchSkill = await executeSkill('search.hybrid_search', {
+        query: messageReq.content,
+        maxResults: 3,
+        search_mode: 'search_first'
+      }, context);
+      
+      if (searchSkill.status === 'success') {
+        searchResult = searchSkill;
+        searchContext = formatSearchContext(searchSkill);
+        if (searchContext) {
+          replyMode = 'search_first';
+          context?.log?.(`[v2/knowledge] search_first hit: ${knowledgeMode.reason}`);
+          
+          // 添加搜索结果到工具结果管理
+          if (chatContext) {
+            addToolResult(chatContext, 'search.hybrid_search', searchResult.output, {
+              summary: searchContext.substring(0, 200),
+              sourceTurnId: chatContext.transcript.length,
+              expiresAfterTurns: 2,
+              scope: 'question_and_followup'
+            });
+          }
+        }
+      }
+    } catch (err) {
+      context?.log?.(`[v2/knowledge] search failed, fallback to chat: ${err.message}`);
+    }
+  }
+
+  let toolCalls = [];
+  if (replyMode === 'search_first') {
+    toolCalls = searchResult ? [searchResult] : [];
+  } else if (replyMode !== 'identity_meta') {
+    toolCalls = await executeCapabilityPlan(messageReq, capabilityPlan, context);
+  }
+  
+  // 添加工具调用和结果到 Transcript
+  if (chatContext && toolCalls.length > 0) {
+    for (const call of toolCalls) {
+      appendToolCall(chatContext, call.tool, call.input || {}, {
+        status: call.status
+      });
+      
+      if (call.status === 'success' && call.output) {
+        const toolResultEntryId = appendToolResult(chatContext, call.tool, call.output, {
+          status: call.status,
+          source_turn_id: chatContext.transcript[chatContext.transcript.length - 1]?.id || null,
+          error: call.error || null
+        });
+        
+        // 添加到工具结果管理器
+        addToolResult(chatContext, call.tool, call.output, {
+          summary: toolOutputToText(call, messageReq).substring(0, 200),
+          sourceTurnId: toolResultEntryId,
+          expiresAfterTurns: call.tool === 'draw.generate_image' ? 1 : 2,
+          scope: call.tool === 'draw.generate_image' ? 'current_turn' : 'question_and_followup'
+        });
+      }
+    }
+  }
 
   if (capabilityPlan.mode === 'capability' && replyMode !== 'identity_meta') {
     replyMode = 'capability';
@@ -480,7 +603,7 @@ async function handleConversation(messageReq, context = null) {
 
   let content = replyMode === 'identity_meta'
     ? identityMeta.reply
-    : extractToolMessage(toolCalls);
+    : (replyMode === 'search_first' ? '' : extractToolMessage(toolCalls));
 
   // draw 结果优先直接透传（QQ 需要 CQ image）
   if (!content && replyMode !== 'identity_meta' && toolCalls.length > 0) {
@@ -506,7 +629,12 @@ async function handleConversation(messageReq, context = null) {
       promptProfile,
       emotionState.promptAddition,
       responsePolicy,
-      sceneSkeleton
+      sceneSkeleton,
+      searchContext,
+      {
+        activeToolResults: builtContext.activeToolResults || [],
+        compactionSummary: builtContext.compactionSummary || ''
+      }
     );
     const llm = await chatWithFallback(messages, {}, context);
     content = llm.content || GENERIC_FALLBACK_ZH;
@@ -549,34 +677,52 @@ async function handleConversation(messageReq, context = null) {
     exactFormatReply: overlayResult.exactFormat
   });
 
-  const newMemoryRefs = await appendTurn(
-    messageReq.user_id,
-    messageReq.context_id,
-    'assistant',
-    content,
-    {
+  // === 添加 Assistant Turn 到 Transcript ===
+  if (chatContext) {
+    appendAssistantTurn(chatContext, content, {
       request_id: messageReq.request_id,
       safety: effectiveSafety,
-      capability_plan: capabilityPlan,
-      prompt_profile: promptProfile?.name || 'api_fallback',
-      emotion: {
-        type: emotionState.type,
-        response: emotionState.response,
-        affection_level: emotionState.affectionLevel,
-        delta_state: emotionState.deltaState
-      },
-      scene_skeleton: sceneSkeleton ? { key: sceneSkeleton.key, variant_id: sceneSkeleton.variantId } : null,
-      response_policy: responsePolicy.mode,
       reply_mode: replyMode,
-      overlay_applied: !!overlayResult.overlayApplied,
-      memory_write_ids: userMemoryWriteIds,
-      tool_calls: toolCalls.map((x) => ({ tool: x.tool, status: x.status, error: x.error || null })),
       model
-    },
-    context
-  );
+    });
+    
+    // 清理过期的工具结果
+    pruneExpiredToolResults(chatContext);
+    pruneDuplicateToolResults(chatContext);
+    
+    // === Compaction 检查 ===
+    const compactWindow = computeCompactionWindow(chatContext.transcript || [], {
+      keepRecent: 8,
+      previousKeptFromTurn: Number(chatContext?.compaction_meta?.kept_from_turn || 0)
+    });
 
-  const memoryWriteIds = [...userMemoryWriteIds, ...(newMemoryRefs || [])];
+    if (
+      shouldCompact(chatContext, { maxEntries: 24, maxTokens: 12000 })
+      && compactWindow.sourceTurnCount > 0
+      && compactWindow.toTurn > compactWindow.fromTurn
+    ) {
+      context?.log?.('[v2/compaction] triggering compaction');
+      try {
+        const segment = chatContext.transcript.slice(compactWindow.fromTurn, compactWindow.toTurn);
+        const summary = await generateCompactionSummary(segment, context);
+        compactTranscript(chatContext, summary, {
+          keepRecent: 8,
+          fromTurn: compactWindow.fromTurn,
+          toTurn: compactWindow.toTurn,
+          sourceTurnCount: compactWindow.sourceTurnCount,
+          previousKeptFromTurn: Number(chatContext?.compaction_meta?.kept_from_turn || 0)
+        });
+        context?.log?.(`[v2/compaction] compacted_range=${compactWindow.fromTurn}-${compactWindow.toTurn} turns=${compactWindow.sourceTurnCount}`);
+      } catch (err) {
+        context?.log?.(`[v2/compaction] failed: ${err.message}`);
+      }
+    }
+    
+    // === 保存 ChatContext ===
+    await persistChatContext();
+  }
+
+  const memoryWriteIds = [...userMemoryWriteIds];
 
   const response = {
     id: responseId,
@@ -592,8 +738,14 @@ async function handleConversation(messageReq, context = null) {
       channel: messageReq.channel,
       model,
       reply_mode: replyMode,
+      search_used: !!searchContext,
+      knowledge_mode: knowledgeMode.mode,
+      memory_hits: Array.isArray(builtContext?.memory) ? builtContext.memory.length : 0,
       overlay_applied: !!overlayResult.overlayApplied,
       memory_write_ids: memoryWriteIds,
+      compaction_used: chatContext?.compaction_meta?.compaction_count > 0,
+      transcript_entry_count: chatContext?.transcript?.length || 0,
+      active_tool_results: chatContext ? getActiveToolResults(chatContext).length : 0,
       emotion: {
         type: emotionState.type,
         response: emotionState.response,

@@ -175,9 +175,14 @@ async function searchSkill(input = {}, context = null) {
     };
   }
 
+  const searchMode = String(input.search_mode || input.mode || '').toLowerCase();
+  const strictRetrieval = searchMode === 'search_first';
+
   const res = await hybridSearch(query, context || null, {
     maxResults: Number(input.maxResults) || 5,
-    summarize: true
+    summarize: !strictRetrieval,
+    allowLlmFallback: !strictRetrieval,
+    allowAIGeneratedCache: !strictRetrieval
   });
 
   return {

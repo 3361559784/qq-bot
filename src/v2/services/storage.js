@@ -5,11 +5,20 @@ let cached = null;
 
 const inMemory = {
   conversations: new Map(),
+  chat_sessions: new Map(),
   memory: new Map(),
   skills: new Map(),
   tasks: new Map(),
   audit: []
 };
+
+function ensureMemoryStoreMap(state, storeName) {
+  if (!state?.memory) return new Map();
+  if (!(state.memory[storeName] instanceof Map)) {
+    state.memory[storeName] = new Map();
+  }
+  return state.memory[storeName];
+}
 
 function isTruthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value || '').trim());
@@ -52,6 +61,7 @@ async function initCosmos(context = null) {
       enabled: true,
       containers: {
         conversations: await create(V2_DEFAULTS.db.containers.conversations),
+        chat_sessions: await create(V2_DEFAULTS.db.containers.chat_sessions),
         memory: await create(V2_DEFAULTS.db.containers.memory),
         skills: await create(V2_DEFAULTS.db.containers.skills),
         tasks: await create(V2_DEFAULTS.db.containers.tasks),
@@ -80,6 +90,9 @@ async function upsertDoc(storeName, partitionKey, doc, context = null) {
   const fullDoc = { ...doc, partitionKey };
 
   if (state.enabled) {
+    if (!state.containers?.[storeName]) {
+      throw new Error(`unknown cosmos store: ${storeName}`);
+    }
     await state.containers[storeName].items.upsert(fullDoc);
     return fullDoc;
   }
@@ -97,8 +110,9 @@ async function upsertDoc(storeName, partitionKey, doc, context = null) {
     return fullDoc;
   }
 
+  const storeMap = ensureMemoryStoreMap(state, storeName);
   const key = `${storeName}:${partitionKey}`;
-  const list = mapStore(state.memory[storeName], key);
+  const list = mapStore(storeMap, key);
   const idx = list.findIndex((x) => x.id === doc.id);
   if (idx >= 0) list[idx] = fullDoc;
   else list.push(fullDoc);
@@ -109,6 +123,9 @@ async function readDoc(storeName, id, partitionKey, context = null) {
   const state = await initCosmos(context);
   if (state.enabled) {
     try {
+      if (!state.containers?.[storeName]) {
+        throw new Error(`unknown cosmos store: ${storeName}`);
+      }
       const { resource } = await state.containers[storeName].item(id, partitionKey).read();
       return resource || null;
     } catch (err) {
@@ -121,8 +138,9 @@ async function readDoc(storeName, id, partitionKey, context = null) {
   if (storeName === 'skills') return state.memory.skills.get(id) || null;
   if (storeName === 'tasks') return state.memory.tasks.get(id) || null;
 
+  const storeMap = ensureMemoryStoreMap(state, storeName);
   const key = `${storeName}:${partitionKey}`;
-  const list = mapStore(state.memory[storeName], key);
+  const list = mapStore(storeMap, key);
   return list.find((x) => x.id === id) || null;
 }
 
@@ -131,6 +149,9 @@ async function listDocs(storeName, partitionKey, options = {}, context = null) {
   const { limit = 100, where = '' } = options;
 
   if (state.enabled) {
+    if (!state.containers?.[storeName]) {
+      throw new Error(`unknown cosmos store: ${storeName}`);
+    }
     const query = {
       query: `SELECT TOP ${Number(limit)} * FROM c WHERE c.partitionKey = @pk ${where ? `AND ${where}` : ''}`,
       parameters: [{ name: '@pk', value: partitionKey }]
@@ -143,14 +164,18 @@ async function listDocs(storeName, partitionKey, options = {}, context = null) {
   if (storeName === 'tasks') return Array.from(state.memory.tasks.values()).slice(0, limit);
   if (storeName === 'audit') return state.memory.audit.slice(-limit);
 
+  const storeMap = ensureMemoryStoreMap(state, storeName);
   const key = `${storeName}:${partitionKey}`;
-  return mapStore(state.memory[storeName], key).slice(-limit);
+  return mapStore(storeMap, key).slice(-limit);
 }
 
 async function deleteDoc(storeName, id, partitionKey, context = null) {
   const state = await initCosmos(context);
   if (state.enabled) {
     try {
+      if (!state.containers?.[storeName]) {
+        throw new Error(`unknown cosmos store: ${storeName}`);
+      }
       await state.containers[storeName].item(id, partitionKey).delete();
       return true;
     } catch (err) {
@@ -163,8 +188,9 @@ async function deleteDoc(storeName, id, partitionKey, context = null) {
   if (storeName === 'skills') return state.memory.skills.delete(id);
   if (storeName === 'tasks') return state.memory.tasks.delete(id);
 
+  const storeMap = ensureMemoryStoreMap(state, storeName);
   const key = `${storeName}:${partitionKey}`;
-  const list = mapStore(state.memory[storeName], key);
+  const list = mapStore(storeMap, key);
   const idx = list.findIndex((x) => x.id === id);
   if (idx < 0) return false;
   list.splice(idx, 1);

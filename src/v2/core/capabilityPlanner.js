@@ -60,6 +60,7 @@ function planCapabilities(req = {}) {
     };
   }
 
+  // 天气保留为独立 capability
   if (/天气|温度|下雨|weather/i.test(lower)) {
     const hasLocation = !!parseLocation(text);
     return {
@@ -70,14 +71,7 @@ function planCapabilities(req = {}) {
     };
   }
 
-  if (/搜索|查一下|帮我查|search\s+/i.test(lower)) {
-    return {
-      mode: 'capability',
-      capabilities: ['search'],
-      reason: 'search_signal',
-      requires_clarification: false
-    };
-  }
+  // 移除显式 search capability，统一走 knowledge router
 
   if (/课表|课程表|明天有课|今天有课|下一节课|下节课|本周课表|下周课表/i.test(lower)) {
     return {

@@ -13,7 +13,7 @@
     "event_type": "message",
     "message_type": "private",
     "should_respond": true,
-    "capability": "search",
+    "capability": "none",
     "safety_action": "pass",
     "prompt_profile": "qq_chat"
   }

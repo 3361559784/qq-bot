@@ -174,12 +174,9 @@ app.http('schoolBot', {
         return json(payload);
       }
 
-      // message/private: 默认进入核心
+      // message/private: 硬静默，不进入主链
       if (event.event_type === 'message' && event.message_type === 'private') {
-        event.trigger_source = 'private_message';
-        const req = legacyQqToMessageRequest(event);
-        const resp = await handleConversation(req, context);
-        return json(formatLegacyQqReply(resp, event));
+        return json({ ok: true, ignored: 'private_disabled', channel: 'qq' });
       }
 
       // message/group: 按触发规则进入核心

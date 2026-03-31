@@ -189,7 +189,24 @@ async function appendTurn(userId, contextId, role, content, metadata = {}, conte
   return [];
 }
 
-async function writeMemory({ userId, scope = MEMORY_SCOPE.USER, kind = MEMORY_KIND.FACT, content, score = 0.7, ttlDays }, context = null) {
+async function writeUserLongTermMemories(userId, content, metadata = {}, context = null) {
+  const facts = stableFactCandidates(content, metadata);
+  const refs = [];
+  for (const item of facts) {
+    // eslint-disable-next-line no-await-in-loop
+    const mem = await writeMemory({
+      userId,
+      scope: MEMORY_SCOPE.USER,
+      kind: item.kind,
+      content: item.content,
+      score: item.score
+    }, context);
+    refs.push(mem.id);
+  }
+  return refs;
+}
+
+async function writeMemory({ userId, scope = MEMORY_SCOPE.USER, kind = MEMORY_KIND.FACT, content, score = 0.7, ttlDays, category, importance, emotionalImpact, tags, metadata }, context = null) {
   const ttl = Number.isFinite(Number(ttlDays)) ? Number(ttlDays) : V2_DEFAULTS.memory.ttlDays;
   const doc = {
     id: generateId('mem'),
@@ -198,6 +215,13 @@ async function writeMemory({ userId, scope = MEMORY_SCOPE.USER, kind = MEMORY_KI
     kind,
     content,
     score,
+    category: category || 'general',
+    importance: importance || 5,
+    emotional_impact: emotionalImpact || 0,
+    tags: tags || [],
+    last_accessed: nowIso(),
+    access_count: 1,
+    metadata: metadata || {},
     embedding: null,
     ttl_days: ttl,
     created_at: nowIso(),
@@ -237,6 +261,14 @@ async function searchMemory(userId, query, limit = V2_DEFAULTS.memory.searchTopK
     .sort((a, b) => b.rank_score - a.rank_score)
     .slice(0, Math.max(1, limit));
 
+  // 更新访问记录
+  for (const memory of scored) {
+    memory.access_count = (memory.access_count || 0) + 1;
+    memory.last_accessed = nowIso();
+    // 异步更新，不阻塞返回
+    upsertDoc('memory', memoryPartition(userId), memory, context).catch(() => {});
+  }
+
   return scored;
 }
 
@@ -261,6 +293,7 @@ async function manualWrite(payload, context = null) {
 module.exports = {
   getContext,
   appendTurn,
+  writeUserLongTermMemories,
   writeMemory,
   searchMemory,
   manualWrite,

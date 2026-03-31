@@ -20,6 +20,7 @@ const V2_DEFAULTS = Object.freeze({
     database: process.env.V2_DB_NAME || 'QQBotDB',
     containers: {
       conversations: process.env.V2_CONVERSATIONS_CONTAINER || 'ConversationsV2',
+      chat_sessions: process.env.V2_CHAT_SESSIONS_CONTAINER || 'ChatSessionsV2',
       memory: process.env.V2_MEMORY_CONTAINER || 'MemoryV2',
       skills: process.env.V2_SKILLS_CONTAINER || 'SkillsV2',
       tasks: process.env.V2_TASKS_CONTAINER || 'TasksV2',

@@ -111,6 +111,8 @@ async function summarizeSearchResults(query, results, context) {
  * @param {boolean} options.skipDDG - 跳过 DuckDuckGo (默认 true，不稳定)
  * @param {boolean} options.skipSerp - 跳过 SerpAPI (默认 false)
  * @param {boolean} options.summarize - 是否用 LLM 总结搜索结果 (默认 true)
+ * @param {boolean} options.allowLlmFallback - 是否允许在检索层全失败时走 LLM 兜底 (默认 true)
+ * @param {boolean} options.allowAIGeneratedCache - 是否允许命中 source=llm 的缓存结果 (默认 true)
  * @returns {Promise<Object>} { success, results, source, formatted, error }
  */
 async function hybridSearch(query, context, options = {}) {
@@ -121,7 +123,9 @@ async function hybridSearch(query, context, options = {}) {
     skipLocal = false,
     skipDDG = true,  // 默认跳过 DuckDuckGo（不稳定，经常被限流）
     skipSerp = false,
-    summarize = true  // 默认用 LLM 总结搜索结果
+    summarize = true,  // 默认用 LLM 总结搜索结果
+    allowLlmFallback = true,
+    allowAIGeneratedCache = true
   } = options;
 
   stats.totalRequests++;
@@ -141,6 +145,10 @@ async function hybridSearch(query, context, options = {}) {
       const cached = await getCachedSearch(query);
       
       if (cached && cached.results.length > 0) {
+        if (!allowAIGeneratedCache && String(cached.source || '').toLowerCase() === 'llm') {
+          fallbackChain[fallbackChain.length - 1].status = 'skip_ai_cache';
+          context.log('[HybridSearch] 跳过 AI 生成缓存结果（allowAIGeneratedCache=false）');
+        } else {
         stats.cacheHits++;
         fallbackChain[fallbackChain.length - 1].status = 'hit';
         
@@ -161,6 +169,7 @@ async function hybridSearch(query, context, options = {}) {
           fallbackChain,
           stats: { ...stats }
         };
+        }
       }
       
       fallbackChain[fallbackChain.length - 1].status = 'miss';
@@ -328,6 +337,21 @@ async function hybridSearch(query, context, options = {}) {
   // ==========================================
   // Layer 4: LLM 降级回答 (最终兜底)
   // ==========================================
+  if (!allowLlmFallback) {
+    fallbackChain.push({ layer: 'L4_llm', status: 'disabled' });
+    return {
+      success: false,
+      error: '未检索到可靠来源',
+      source: 'none',
+      sourceLabel: '[Source: None]',
+      trustLevel: null,
+      formatted: '未检索到可用来源，建议缩小问题范围或补充关键词。',
+      latencyMs: Date.now() - startTime,
+      fallbackChain,
+      stats: { ...stats }
+    };
+  }
+
   try {
     context.log(`[HybridSearch] Layer 4: LLM 降级回答 - ${query}`);
     fallbackChain.push({ layer: 'L4_llm', status: 'attempting' });

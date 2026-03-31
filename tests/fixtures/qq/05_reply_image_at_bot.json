@@ -16,6 +16,6 @@
     "should_respond": true,
     "capability": "vision",
     "safety_action": "pass",
-    "prompt_profile": "vision"
+    "prompt_profile": "vision_answer"
   }
 }

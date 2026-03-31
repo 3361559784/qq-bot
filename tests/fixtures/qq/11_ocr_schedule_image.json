@@ -15,6 +15,6 @@
     "should_respond": true,
     "capability": "ocr",
     "safety_action": "pass",
-    "prompt_profile": "vision"
+    "prompt_profile": "vision_answer"
   }
 }
